@@ -126,7 +126,7 @@ class Op(object):
         if self.digest is None:
             self.digest = self._calc_digest()
 
-        self.dependent_ops = set()
+        self.dependents = set()
         self.dag.link_output(self)
 
     def __eq__(self,other):
@@ -381,12 +381,12 @@ class MemoryDag(Dag):
                     # something better. Add ours instead, and change the inputs
                     # of every object that referenced the old digest to the new
                     # digest.
-                    for op in old_digest_obj.dependent_ops:
-                        new_digest_obj.dependent_ops.add(op)
+                    for op in old_digest_obj.dependents:
+                        new_digest_obj.dependents.add(op)
                         for (op_digest,op_digest_idx) in enumerate(op.inputs):
                             if op_digest is old_digest_obj:
                                 op.inputs[op_digest_idx] = new_digest_obj
-                    old_digest_obj.dependent_ops = set()
+                    old_digest_obj.dependents = set()
                     self.digests[new_digest_obj.digest] = new_digest_obj
                     return new_digest_obj
 
@@ -411,7 +411,7 @@ class MemoryDag(Dag):
         r = []
         for i in input_digests:
             r.append(self.__link_digest(i,op))
-            r[-1].dependent_ops.add(op)
+            r[-1].dependents.add(op)
         return r
 
     def link_output(self,op):

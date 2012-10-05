@@ -192,7 +192,7 @@ class TestMemoryDag(unittest.TestCase):
         self.assertEqual(dag.digests[b'd1'],d1)
 
         # does not change d1 dependencies
-        self.assertEqual(len(d1.dependent_ops),0)
+        self.assertEqual(len(d1.dependents),0)
 
         # inserted a digest identical to h1
         d2 = Digest(digest=h_not_in_dag.digest,dag=dag)
@@ -203,8 +203,8 @@ class TestMemoryDag(unittest.TestCase):
         self.assertEqual(dag.digests[d2.digest],h_in_dag)
 
         # d1 now marks h_in_dag as a dependency
-        self.assertIn(h_in_dag,d1.dependent_ops)
+        self.assertIn(h_in_dag,d1.dependents)
 
         h2 = Hash(inputs=(h_in_dag,d1),dag=dag)
-        self.assertIn(h2,d1.dependent_ops)
-        self.assertIn(h2,h_in_dag.dependent_ops)
+        self.assertIn(h2,d1.dependents)
+        self.assertIn(h2,h_in_dag.dependents)
