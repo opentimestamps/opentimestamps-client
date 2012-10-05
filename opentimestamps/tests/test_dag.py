@@ -60,6 +60,20 @@ class TestOp(unittest.TestCase):
         self.assertNotEqual(a1,b)
         self.assertNotEqual(a2,b)
 
+    def test___hash__(self):
+        a1 = Digest(digest=b'')
+        a2 = Digest(digest=b'')
+        b = Digest(digest=b'b')
+
+        s = (a1,b)
+
+        self.assertIn(b,s)
+        self.assertIn(a1,s)
+        self.assertIn(a2,s)
+
+        a2.foo = 'bar'
+        self.assertIn(a2,s)
+
 class TestDigestOp(unittest.TestCase):
     def test_json_serialization(self):
         r = make_json_round_trip_tester(self)
@@ -147,15 +161,22 @@ class TestVerifyOp(unittest.TestCase):
         # FIXME: better testing of this would be good
 
 class TestMemoryDag(unittest.TestCase):
+    # TODO: we need a Dag conformance test basically, one that all Dag
+    # implementations must pass.
+    #
+    # Actually, the same applies for Digest, Hash and Verify
+    #
+    # TODO: also, add test to ensure _swap_input_obj swaps all inputs, even if
+    # the same object is presence multiple times.
     def test_in_operator(self):
         dag = MemoryDag()
 
         self.assertFalse(b'' in dag)
         self.assertFalse(Digest(b'') in dag)
 
-        d = Digest(b'',dag=dag)
+        d = dag.add(Digest(b''))
 
-        self.assertTrue(b'' in dag)
+        #self.assertTrue(b'' in dag)
         self.assertTrue(d in dag)
 
         d2 = Digest(b'')
@@ -165,46 +186,49 @@ class TestMemoryDag(unittest.TestCase):
     def test_getitem_operator(self):
         dag = MemoryDag()
 
-        with self.assertRaises(KeyError):
+        with self.assertRaises(TypeError):
+            dag[1]
+        with self.assertRaises(TypeError):
             dag[b'']
         with self.assertRaises(KeyError):
             dag[Digest(b'')]
 
-        d = Digest(b'',dag=dag)
+        d = dag.add(Digest(b''))
 
-        self.assertIs(dag[b''],d)
         self.assertIs(dag[d],d)
 
         d2 = Digest(b'')
         self.assertIs(dag[d2],d)
 
 
-    def test_link_inputs_outputs(self):
+    def test_dependencies(self):
         dag = MemoryDag()
 
-        self.assertEqual(dag.digests,{})
+        self.assertTrue(len(tuple(dag.digests())) == 0)
 
         # Basic insertion
-        d1 = Digest(digest=b'd1',dag=dag)
-        self.assertEqual(dag.digests[b'd1'],d1)
+        d1a = Digest(digest=b'd1')
+        d1 = dag.add(d1a)
+        self.assertEqual(dag[d1a],d1)
 
         h_not_in_dag = Hash(inputs=(d1,))
-        self.assertEqual(dag.digests[b'd1'],d1)
+        self.assertEqual(dag[d1a],d1)
 
         # does not change d1 dependencies
-        self.assertEqual(len(d1.dependents),0)
+        self.assertEqual(len(dag.dependents[d1]),0)
 
         # inserted a digest identical to h1
-        d2 = Digest(digest=h_not_in_dag.digest,dag=dag)
-        self.assertEqual(dag.digests[d2.digest],d2)
+        d2 = dag.add(Digest(digest=h_not_in_dag.digest))
+        self.assertEqual(dag[d2],d2)
 
         # recreate as a more interesting object
-        h_in_dag = Hash(inputs=(d1,),dag=dag)
-        self.assertEqual(dag.digests[d2.digest],h_in_dag)
+        h_in_dag = dag.add(Hash(inputs=(d1,)))
+        self.assertEqual(h_in_dag,d2)
+        self.assertEqual(dag[d2],h_in_dag)
 
         # d1 now marks h_in_dag as a dependency
-        self.assertIn(h_in_dag,d1.dependents)
+        self.assertIn(h_in_dag,dag.dependents[d1])
 
-        h2 = Hash(inputs=(h_in_dag,d1),dag=dag)
-        self.assertIn(h2,d1.dependents)
-        self.assertIn(h2,h_in_dag.dependents)
+        h2 = dag.add(Hash(inputs=(h_in_dag,d1)))
+        self.assertIn(h2,dag.dependents[d1])
+        self.assertIn(h2,dag.dependents[h_in_dag])

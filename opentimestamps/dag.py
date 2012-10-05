@@ -9,6 +9,20 @@
 # modified, propagated, or distributed except according to the terms contained
 # in the LICENSE file.
 
+"""Core data structures to work with the dag
+
+Note: read opentimestamps-server/doc/design.md
+
+The timestamping problem can scale pretty well, so we can afford to be
+relatively wasteful in the implementation specifics, provided that everything
+we do maintains scalability; avoid micro-optimizations.
+
+Operations objects (class Op) can all be immutable. Don't mess with that. We
+use __getattr__-type stuff to enforce this.
+
+"""
+
+
 import binascii
 import hashlib
 import time
@@ -102,43 +116,97 @@ def register_Op(cls):
 
 
 class Op(object):
+    """Base class for operations
+
+    Attributes
+    ----------
+
+    inputs - Immutable ordered set of references to the digests this operation
+             depends on. Op() in Op().inputs will be implemented efficiently.
+             Note that a two-element tuple is an efficient implementation.
+
+    digest - Immutable bytes of the output digest.
+
+    op_arguments - List of other immutable arguments this Operation depends on.
+
+    Op-subclass instances may have other attributes, but if they aren't in
+    op_arguments, they're not considered in equality testing between instances.
+    Of course, since .digest depends on the arguments, equality testing reduces
+    to a.digest == b.digest
+
+    Equality testing
+    ----------------
+
+    Op-subclass instances are considered equal if their .digests are equal.
+    This is true even if they aren't even the same sub-class.
+
+
+    Proxies
+    -------
+
+    Op-subclass instances may be proxied. This is useful in the server dag
+    implementation. isinstance(Op) and so on is guaranteed to work.
+    """
     op_name = 'Op'
     op_arguments = ('digest','inputs',)
 
-    def _preinit(self,inputs=(),dag=None,**kwargs):
-        if dag is None:
-            dag = null_dag
-        self.dag = dag
-        self.inputs = self.dag.link_inputs(inputs,self)
-
     def __init__(self,inputs=(),digest=None,dag=None,**kwargs):
-        # FIXME: this removing this through
-        #
-        #self._preinit(inputs=inputs,**kwargs)
-
-        self.digest = digest
-
-        # Note that if dag isn't a keyword argument above, it'll be in kwargs,
-        # which means that the usual dag=None stuff will update the correctly
-        # set dag...
         self.__dict__.update(kwargs)
 
-        if self.digest is None:
-            self.digest = self._calc_digest()
+        self.dag = dag
 
-        self.dependents = set()
-        self.dag.link_output(self)
+        normalized_inputs = []
+        for i in inputs:
+            if isinstance(i,bytes):
+                i = Digest(i)
+            normalized_inputs.append(i)
+        self.inputs = normalized_inputs
+
+        # Want to be sure that digest hasn't been set until now, because
+        # otherwise __hash__() can silently return garbage and corrupt things
+        # like set() memberships.
+        assert not hasattr(self,'digest')
+
+        self.digest = digest
+        if self.digest is None:
+            self.digest = self.calculate_digest()
+
+
+    def calculate_digest(self):
+        """Calculate the digest
+
+        This method will always calculate the digest from scratch based on the
+        inputs and operation arguments.
+        """
+        raise NotImplementedError
+
 
     def __eq__(self,other):
         """Equality comparison.
 
-        Equality is defined by what would cause the digest to be different, so
-        just compare the digests directly.
+        Equality is defined by the digests, nothing else. Even different
+        sub-classes will compare equal if their digests are equal.
         """
+        # It'd be cute to define < and > as which operation is most complex...
         try:
-            return self.digest == other.digest
+            if isinstance(other,Op):
+                return self.digest == other.digest
+            else:
+                return False
         except AttributeError:
             return False
+
+
+    def __hash__(self):
+        return hash(self.digest)
+
+
+    def _swap_input_obj(self,better_input):
+        """Swap an input object with a better object"""
+        for obj,i in enumerate(self.inputs):
+            if obj == better_input:
+                self.inputs[i] = better_input
+
 
 # Done here to avoid needing a forward declaration
 Op = register_Op(Op)
@@ -149,17 +217,21 @@ class Digest(Op):
     op_arguments = ()
 
     def __init__(self,digest=None,inputs=(),dag=None):
-        self._preinit(digest=digest,inputs=inputs,dag=dag)
-
         if digest is None:
             raise ValueError('Must specify digest value')
-        elif not isinstance(digest,bytes):
-            raise TypeError('digest must be of type bytes')
+        elif isinstance(digest,bytes):
+            pass
+        elif isinstance(digest,Op):
+            digest = digest.digest
+        else:
+            raise TypeError('digest must be of type bytes or Op subclass')
 
         if len(inputs) > 0:
             raise ValueError("Digest Op's can not have inputs")
 
-        super(Digest,self).__init__(digest=digest,dag=dag)
+        super(Digest,self).__init__(digest=digest,inputs=inputs,dag=dag)
+
+
 
 @register_Op
 class Hash(Op):
@@ -167,15 +239,14 @@ class Hash(Op):
     op_arguments = ('algorithm',)
 
     def __init__(self,algorithm=u'sha256',**kwargs):
-        self._preinit(**kwargs)
-
         if algorithm not in (u'sha256',u'sha1',u'sha512',u'crc32'):
             raise ValueError('Unsupported hash algorithm %s' % algorithm)
         self.algorithm = algorithm
 
         super(Hash,self).__init__(algorithm=algorithm,**kwargs)
 
-    def _calc_digest(self):
+
+    def calculate_digest(self):
         hash_fn = None
         if self.algorithm == 'crc32':
             # Quick-n-dirty crc32 implementation
@@ -201,6 +272,7 @@ class Hash(Op):
             return hash_fn(h.digest()).digest()
         else:
             return h.digest()
+
 
 # Timestamps are interpreted as microseconds since the epoch, mainly so
 # javascript can represent timestamps exactly with it's 2^53 bits available for
@@ -242,7 +314,6 @@ class Verify(Op):
             notary_identity=u'',
             notary_args={},
             **kwargs):
-        self._preinit(inputs=inputs,**kwargs)
 
         if len(inputs) != 1:
             raise ValueError('Verify operations must have exactly one input, got %d' % len(inputs))
@@ -275,9 +346,10 @@ class Verify(Op):
         self.notary_identity = unicode(notary_identity)
         self.notary_args = notary_args
 
-        super(Verify,self).__init__(inputs,**kwargs)
+        super(Verify,self).__init__(inputs=inputs,**kwargs)
 
-    def _calc_digest(self):
+
+    def calculate_digest(self):
         digest_dict = {}
         for hashed_key in self.hashed_arguments:
             digest_dict[hashed_key] = getattr(self,hashed_key)
@@ -287,132 +359,175 @@ class Verify(Op):
         raise TypeError("Can't verify; unknown notary method %s" % self.notary_method)
 
 
-class Dag(object):
-    """Keep track of what inputs and outputs are connected"""
 
-    def __in__(self,other):
+class Dag(object):
+    """Store the directed acyclic graph of digests
+
+    The key thing the Dag provides is the ability to find paths from one digest
+    to another. Note that the typical use case, where you have a digest and
+    want to find out what sequence of Op's calculates a digest that has been
+    timestamped, is exactly the opposite of what data is available. Essentially
+    an Op, which computes a digest, has a list of inputs, but we want to go
+    from inputs to the Op calculating a digest based on them.
+
+    Thus the Dag keeps track of what Op's are dependent on the digests in the
+    dag, but if, and only if, both are stored in the Dag.
+
+    dependents[] - set of dependents for a given digest
+    """
+
+    def __contains__(self,other):
         raise NotImplementedError
+
 
     def __getitem__(self,digest):
         raise NotImplementedError
 
-    def link_inputs(self,input_digests,op):
-        r = []
-        for i in input_digests:
-            if isinstance(i,bytes):
-                r.append(Digest(digest=i,dag=self))
-            elif isinstance(i,Op):
-                r.append(i)
-            else:
-                raise TypeError(\
-                    "Invalid input digest, expected bytes or Op subclass, got %r" % i.__class__)
-        return tuple(r) 
 
-    def link_output(self,op):
-        if not isinstance(op.digest,bytes):
-            raise TypeError(\
-                "Invalid output digest, expected bytes, got %r" % output_digest.__class__)
+    def _add(self,new_digest_obj):
+        """Underlying add() implementation"""
+        raise NotImplementedError
 
-null_dag = Dag()
+
+    def _swap(self,existing_digest_obj,new_digest_obj):
+        """Internal function to swap existing with new
+
+        Don't use this; use add()
+        """
+        raise NotImplementedError
+
+
+    def add(self,new_digest_obj):
+        """Add a digest to the Dag
+
+        Returns the new_digest_obj object you should be using; if the Dag
+        contains an Op object that produces the same digest you'll get that
+        back instead. There also may be other cases where this happens.
+        """
+        if new_digest_obj not in self:
+            self._add(new_digest_obj)
+            return new_digest_obj
+
+        existing_digest_obj = self[new_digest_obj]
+        if isinstance(new_digest_obj,Digest):
+            # Callee has a plain Digest, we have something else. If it's an Op,
+            # what we have is better because it has more information. If it's
+            # just a Digest, what we have is still better to promote object
+            # re-use.
+            return existing_digest_obj
+
+        elif isinstance(existing_digest_obj,Digest):
+            # We have a Digest, callee has something more interesting. Use
+            # callee's new object instead of ours.
+            self._swap(existing_digest_obj,new_digest_obj)
+            return new_digest_obj
+
+        elif existing_digest_obj == new_digest_obj:
+            # Both parties have an equivalent object, although old is not new
+            #
+            # FIXME: it'd be good to add some sort of test here to detect
+            # broken hash algorithms, or more likely, implementations. It'd
+            # probably be cheap too because this case is likely to not come up
+            # all that often. I might be wrong though.
+            return existing_digest_obj
+
+        else:
+            # This shouldn't happen even if a hash function is broken because
+            # Op's are compared by their .digest
+            assert False
+
+    def digests(self):
+        """Returns an iterable of all digests in this Dag
+
+        This may be expensive.
+        """
+        raise NotImplementedError
+
+
+    def path(self,starts,dests):
+        raise NotImplementedError
+
+
 
 class MemoryDag(Dag):
     digests = None
 
     def __init__(self):
-        self.digests = {}
+        # Every digest in the Dag.
+        #
+        # For each given digest object we store:
+        #
+        #     self._digests[obj] = obj
+        #
+        # A bit odd looking, a set is closer to what we want, but we need to be
+        # able to retrieve the actual object whose digest matches what we want.
+        self._digests = {}
+
+        # parent:set(all Ops in the Dag with parent as an input)
+        self.dependents = {}
+
+        # As above, but this time parent is *not* in the Dag. This allows us to
+        # later link the dependency of child on parent if the parent is later
+        # added to the Dag.
+        self._dependents_just_beyond_edge = {}
 
     def __contains__(self,other):
         try:
-            return other.digest in self.digests
+            return other.digest in self._digests
         except AttributeError:
-            # FIXME: this coercion will turn a lot of things into digests that
-            # should be...
-            return bytes(other) in self.digests
+            return False
+
 
     def __getitem__(self,digest):
-        try:
-            return self.digests[digest.digest]
-        except AttributeError:
-            # FIXME: this coercion will turn a lot of things into digests that
-            # shouldn't be...
-            return self.digests[bytes(digest)]
-
-    def __link_digest(self,new_digest_obj,op):
-        if isinstance(new_digest_obj,bytes):
-            if new_digest_obj in self.digests:
-                # digest already known
-                return self.digests[new_digest_obj]
-            else:
-                # Not known, create new Digest obj to hold it. Note how we set
-                # the dag to null_dag and change it later. This triggers a
-                # special case in the null_dag's link_output function, to avoid
-                # recursively calling Digest again.
-                new_digest_obj = Digest(digest=new_digest_obj,dag=null_dag)
-                new_digest_obj.dag = self
-                self.digests[new_digest_obj.digest] = new_digest_obj
-                return new_digest_obj
-
-        elif isinstance(new_digest_obj,Op):
-            # We can take ownership if the new digest object is part of the null_dag
-            if new_digest_obj.dag is null_dag:
-                new_digest_obj.dag = self
-            elif new_digest_obj.dag is not self:
-                # Object is already part of another dag. Fail for now, we can
-                # decide later if allowing this usage is a good thing.
-                assert False
-
-            old_digest_obj = self.digests.get(new_digest_obj.digest)
-            if old_digest_obj is None:
-                # Unknown digest, so just add it directly.
-                self.digests[new_digest_obj.digest] = new_digest_obj
-                return new_digest_obj
-            else:
-                # We already know about this digest. Why?
-                if old_digest_obj is new_digest_obj:
-                    return new_digest_obj
-
-                elif isinstance(new_digest_obj,Digest):
-                    # All we have is a Digest, so whatever is already in the
-                    # Dag is better.
-                    return old_digest_obj
-
-                elif isinstance(old_digest_obj,Digest):
-                    # The Dag has a straight up Digest object, while we have
-                    # something better. Add ours instead, and change the inputs
-                    # of every object that referenced the old digest to the new
-                    # digest.
-                    for op in old_digest_obj.dependents:
-                        new_digest_obj.dependents.add(op)
-                        for (op_digest,op_digest_idx) in enumerate(op.inputs):
-                            if op_digest is old_digest_obj:
-                                op.inputs[op_digest_idx] = new_digest_obj
-                    old_digest_obj.dependents = set()
-                    self.digests[new_digest_obj.digest] = new_digest_obj
-                    return new_digest_obj
-
-                else:
-                    # Both the old and new digests we know about are not simple
-                    # Digest objects.
-                    if old_digest_obj == new_digest_obj:
-                        # The two are equivalent in value, but aren't the same
-                        # object. Merge both objects into one.
-                        assert False # FIXME: implement this
-                    else:
-                        raise AssertionError(\
-                                "Found two different Op objects with the same digest. "
-                                "This should never happen.")
-
+        if not isinstance(digest,Op):
+            raise TypeError
         else:
-            raise TypeError(\
-                "Invalid digest, expected bytes or Op subclass, got %r" % new_digest_obj.__class__)
+            return self._digests[digest.digest]
 
 
-    def link_inputs(self,input_digests,op):
-        r = []
-        for i in input_digests:
-            r.append(self.__link_digest(i,op))
-            r[-1].dependents.add(op)
-        return r
+    def __link_inputs(self,new_digest_obj):
+        for i in new_digest_obj.inputs:
+            if i in self:
+                # Input is already in the dag
+                self.dependents[i].add(new_digest_obj)
 
-    def link_output(self,op):
-        return self.__link_digest(op,op)
+            else:
+                # Input is not in the dag yet, mark it so we can later update
+                # the dependencies properly if it is later added to the dag.
+
+                i_edge_deps = self._dependents_just_beyond_edge.setdefault(i,set())
+                i_edge_deps.add(new_digest_obj)
+
+
+    def _swap(self,old_digest_obj,new_digest_obj):
+        assert old_digest_obj.digest in self._digests
+
+        # If we're being asked to replace an object with one whose inputs are
+        # not a strict superset, something is quite wrong.
+        assert set(old_digest_obj.inputs).issubset(set(new_digest_obj.inputs))
+
+        self._digests[old_digest_obj.digest] = new_digest_obj
+        self.__link_inputs(new_digest_obj)
+
+
+    def _add(self,new_digest_obj):
+        assert new_digest_obj.digest not in self._digests
+        self._digests[new_digest_obj.digest] = new_digest_obj
+
+        assert new_digest_obj not in self.dependents
+        self.dependents[new_digest_obj] = set()
+
+        # Update other digests .inputs to point to the new object
+        dependents = self._dependents_just_beyond_edge.get(new_digest_obj,None)
+        if dependents is not None:
+            for dependent in dependents:
+                dependent._swap_input_obj(new_digest_obj)
+            self._dependents_just_beyond_edge.pop(new_digest_obj)
+
+
+        # Add dependencies for the new digest's inputs
+        self.__link_inputs(new_digest_obj)
+
+
+    def digests(self):
+        return self._digests.iterkeys()
