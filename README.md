@@ -1,4 +1,4 @@
-opentimestamps-client
-=====================
+The OpenTimestamps Client
+=========================
 
-OpenTimestamps client
+Open-source distributed timestamping.
