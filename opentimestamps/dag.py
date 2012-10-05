@@ -290,6 +290,12 @@ class Verify(Op):
 class Dag(object):
     """Keep track of what inputs and outputs are connected"""
 
+    def __in__(self,other):
+        raise NotImplementedError
+
+    def __getitem__(self,digest):
+        raise NotImplementedError
+
     def link_inputs(self,input_digests,op):
         r = []
         for i in input_digests:
@@ -314,6 +320,22 @@ class MemoryDag(Dag):
 
     def __init__(self):
         self.digests = {}
+
+    def __contains__(self,other):
+        try:
+            return other.digest in self.digests
+        except AttributeError:
+            # FIXME: this coercion will turn a lot of things into digests that
+            # should be...
+            return bytes(other) in self.digests
+
+    def __getitem__(self,digest):
+        try:
+            return self.digests[digest.digest]
+        except AttributeError:
+            # FIXME: this coercion will turn a lot of things into digests that
+            # shouldn't be...
+            return self.digests[bytes(digest)]
 
     def __link_digest(self,new_digest_obj,op):
         if isinstance(new_digest_obj,bytes):

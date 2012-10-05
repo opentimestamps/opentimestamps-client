@@ -147,6 +147,38 @@ class TestVerifyOp(unittest.TestCase):
         # FIXME: better testing of this would be good
 
 class TestMemoryDag(unittest.TestCase):
+    def test_in_operator(self):
+        dag = MemoryDag()
+
+        self.assertFalse(b'' in dag)
+        self.assertFalse(Digest(b'') in dag)
+
+        d = Digest(b'',dag=dag)
+
+        self.assertTrue(b'' in dag)
+        self.assertTrue(d in dag)
+
+        d2 = Digest(b'')
+        self.assertTrue(d2 in dag)
+
+
+    def test_getitem_operator(self):
+        dag = MemoryDag()
+
+        with self.assertRaises(KeyError):
+            dag[b'']
+        with self.assertRaises(KeyError):
+            dag[Digest(b'')]
+
+        d = Digest(b'',dag=dag)
+
+        self.assertIs(dag[b''],d)
+        self.assertIs(dag[d],d)
+
+        d2 = Digest(b'')
+        self.assertIs(dag[d2],d)
+
+
     def test_link_inputs_outputs(self):
         dag = MemoryDag()
 
