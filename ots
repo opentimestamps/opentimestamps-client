@@ -1,0 +1,198 @@
+#!/usr/bin/python
+# Copyright (C) 2012 Peter Todd <pete@petertodd.org>
+#
+# This file is part of the OpenTimestamps Client.
+#
+# It is subject to the license terms in the LICENSE file found in the top-level
+# directory of this distribution and at http://opentimestamps.org
+#
+# No part of the OpenTimestamps Client, including this file, may be copied,
+# modified, propagated, or distributed except according to the terms contained
+# in the LICENSE file.
+
+from __future__ import print_function
+
+import sys
+if sys.version_info[1] < 7:
+    sys.exit("OpenTimestamps requires Python version 2.7.0 or newer. "\
+             "(you have %d.%d.%d)"%sys.version_info[0:3])
+
+import hashlib
+import argparse
+import json
+import jsonrpclib
+import io
+import os
+
+from opentimestamps.dag import *
+from opentimestamps.serialization import *
+from opentimestamps.rpc import *
+
+parser = argparse.ArgumentParser(description="OpenTimestamps client.")
+
+def open_file_or_stdinout(name,mode):
+    if name is '-':
+        if mode[0] is 'r':
+            return sys.stdin
+        elif mode[0] is 'w':
+            return sys.stdout
+        else:
+            raise Exception("Invalid mode '%s'" % mode)
+    else:
+        return open(name,mode)
+
+def submit_command(args):
+    if args.timestamp is None:
+        if args.input is not '-':
+            args.timestamp = '%s.ots' % args.input
+        else:
+            parser.error("Must specify timestamp file (or stdout) if input is stdin")
+
+
+    input_fd = open_file_or_stdinout(args.input,'rb')
+    timestamp_fd = open_file_or_stdinout(args.timestamp,'wb')
+
+    dag = MemoryDag()
+
+    file_digest = hashlib.sha256()
+    while True:
+        d = input_fd.read(io.DEFAULT_BUFFER_SIZE)
+        if d == '':
+            break
+        file_digest.update(d)
+    file_digest = file_digest.digest()
+
+    hash_op = None
+    if not args.no_nonce:
+        nonce = os.urandom(hashlib.sha256().digestsize)
+        hash_op = Hash(inputs=(file_digest,nonce),dag=dag)
+    else:
+        hash_op = Digest(digest=file_digest,dag=dag)
+
+    responses = []
+    for server in args.server:
+        server = OtsServer(server)
+
+        r = server.submit((hash_op.digest,))
+        responses.append(r)
+
+    all_digests = responses
+    all_digests.append(hash_op)
+
+    json.dump(json_serialize(all_digests),timestamp_fd,indent=4)
+
+def complete_command(args):
+    input_fd = None
+    output_fd = None
+    if args.timestamp is '-':
+        input_fd = open_file_or_stdinout(args.timestamp,'wb')
+        output_fd = input_fd
+    else:
+        input_fd = open_file_or_stdinout(args.timestamp,'wb')
+        output_fd = sys.stdout
+    raise NotImplementedError()
+
+
+def validate_command(args):
+    if args.timestamp is None:
+        if args.input is not '-':
+            args.timestamp = '%s.ots' % args.input
+        else:
+            parser.error("Must specify timestamp file if input is stdin")
+
+    input_fd = open_file_or_stdinout(args.input,'rb')
+    timestamp_fd = open_file_or_stdinout(args.timestamp,'rb')
+    print(args)
+    raise NotImplementedError()
+
+
+def getsourcecode_command(args):
+    for server_url in args.server:
+        server = OtsServer(server_url)
+
+        sourcecode_url = server.sourcecode()
+
+        print("%s - %s" % (server_url,sourcecode_url))
+
+
+def server_command(args):
+    for server_url in args.server:
+        server = jsonrpclib.Server(server_url)
+
+        evald_rpc_args = [eval(rpc_arg) for rpc_arg in args.args]
+
+        jsond_rpc_args = [json_serialize(rpc_arg) for rpc_arg in evald_rpc_args]
+
+        json_response = getattr(server,args.rpc_function)(*jsond_rpc_args)
+
+        # FIXME: where to print server url?
+        json.dump(json_response,sys.stdout,indent=args.indent)
+
+        print()
+
+
+parser.add_argument("-q","--quiet",action="count",
+                             help="Be more quiet.")
+parser.add_argument("-v","--verbose",action="count",
+                             help="Be more verbose. Both -v and -q may be used multiple times.")
+parser.add_argument("-c","--config",action="store",default="~/.opentimestamps/config",
+        help="Location of config file. Defaults to: ~/.opentimestamps/config")
+parser.add_argument("-s","--server",action="append",
+                             help="Specify a server. May be used multiple times.")
+
+subparsers = parser.add_subparsers(title='Subcommands',
+                                   description='All operations are done through subcommands:')
+
+# ----- submit -----
+parser_submit = subparsers.add_parser('submit',#aliases=['s'],
+        help='Submit data to be timestamped.')
+parser_submit.set_defaults(cmd_func=submit_command)
+parser_submit.add_argument("--no-nonce",action="store_true",default=False,
+        help="Don't use a nonce in the hash calculation. Note: this means that"\
+        " the server knows what data you have submitted.")
+parser_submit.add_argument("input",action="store",
+        help="Input file to timestamp. (or - for standard input)")
+parser_submit.add_argument("timestamp",action="store",nargs='?',
+        help="Optionally specify filename to write timestamp to. Required if"\
+        " input is standard input. Defaults to input.ots")
+
+# ----- complete -----
+parser_complete = subparsers.add_parser('complete',#aliases=['x'],
+        help='Complete a timestamp.')
+parser_complete.set_defaults(cmd_func=complete_command)
+
+parser_complete.add_argument("timestamp",action="store",
+        help="Filename of timestamp to complete. (or - for standard input)")
+
+# ----- validate -----
+parser_validate = subparsers.add_parser('validate',#aliases=['v'], aliases not supported in 2.7!
+        help='Validate a timestamp.')
+parser_validate.set_defaults(cmd_func=validate_command)
+
+parser_validate.add_argument("input",action="store",
+        help="Input file validate timestamp of. (or - for standard input)")
+parser_validate.add_argument("timestamp",action="store",nargs='?',
+        help="Optionally specify filename of timestamp. Required if input is standard input.")
+
+# ----- getsourcecode -----
+parser_getsourcecode = subparsers.add_parser('getsourcecode',
+        help='Ask the specified server(s) for where to obtain source code. (AGPL license compliance)')
+parser_getsourcecode.set_defaults(cmd_func=getsourcecode_command)
+
+# ----- server -----
+parser_server = subparsers.add_parser('server',
+        help='Submit an RPC command to the server(s)')
+parser_server.set_defaults(cmd_func=server_command)
+
+parser_server.add_argument("-i","--indent",action="store",default=4,type=int,
+        help="Set the indent level in json.dump()")
+parser_server.add_argument("rpc_function",action="store")
+parser_server.add_argument("args",action="store",nargs='*')
+
+
+args = parser.parse_args()
+
+if not args.server:
+    args.server = ['http://localhost:2302']
+
+args.cmd_func(args)
