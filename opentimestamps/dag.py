@@ -150,10 +150,8 @@ class Op(object):
     op_name = 'Op'
     op_arguments = ('digest','inputs',)
 
-    def __init__(self,inputs=(),digest=None,dag=None,**kwargs):
+    def __init__(self,inputs=(),digest=None,**kwargs):
         self.__dict__.update(kwargs)
-
-        self.dag = dag
 
         normalized_inputs = []
         for i in inputs:
@@ -216,7 +214,7 @@ class Digest(Op):
     op_name = 'Digest'
     op_arguments = ()
 
-    def __init__(self,digest=None,inputs=(),dag=None):
+    def __init__(self,digest=None,inputs=()):
         if digest is None:
             raise ValueError('Must specify digest value')
         elif isinstance(digest,bytes):
@@ -229,7 +227,7 @@ class Digest(Op):
         if len(inputs) > 0:
             raise ValueError("Digest Op's can not have inputs")
 
-        super(Digest,self).__init__(digest=digest,inputs=inputs,dag=dag)
+        super(Digest,self).__init__(digest=digest,inputs=inputs)
 
 
 
