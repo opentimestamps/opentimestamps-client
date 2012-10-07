@@ -33,82 +33,28 @@ from . import serialization
 # Operations - edges in DAG
 # Digests - vertexes in DAG
 
-class __MasterOpSerializer(serialization.Serializer):
-    instantiator = None
-
+class _MasterOpSerializer(serialization.ObjectSerializer):
     @classmethod
-    def __create_arguments_dict(cls,obj):
-        r = {}
-        for arg_name in obj.__class__.op_arguments:
-            try:
-                r[arg_name] = getattr(obj,arg_name)
-            except AttributeError:
-                raise AttributeError("Missing attribute '%s' from %r instance" %\
-                        (arg_name,obj.__class__))
+    def get_dict_to_serialize(cls,obj):
+        d = obj.__dict__.copy()
 
-        # inputs are handled specially. Rather than serializing the actual Op
-        # objects themselves, serialize the object's digests instead.
-        r['inputs'] = tuple(i.digest for i in obj.inputs)
+        # Inputs are stored as the actual digest values, not Digest objects.
+        d['inputs'] = [i.digest for i in obj.inputs]
 
-        return r
+        return d
 
-    @classmethod
-    def json_serialize(cls,obj):
-        arg_dict = cls.__create_arguments_dict(obj)
-        return {obj.__class__.op_name:
-                    serialization.DictSerializer.json_serialize(arg_dict)}
-
-    @classmethod
-    def json_deserialize(cls,json_obj):
-        args_dict = serialization.DictSerializer.json_deserialize(json_obj,do_typed_object_hack=False)
-        return cls.instantiator(**args_dict)
-
-    @classmethod
-    def _binary_serialize(cls,obj,fd):
-        args_dict = cls.__create_arguments_dict(obj)
-        serialization.DictSerializer._binary_serialize(args_dict,fd)
-
-    @classmethod
-    def _binary_deserialize(cls,fd):
-        args_dict = serialization.DictSerializer._binary_deserialize(fd)
-        return cls.instantiator(**args_dict)
 
 def register_Op(cls):
-    # We don't support multiple inheritence for ops. If we did the following
-    # code would need to be changed. Probably better to avoid having to use
-    # multiple inheritence, as if we switch to Cython later the resulting
-    # compiled code is a lot faster.
-    assert len(cls.__bases__) == 1
-
-    # Process the op arguments, adding arguments from base classes. 
-
-    all_args = {}
-
-    # Inherit arguments from the base class
-    if issubclass(cls.__base__,Op):
-        all_args.update(cls.__base__.op_arguments)
-
-    for arg_name in cls.op_arguments:
-        if arg_name in all_args: 
-            raise ValueError(\
-"Argument name '%s' defined in %r has the same name as an argument in base class %r" %\
-                    (arg_name,cls,all_args[arg_name]))
-        else:
-            all_args[arg_name] = cls
-
-    cls.op_arguments = all_args
-
     # Create a serialization class for the Op class to allow it to be
     # serialized.
-    class new_op_serializer(__MasterOpSerializer):
+    class new_op_serializer(_MasterOpSerializer):
         type_name = cls.op_name
-        typecode_byte = serialization.typecodes_by_name[type_name]
         auto_serialized_classes = (cls,)
         instantiator = cls
 
     # Change the name to something meaningful. Otherwise they'll all have the
     # name 'new_op_serializer'; not very useful for debugging.
-    new_op_serializer.__name__ = '%sType' % cls.op_name
+    new_op_serializer.__name__ = '_%sSerializer' % cls.op_name
 
     serialization.register_serializer(new_op_serializer)
 

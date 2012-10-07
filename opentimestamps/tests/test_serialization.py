@@ -249,10 +249,87 @@ class TestStrSerialization(unittest.TestCase):
         with self.assertRaises(ValueError):
             binary_serialize(u'foo \u0000')
 
-class TestTypeObjectSerialization(unittest.TestCase):
-    def test_json_serialization(self):
+
+class TestObjectSerializer(unittest.TestCase):
+    def test_custom_object_serializer(self):
+        rj = make_json_round_trip_tester(self)
+        rb = make_binary_round_trip_tester(self)
+
+        class Foo(object):
+            def __init__(iself,*args,**kwargs):
+                self.assertTrue(len(args) == 0)
+                iself.__dict__.update(kwargs)
+
+            def __eq__(self,other):
+                return self.__dict__ == other.__dict__ and self.__class__ is other.__class__
+
+        @register_serializer
+        class FooSerializer(ObjectSerializer):
+            instantiator = Foo
+            auto_serialized_classes = (Foo,)
+            type_name = 'test.Foo'
+
+
+        f = Foo()
+        rj(f,{u'test.Foo':{}},f)
+
+        f.bar = 1
+        rj(f,{u'test.Foo':{'bar':1}},f)
+
+        f2 = Foo()
+        f.f2 = f2
+        rj(f,{u'test.Foo':{'bar':1,'f2':{u'test.Foo':{}}}},f)
+
+        rb(f,b'\t\x08test.Foo\x03bar\x02\x02\x02f2\t\x08test.Foo\x00\x00',f)
+
+
+    def test_invalid_type_names(self):
+        with self.assertRaises(SerializationTypeNameInvalidError):
+            json_deserialize({u'*':{}})
+
+        with self.assertRaises(SerializationTypeNameInvalidError):
+            json_deserialize({None:{}})
+
+        with self.assertRaises(SerializationTypeNameInvalidError):
+            # Empty type name
+            binary_deserialize(b'\t\x00\x00')
+
+        with self.assertRaises(SerializationTypeNameInvalidError):
+            # Invalid character in type name
+            binary_deserialize(b'\t\x01*\x00')
+
+
+    def test_deserializing_unknown_object_types(self):
+        def rj(json_obj,expected_obj):
+            actual_obj = json_deserialize(json_obj)
+            self.assertEquals(actual_obj,expected_obj)
+
+        def rb(serialized_representation,expected_obj):
+            actual_obj = binary_deserialize(serialized_representation)
+            self.assertEquals(actual_obj,expected_obj)
+
+        rj({u'unknown.foo':{}},UnknownTypeOfSerializedObject(_ots_unknown_obj_type_name=u'unknown.foo'))
+        rj({u'unknown.foo':{u'foo':10,u'bar':None}},
+                UnknownTypeOfSerializedObject(_ots_unknown_obj_type_name=u'unknown.foo',bar=None,foo=10))
+
+        rb(b'\t\x0bunknown.foo\x00',
+            UnknownTypeOfSerializedObject(_ots_unknown_obj_type_name=u'unknown.foo'))
+
+
+    def test_unknown_object_sane_repr(self):
+        """Make sure UnknownTypeOfSerializedObjectect has a sane repr()"""
+        o = json_deserialize({u'unknown.foo':{}})
+        self.assertEquals(repr(o),"UnknownTypeOfSerializedObject(_ots_unknown_obj_type_name=u'unknown.foo')")
+        o.foo = 10
+        o.bar = None
+        self.assertEquals(repr(o),
+                "UnknownTypeOfSerializedObject(_ots_unknown_obj_type_name=u'unknown.foo',bar=None,foo=10)")
+
+
+class TestJsonTypedObjectSerializer(unittest.TestCase):
+    def test_typed_json_syntax_for_basic_types(self):
         def r(obj_in,expected_json,expected_out):
-            actual_json = TypedObjectSerializer.json_serialize(obj_in)
+            actual_json = JsonTypedObjectSerializer.json_serialize(obj_in)
             self.assertEqual(expected_json,actual_json)
 
             actual_out = json_deserialize(actual_json)
@@ -262,6 +339,8 @@ class TestTypeObjectSerialization(unittest.TestCase):
         r(1,{u'int':1},1)
         r(u'foo',{u'str':u'foo'},u'foo')
         r([1,2,b'\xff'],{u'list':[1,2,'#ff']},[1,2,b'\xff'])
+
+
 
 class TestDictSerialization(unittest.TestCase):
     def test_json_serialization(self):

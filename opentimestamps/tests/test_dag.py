@@ -84,7 +84,7 @@ class TestDigestOp(unittest.TestCase):
     def test_binary_serialization(self):
         r = make_binary_round_trip_tester(self)
         d = Digest(digest=b'\xff\x00')
-        r(d,b'\x11\x06digest\x05\x02\xff\x00\x06inputs\x07\x08\x00')
+        r(d,b'\t\x06Digest\x06digest\x05\x02\xff\x00\x06inputs\x07\x08\x00')
 
 class TestHashOp(unittest.TestCase):
     def test_hash_algorithm_support(self):
@@ -115,7 +115,7 @@ class TestHashOp(unittest.TestCase):
         a = Digest(digest=b'a')
         b = Digest(digest=b'b')
         h1 = Hash(inputs=(a,b))
-        r(h1,b'\x12\talgorithm\x04\x06sha256\x06digest\x05 \xa1\xff\x8f\x18V\xb5\xe2N2\xe3\x88.\xddJ\x02\x1fH\xf2\x8a\x8b!\x85Kw\xfd\xef%\xa9v\x01\xaa\xce\x06inputs\x07\x05\x01a\x05\x01b\x08\x00')
+        r(h1,b'\t\x04Hash\talgorithm\x04\x06sha256\x06digest\x05 \xa1\xff\x8f\x18V\xb5\xe2N2\xe3\x88.\xddJ\x02\x1fH\xf2\x8a\x8b!\x85Kw\xfd\xef%\xa9v\x01\xaa\xce\x06inputs\x07\x05\x01a\x05\x01b\x08\x00')
 
 class TestVerifyOp(unittest.TestCase):
     def test_json_serialization(self):
