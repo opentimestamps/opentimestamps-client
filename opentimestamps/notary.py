@@ -10,7 +10,11 @@
 # in the LICENSE file.
 
 import re
+
 import pyme
+import pyme.core
+import pyme.pygpgme
+
 from binascii import hexlify
 
 from . import serialization
@@ -37,6 +41,8 @@ class SignatureError(StandardError):
     pass
 
 
+class SignatureVerificationError(SignatureError):
+    pass
 
 
 @register_notary_method
@@ -159,7 +165,7 @@ class Signature(serialization.ObjectWithDictEquality):
 
     def verify(self,digest):
         """Verify a digest"""
-        return False
+        raise SignatureVerificationError
 
 
 
@@ -204,13 +210,20 @@ class TestSignature(Signature):
 
     def verify(self,digest):
         if digest != self.expected_digest:
-            return False
+            raise SignatureVerificationError
         elif self.notary.identity == u'fail':
-            return False
-        else:
-            return True
+            raise SignatureVerificationError
 
 
+def _setup_pyme_context(context):
+    gpg_ctx = pyme.core.Context()
+
+    try:
+        gpg_ctx.set_engine_info(gpg_ctx.get_protocol(),None,context.gpg_home_dir)
+    except AttributeError:
+        pass
+
+    return gpg_ctx
 
 @register_notary_method
 class PGPNotary(Notary):
@@ -231,6 +244,7 @@ class PGPNotary(Notary):
 
 
     def canonicalize_identity(self):
+        self.identity = self.identity.lower().replace(' ','')
         # FIXME: basically we should ask GPG to resolve the identity string
         super(PGPNotary,self).canonicalize_identity()
 
@@ -242,19 +256,54 @@ class PGPNotary(Notary):
         return b"The owner of the PGP key with fingerprint "+str_id+" certifies that the digest "+str_digest+" existed on, or before, "+str_time+" microseconds after Jan 1st 1970 00:00 UTC. (the Unix epoch)"""
 
 
-    def sign(self,digest,timestamp):
+    def sign(self,digest,timestamp,context=None):
         super(PGPNotary,self).sign(digest,timestamp)
 
-        msg = make_verification_message(digest,timestamp)
+        msg = self.make_verification_message(digest,timestamp)
 
-        return PGPSignature(msg=msg,notary=self,timestamp=timestamp)
+        gpg_ctx = _setup_pyme_context(context)
 
+        signing_key = gpg_ctx.get_key(bytes(self.identity),0)
+        gpg_ctx.signers_add(signing_key)
+
+        msg_buf = pyme.core.Data(msg)
+        sig_buf = pyme.core.Data()
+
+        gpg_ctx.op_sign(msg_buf,sig_buf,pyme.pygpgme.GPGME_SIG_MODE_DETACH)
+
+        # FIXME: so SEEK_SET should be defined somewhere...
+        sig_buf.seek(0,0)
+
+        pgp_sig = sig_buf.read()
+
+        return PGPSignature(msg=msg,notary=self,timestamp=timestamp,pgp_sig=pgp_sig)
+
+
+class PGPSignatureVerificationError(SignatureVerificationError):
+    def __init__(self,gpg_error):
+        msg = str(gpg_error)
+        super(PGPSignatureVerificationError,self).__init__(msg)
+        self.gpg_error = gpg_error
 
 @register_signature_class
-class PGPSignature(object):
+class PGPSignature(Signature):
     expected_notary_class = PGPNotary
     def __init__(self,**kwargs):
-        super(TestSignature,self).__init__(**kwargs)
+        super(PGPSignature,self).__init__(**kwargs)
 
-    def verify(self,digest):
-        return False
+    def verify(self,digest,context=None):
+        msg = self.notary.make_verification_message(digest,self.timestamp)
+
+        gpg_ctx = _setup_pyme_context(context)
+
+        msg_buf = pyme.core.Data(msg)
+        sig_buf = pyme.core.Data(self.pgp_sig)
+        gpg_ctx.op_verify(sig_buf,msg_buf,None)
+        result = gpg_ctx.op_verify_result()
+
+        index = 0
+        for sign in result.signatures:
+            try:
+                pyme.errors.errorcheck(sign.status)
+            except pyme.errors.GPGMEError as gpg_error:
+                raise PGPSignatureVerificationError(gpg_error)

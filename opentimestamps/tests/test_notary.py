@@ -10,9 +10,13 @@
 # in the LICENSE file.
 
 import unittest
+import tempfile
+import os
+import shutil
 
 from ..serialization import *
 from ..notary import *
+from .. import client
 from .test_serialization import make_json_round_trip_tester, make_binary_round_trip_tester
 
 class TestTestNotary(unittest.TestCase):
@@ -47,12 +51,43 @@ class TestTestNotary(unittest.TestCase):
         fail_sig = fail_notary.sign(digest,1)
         self.assertEquals(fail_notary.identity,u'fail')
 
-        self.assertTrue(pass_sig.verify(digest))
-        self.assertFalse(pass_sig.verify(digest + 'junk'))
+        pass_sig.verify(digest)
+        with self.assertRaises(SignatureVerificationError):
+            pass_sig.verify(digest + 'junk')
 
-        self.assertFalse(fail_sig.verify(digest))
-        self.assertFalse(fail_sig.verify(digest + 'junk'))
+        with self.assertRaises(SignatureVerificationError):
+            fail_sig.verify(digest)
+        with self.assertRaises(SignatureVerificationError):
+            fail_sig.verify(digest + 'junk')
 
 
 class TestPGPNotary(unittest.TestCase):
-    pass
+    def setUp(self):
+        self.temp_dir = tempfile.mkdtemp()
+        self.gpg_dir = self.temp_dir + '/gnupg'
+
+        testing_key_dir = os.path.dirname(__file__) + '/test_keyring'
+
+        shutil.copytree(os.path.dirname(__file__) + '/test_keyring',
+                self.gpg_dir)
+
+        self.context = client.Context()
+        self.context.gpg_home_dir = self.gpg_dir
+
+
+    def tearDown(self):
+        shutil.rmtree(self.temp_dir)
+
+
+    def test_verify(self):
+        notary = PGPNotary(identity='7640 5A19 F705 A646 AFA7  38B6 DE69 50AE F204 6073')
+
+        signature = notary.sign(b'foo',1,self.context)
+        signature.verify(b'foo',self.context)
+
+        with self.assertRaises(PGPSignatureVerificationError):
+            signature.verify(b'food',self.context)
+
+        signature.timestamp += 1
+        with self.assertRaises(PGPSignatureVerificationError):
+            signature.verify(b'foo',self.context)
