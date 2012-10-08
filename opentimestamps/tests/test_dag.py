@@ -233,3 +233,40 @@ class TestMemoryDag(unittest.TestCase):
         h2 = dag.add(Hash(inputs=(h_in_dag,d1)))
         self.assertIn(h2,dag.dependents[d1])
         self.assertIn(h2,dag.dependents[h_in_dag])
+
+
+    def test_path(self):
+        n = 100
+        dag = MemoryDag()
+        def r(start,dest,expected_path):
+            def tuple_or_none(v):
+                if v is None:
+                    return v
+                else:
+                    return tuple(v)
+            self.assertEquals(
+                    tuple_or_none(dag.path(start,dest)),
+                    tuple_or_none(expected_path))
+
+        # Create a linked chain of digests
+        chain = [Digest(digest=b'')]
+        for i in range(1,n):
+            chain.append(Hash(inputs=(chain[i - 1],)))
+
+        r(chain[0],chain[0],[chain[0]])
+        r(chain[0],chain[1],None)
+
+
+        # Add some of the chain back in.
+        dag.add(chain[0])
+        r(chain[0],chain[1],None)
+        dag.add(chain[1])
+        r(chain[0],chain[1],(chain[0],chain[1]))
+        r(chain[0],chain[2],None)
+
+        # Add the rest
+        for i in range(2,n):
+            dag.add(chain[i])
+
+        r(chain[0],chain[n-1],chain)
+        r(chain[n-1],chain[0],None)

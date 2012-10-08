@@ -324,8 +324,43 @@ class Dag(object):
         raise NotImplementedError
 
 
-    def path(self,starts,dests):
-        raise NotImplementedError
+    def path(self,start,dest,chain=None):
+        """Find a path from start to dest
+
+        start - Digest
+        dest  - One of Digest or NotarySpec
+
+        The returned path includes start, and the order is start,...,dest
+
+        Returns None if the path can not be found.
+
+        If the starting digest is not in this dag, that is considered as the
+        path not being found, unless the start and destination are the same.
+        """
+
+        if chain is None:
+            chain = (None,start)
+
+        if start == dest:
+            # Path found!
+            #
+            # Turn the chain back into a linked list
+            r = []
+            while chain is not None:
+                r.append(chain[1])
+                chain = chain[0]
+            return reversed(r)
+
+        if start not in self:
+            return None
+
+        for dependent in self.dependents[start]:
+            assert dependent in self
+            p = self.path(dependent,dest,chain=(chain,dependent))
+            if p is not None:
+                return p
+
+        return None
 
 
 
