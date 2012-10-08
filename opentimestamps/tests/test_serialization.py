@@ -68,6 +68,20 @@ class TestBoolSerialization(unittest.TestCase):
         with self.assertRaises(SerializationError):
             BoolSerializer.binary_deserialize(b'\x42')
 
+
+class Test(unittest.TestCase):
+    def test_unknown_types_raise_errors_binary(self):
+        with self.assertRaises(SerializationUnknownTypeError):
+            json_deserialize({'invalid':None})
+        with self.assertRaises(SerializationUnknownTypeError):
+            json_deserialize({'invalid':{}})
+
+    def test_unknown_types_raise_errors_binary(self):
+        with self.assertRaises(SerializationUnknownTypeCodeError):
+            binary_deserialize('\xff')
+
+
+
 class TestUIntSerialization(unittest.TestCase):
     def test_varint_serialization(self):
         def r(value,expected_representation):

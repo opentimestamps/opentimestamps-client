@@ -132,7 +132,10 @@ import re
 class SerializationError(StandardError):
     pass
 
-class SerializationUnknownTypeError(StandardError):
+class SerializationUnknownTypeError(SerializationError):
+    pass
+
+class SerializationUnknownTypeCodeError(SerializationError):
     pass
 
 class SerializationTypeNameInvalidError(SerializationError):
@@ -391,7 +394,10 @@ def binary_deserialize(fd):
 
     typecode_byte = fd.read(1)
 
-    cls = serializers_by_typecode_byte[typecode_byte]
+    try:
+        cls = serializers_by_typecode_byte[typecode_byte]
+    except KeyError:
+        raise SerializationUnknownTypeCodeError('Unknown typecode %r' % typecode_byte)
 
     return cls.binary_deserialize(fd)
 
