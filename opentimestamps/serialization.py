@@ -350,7 +350,7 @@ def json_deserialize(json_obj):
     try:
         cls = auto_json_deserializers_by_class[json_obj.__class__]
     except KeyError:
-        assert False
+        raise SerializationError("Can't json_deserialize() non-JSON class %r" % json_obj.__class__)
 
     return cls.json_deserialize(json_obj)
 
