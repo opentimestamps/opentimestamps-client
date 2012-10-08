@@ -958,3 +958,13 @@ class ListSerializer(Serializer):
             if obj[-1] is _list_end_marker:
                 obj.pop()
                 return obj
+
+class ObjectWithDictEquality(object):
+    """Class where equality is compared by the contents of __dict__
+
+    If your object is serializable via the generic ObjectSerializable
+    mechanism, this is true.
+    """
+
+    def __eq__(self,other):
+        return self.__class__ is other.__class__ and self.__dict__ == other.__dict__

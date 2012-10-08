@@ -29,6 +29,7 @@ import time
 import re
 
 from . import serialization
+from . import notary
 
 # Operations - edges in DAG
 # Digests - vertexes in DAG
@@ -213,77 +214,26 @@ def time_to_timestamp(t):
 def time_from_timestamp(t):
     return t / 1000000.0
 
-# The regex that valid notary method names must match.
-#
-# Basically, first character must be alphabetical. Second character must exist
-# and may also have numbers or the characters _ - or .
-#
-# Unicode characters are not allowed.
-valid_notary_method_name_regex = '^[A-Za-z][A-Za-z0-9_\-\.]+$'
-valid_notary_method_name_re = re.compile(valid_notary_method_name_regex)
-
 @register_Op
 class Verify(Op):
     op_name = 'Verify'
-    op_arguments =\
-            ('timestamp',
-             'notary_method',
-             'notary_method_version',
-             'notary_identity',
-             'notary_args')
+    op_arguments = ('signature',)
 
-    # These arguments are used to computer the digest
-    hashed_arguments = ('inputs','timestamp',
-                        'notary_method','notary_method_version',
-                        'notary_identity','notary_args')
-
-    def __init__(self,inputs=(),
-            timestamp=None,
-            notary_method=None,
-            notary_method_version=0,
-            notary_identity=u'',
-            notary_args={},
+    def __init__(self,
+            inputs=(),
+            signature = notary.Signature(),
             **kwargs):
 
         if len(inputs) != 1:
             raise ValueError('Verify operations must have exactly one input, got %d' % len(inputs))
 
-        if timestamp is None:
-            timestamp = time_to_timestamp(time.time())
-
-        if not (isinstance(timestamp,int) or isinstance(timestamp,long)):
-            raise TypeError("Timestamp must be an integer")
-        elif timestamp < 0:
-            raise ValueError("Timestamp must be a positive integer")
-
-        # Note that creating a timestamp in the past is not an error to allow
-        # the import of timestamps from other timestamping systems.
-
-        if notary_method is None:
-            raise ValueError("notary_method not specified")
-        elif re.match(valid_notary_method_name_re,notary_method) is None:
-            raise ValueError("notary_method must match the regex '%s', got %r" %
-                    (valid_notary_method_name_regex,notary_method))
-
-        if not isinstance(notary_method_version,int):
-            raise TypeError("notary_method_version must be an integer")
-        elif notary_method_version < 0:
-            raise ValueError("notary_method_version must be >= 0")
-
-        self.timestamp = int(timestamp)
-        self.notary_method = unicode(notary_method)
-        self.notary_method_version = int(notary_method_version)
-        self.notary_identity = unicode(notary_identity)
-        self.notary_args = notary_args
+        self.signature = signature
 
         super(Verify,self).__init__(inputs=inputs,**kwargs)
 
 
     def calculate_digest(self):
-        digest_dict = {}
-        for hashed_key in self.hashed_arguments:
-            digest_dict[hashed_key] = getattr(self,hashed_key)
-        return serialization.DictSerializer.binary_serialize(digest_dict)
+        return serialization.binary_serialize(self.signature)
 
     def verify(self):
         raise TypeError("Can't verify; unknown notary method %s" % self.notary_method)

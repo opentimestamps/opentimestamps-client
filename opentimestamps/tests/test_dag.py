@@ -15,6 +15,7 @@ import json
 
 from ..dag import *
 from ..serialization import *
+from .. import notary
 
 def make_json_round_trip_tester(self):
     def r(value,expected_representation=None,new_value=None):
@@ -140,13 +141,13 @@ class TestVerifyOp(unittest.TestCase):
         a = Digest(digest=b'a')
         b = Digest(digest=b'b')
         h1 = Hash(inputs=(a,b))
-        v = Verify(inputs=(h1,),notary_method='foo')
+        v = Verify(inputs=(h1,))
 
         v2 = v
         a = Digest(digest=b'a')
         b = Digest(digest=b'b')
         h1 = Hash(inputs=(a,b))
-        v = Verify(inputs=(h1,),notary_method='foo',timestamp=v2.timestamp)
+        v = Verify(inputs=(h1,))
 
         self.assertEqual(v,v2)
 
@@ -154,7 +155,7 @@ class TestVerifyOp(unittest.TestCase):
         a = Digest(digest=b'a')
         b = Digest(digest=b'b')
         h1 = Hash(inputs=(a,b))
-        v = Verify(inputs=(h1,),notary_method='foo',timestamp=v2.timestamp-1)
+        v = Verify(inputs=(h1,),signature=notary.Signature(timestamp=42))
 
         self.assertNotEqual(v,v2)
 
