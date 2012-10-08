@@ -185,15 +185,27 @@ class TestNotary(Notary):
 
     compatible_versions = (1,)
 
-    canonical_identity_regex = u'^(pass|fail)$' # pass or fail
+    # pass or fail, followed by disambiguation
+    canonical_identity_regex = u'^(pass|fail)[a-z0-9\-\_]*$'
     canonical_identity_re = re.compile(canonical_identity_regex) 
+
+    identity_regex = u'^([a-z0-9\-\_]*|\*)$'
+    identity_re = re.compile(identity_regex)
 
     def __init__(self,method='test',**kwargs):
         super(TestNotary,self).__init__(method=method,**kwargs)
 
     def canonicalize_identity(self):
-        if self.identity != u'pass':
-            self.identity = u'fail'
+        # FIXME: before this, we should be checking if the identity is a search
+        # string. Or scrap the search idea.
+
+        # Example of identity re-writing while canonicalizing.
+        if not (self.identity.startswith('pass') or self.identity.startswith('fail')):
+            # Identity is a failure by not having 'pass' at the front
+            if len(self.identity) > 0:
+                self.identity = u'-' + self.identity
+            self.identity = u'fail' + self.identity
+
         super(TestNotary,self).canonicalize_identity()
 
     def sign(self,digest,timestamp):
@@ -211,7 +223,7 @@ class TestSignature(Signature):
     def verify(self,digest):
         if digest != self.expected_digest:
             raise SignatureVerificationError
-        elif self.notary.identity == u'fail':
+        elif self.notary.identity.startswith(u'fail'):
             raise SignatureVerificationError
 
 

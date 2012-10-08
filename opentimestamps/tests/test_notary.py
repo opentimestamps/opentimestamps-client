@@ -35,21 +35,21 @@ class TestTestNotary(unittest.TestCase):
         rb(pass_notary,b'\t\x15ots.notary.TestNotary\x08identity\x04\x04pass\x06method\x04\x04test\x07version\x02\x02\x00')
 
     def test_identity_canonicalization(self):
-        notary = TestNotary(identity='not pass')
-        self.assertEquals(notary.identity,u'not pass')
+        notary = TestNotary(identity='notpass')
+        self.assertEquals(notary.identity,u'notpass')
 
         notary.canonicalize_identity()
-        self.assertEquals(notary.identity,u'fail')
+        self.assertEquals(notary.identity,u'fail-notpass')
 
     def test_signatures(self):
         pass_notary = TestNotary(identity='pass')
-        fail_notary = TestNotary(identity='not pass')
+        fail_notary = TestNotary(identity='notpass')
 
         digest = b'hello world'
 
         pass_sig = pass_notary.sign(digest,1)
         fail_sig = fail_notary.sign(digest,1)
-        self.assertEquals(fail_notary.identity,u'fail')
+        self.assertEquals(fail_notary.identity,u'fail-notpass')
 
         pass_sig.verify(digest)
         with self.assertRaises(SignatureVerificationError):
