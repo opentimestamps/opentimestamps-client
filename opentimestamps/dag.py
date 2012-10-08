@@ -33,30 +33,16 @@ from . import serialization
 # Operations - edges in DAG
 # Digests - vertexes in DAG
 
-class _MasterOpSerializer(serialization.ObjectSerializer):
-    @classmethod
-    def get_dict_to_serialize(cls,obj):
+def register_Op(cls):
+    def get_dict_to_serialize(fcls,obj):
         d = obj.__dict__.copy()
 
         # Inputs are stored as the actual digest values, not Digest objects.
         d['inputs'] = [i.digest for i in obj.inputs]
-
         return d
 
-
-def register_Op(cls):
-    # Create a serialization class for the Op class to allow it to be
-    # serialized.
-    class new_op_serializer(_MasterOpSerializer):
-        type_name = cls.op_name
-        auto_serialized_classes = (cls,)
-        instantiator = cls
-
-    # Change the name to something meaningful. Otherwise they'll all have the
-    # name 'new_op_serializer'; not very useful for debugging.
-    new_op_serializer.__name__ = '_%sSerializer' % cls.op_name
-
-    serialization.register_serializer(new_op_serializer)
+    serialization.make_simple_object_serializer(cls,'ots.dag',
+            get_dict_to_serialize=get_dict_to_serialize)
 
     return cls
 

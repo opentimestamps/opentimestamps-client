@@ -43,10 +43,10 @@ Type Names
 
 For each type that can be serialized has a type name.
 
-In the official OpenTimestamps software all type names are single words. If
-you want to make your own extensions, please use a prefix to prevent
-clashes. Using a UUID, as shown above, is a good idea. Another method is to
-use a domain name that you control: thefoocompany.com.Foo
+In the official OpenTimestamps software all type names are either single words,
+or start with the string 'ots' If you want to make your own extensions, please
+use a prefix to prevent clashes. Using a UUID, as shown above, is a good idea.
+Another method is to use a domain name that you control: thefoocompany.com.Foo
 
 See Serializer.type_name_regex for what characters are allowed in a
 type name.
@@ -699,6 +699,44 @@ class ObjectSerializer(Serializer):
         except KeyError:
             cls = UnknownObjectSerializer
         return cls._instantiator(type_name=type_name,**args_dict)
+
+
+
+def make_simple_object_serializer(cls,type_name_prefix,type_name=None,get_dict_to_serialize=None):
+    """Make a simple ObjectSerializer-subclass for a class
+
+    Intended to cover the general case of an object where the whole __dict__ is
+    serialized.
+
+    If type_name is not set it is taken from cls.__name__
+
+    The actual type name will be set to type_name_prefix + '.' + type_name; the
+    prefix must be provided.
+
+    Specifying get_dict_to_serialize() will replace the generic
+    get_dict_to_serialize() with your own version.
+    """
+    if type_name is None:
+        type_name = type_name_prefix + u'.' + cls.__name__
+
+    class new_serializer(ObjectSerializer):
+        auto_serialized_classes = (cls,)
+        instantiator = cls
+
+    new_serializer.type_name = type_name
+
+    if get_dict_to_serialize is not None:
+        new_serializer.get_dict_to_serialize = classmethod(get_dict_to_serialize)
+
+    # Set a sane name.
+    new_serializer.__name__ = '_%sSerializer' % cls.__name__
+
+    # Module should be the module the class was defined in, not here.
+    new_serializer.__module__ = cls.__module__
+
+    register_serializer(new_serializer)
+
+    return cls
 
 
 
