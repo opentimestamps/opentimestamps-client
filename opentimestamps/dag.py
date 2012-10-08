@@ -446,3 +446,56 @@ class MemoryDag(Dag):
 
     def digests(self):
         return self._digests.iterkeys()
+
+
+
+def build_merkle_tree(parents,algorithm=None,_accumulator=None):
+    """Builds a merkle tree.
+
+    parents   - iterable of all the parents you want in the tree.
+    algorithm - will be passed to Hash if set.
+
+    Returns an iterable of all the intermediate digests created; the child of
+    the tree will be at the end.
+    """
+
+    accumulator = _accumulator
+    if accumulator is None:
+        accumulator = []
+        parents = iter(parents)
+
+    next_level_starting_idx = len(accumulator)
+
+
+    while True:
+        try:
+            p1 = parents.next()
+        except StopIteration:
+            if next_level_starting_idx != len(accumulator):
+                return build_merkle_tree(iter(accumulator[next_level_starting_idx:]),
+                        _accumulator=accumulator,algorithm=algorithm)
+            else:
+                # parents must have been empty
+                return accumulator
+
+        try:
+            p2 = parents.next()
+        except StopIteration:
+            # We must have an odd number of elements at this level, or there is
+            # only one parent.
+            if next_level_starting_idx != len(accumulator):
+                # The former
+                accumulator.append(p1)
+                return build_merkle_tree(iter(accumulator[next_level_starting_idx:]),
+                        _accumulator=accumulator,algorithm=algorithm)
+            else:
+                # The latter
+                return accumulator
+
+        h = None
+        if algorithm is not None:
+            h = Hash(inputs=(p1,p2),algorithm=algorithm)
+        else:
+            h = Hash(inputs=(p1,p2)) # let it use the default
+
+        accumulator.append(h)

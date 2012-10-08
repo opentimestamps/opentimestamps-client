@@ -270,3 +270,36 @@ class TestMemoryDag(unittest.TestCase):
 
         r(chain[0],chain[n-1],chain)
         r(chain[n-1],chain[0],None)
+
+
+class Test_build_merkle_tree(unittest.TestCase):
+    def test(self):
+        def t(n,algorithm=None):
+            dag = MemoryDag()
+            parents = [Digest(digest=bytes(str(i))) for i in range(0,n)]
+
+            tree = build_merkle_tree(parents,algorithm=algorithm)
+
+            for p in parents:
+                dag.add(p)
+            for t in tree:
+                dag.add(t)
+
+            all_digests = []
+            all_digests.extend(parents)
+            all_digests.extend(tree)
+
+            for d in all_digests:
+                path = tuple(dag.path(d,tree[-1]))
+                self.assertFalse(path is None)
+                self.assertTrue(len(path) > 0)
+
+                # Make sure the paths are short
+                from math import sqrt
+                self.assertLess(len(path),sqrt(n) + 2)
+
+        self.assertEquals(tuple(build_merkle_tree(())),())
+        self.assertEquals(tuple(build_merkle_tree((Digest(digest=b''),))),())
+
+        for i in (2,3,4,5,10,21,64,513):
+            t(i)
