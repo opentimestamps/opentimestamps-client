@@ -24,8 +24,10 @@ import jsonrpclib
 import io
 import os
 
+from opentimestamps.io import *
 from opentimestamps.dag import *
 from opentimestamps.serialization import *
+from opentimestamps.notary import *
 from opentimestamps.rpc import *
 
 parser = argparse.ArgumentParser(description="OpenTimestamps client.")
@@ -49,14 +51,12 @@ def submit_command(args):
             parser.error("Must specify timestamp file (or stdout) if input is stdin")
 
 
-    input_fd = open_file_or_stdinout(args.input,'rb')
-    timestamp_fd = open_file_or_stdinout(args.timestamp,'wb')
-
-    dag = MemoryDag()
+    in_fd = open_file_or_stdinout(args.input,'rb')
+    out_fd = open_file_or_stdinout(args.timestamp,'wb')
 
     file_digest = hashlib.sha256()
     while True:
-        d = input_fd.read(io.DEFAULT_BUFFER_SIZE)
+        d = in_fd.read(io.DEFAULT_BUFFER_SIZE)
         if d == '':
             break
         file_digest.update(d)
@@ -65,32 +65,84 @@ def submit_command(args):
     hash_op = None
     if not args.no_nonce:
         nonce = os.urandom(hashlib.sha256().digestsize)
-        hash_op = Hash(inputs=(file_digest,nonce),dag=dag)
+        hash_op = Hash(inputs=(file_digest,nonce))
     else:
-        hash_op = Digest(digest=file_digest,dag=dag)
+        hash_op = Digest(digest=file_digest)
 
     responses = []
     for server in args.server:
         server = OtsServer(server)
 
-        r = server.submit((hash_op.digest,))
-        responses.append(r)
+        r = server.submit(hash_op)
+        responses.extend(r)
 
     all_digests = responses
     all_digests.append(hash_op)
 
-    json.dump(json_serialize(all_digests),timestamp_fd,indent=4)
+    timestamp_file = TimestampFile(digests=all_digests,in_fd=None,out_fd=out_fd)
+    timestamp_file.write()
+
+
+def sign_command(args):
+    responses = []
+    for server in args.server:
+        server = OtsServer(server)
+
+        notary = PGPNotary(identity=args.fingerprint)
+        notary.canonicalize_identity()
+        print(notary)
+
+        child = server.get_merkle_child(notary)
+        print(child)
+        sig = notary.sign(child.digest,int(time.time()*1000000))
+        print(sig.notary)
+
+        verify_op = Verify(inputs=(child,),signature=sig)
+        print(verify_op)
+        r = server.add_verification(verify_op)
+
+        responses.append(r)
+
+    print(json.dumps(json_serialize(responses),indent=4))
+
 
 def complete_command(args):
-    input_fd = None
-    output_fd = None
-    if args.timestamp is '-':
-        input_fd = open_file_or_stdinout(args.timestamp,'wb')
-        output_fd = input_fd
-    else:
-        input_fd = open_file_or_stdinout(args.timestamp,'wb')
-        output_fd = sys.stdout
-    raise NotImplementedError()
+    in_fd = None
+    out_fd = None
+    in_fd = open_file_or_stdinout(args.input,'rb')
+    out_fd = open_file_or_stdinout(args.timestamp,'wb')
+
+    timestamp_file = TimestampFile(in_fd=in_fd,out_fd=out_fd)
+    timestamp_file.read()
+
+    new_ops = []
+    for server in args.server:
+        server = OtsServer(server)
+
+        notary = PGPNotary(identity=args.fingerprint)
+        notary.canonicalize_identity()
+
+        for d in timestamp_file.digests:
+            r = server.path(d,notary)
+            if r is not None:
+                new_ops.extend(r)
+
+    timestamp_file.digests.extend(new_ops)
+    timestamp_file.write()
+    print(json.dumps(json_serialize(timestamp_file.digests),indent=4))
+
+
+def jsondump_command(args):
+    in_fd = None
+    out_fd = None
+    in_fd = open_file_or_stdinout(args.input,'rb')
+
+    timestamp_file = TimestampFile(in_fd=in_fd,out_fd=None)
+    timestamp_file.read()
+
+    print(json.dumps(json_serialize(timestamp_file.header),indent=4))
+    print(json.dumps(json_serialize(timestamp_file.options),indent=4))
+    print(json.dumps(json_serialize(timestamp_file.digests),indent=4))
 
 
 def validate_command(args):
@@ -144,6 +196,13 @@ subparsers = parser.add_subparsers(title='Subcommands',
                                    description='All operations are done through subcommands:')
 
 # ----- submit -----
+parser_sign = subparsers.add_parser('sign',#aliases=['s'],
+        help='Sign a calendar.')
+parser_sign.set_defaults(cmd_func=sign_command)
+parser_sign.add_argument("fingerprint",action="store",
+        help="PGP fingerprint of the signing key")
+
+# ----- submit -----
 parser_submit = subparsers.add_parser('submit',#aliases=['s'],
         help='Submit data to be timestamped.')
 parser_submit.set_defaults(cmd_func=submit_command)
@@ -161,8 +220,22 @@ parser_complete = subparsers.add_parser('complete',#aliases=['x'],
         help='Complete a timestamp.')
 parser_complete.set_defaults(cmd_func=complete_command)
 
-parser_complete.add_argument("timestamp",action="store",
+parser_complete.add_argument("fingerprint",action="store",
+        help="fingerprint")
+
+parser_complete.add_argument("input",action="store",
         help="Filename of timestamp to complete. (or - for standard input)")
+
+parser_complete.add_argument("timestamp",action="store",
+        help="Filename to write completed timestamp to. (or - for standard output)")
+
+# ----- jsondump -----
+parser_jsondump = subparsers.add_parser('jsondump',#aliases=['x'],
+        help='JSON dump a timestamp')
+parser_jsondump.set_defaults(cmd_func=jsondump_command)
+
+parser_jsondump.add_argument("input",action="store",
+        help="Filename of timestamp to jsondump. (or - for standard input)")
 
 # ----- validate -----
 parser_validate = subparsers.add_parser('validate',#aliases=['v'], aliases not supported in 2.7!
