@@ -22,8 +22,9 @@ use __getattr__-type stuff to enforce this.
 
 """
 
-
 import binascii
+import collections
+import copy
 import hashlib
 import time
 import re
@@ -35,16 +36,7 @@ from . import notary
 # Digests - vertexes in DAG
 
 def register_Op(cls):
-    def get_dict_to_serialize(fcls,obj):
-        d = obj.__dict__.copy()
-
-        # Inputs are stored as the actual digest values, not Digest objects.
-        d['inputs'] = [i.digest for i in obj.inputs]
-        return d
-
-    serialization.make_simple_object_serializer(cls,'ots.dag',
-            get_dict_to_serialize=get_dict_to_serialize)
-
+    serialization.make_simple_object_serializer(cls,'ots.dag')
     return cls
 
 
@@ -88,10 +80,11 @@ class Op(object):
 
         normalized_inputs = []
         for i in inputs:
-            if isinstance(i,bytes):
-                i = Digest(i)
-            normalized_inputs.append(i)
-        self.inputs = normalized_inputs
+            try:
+                normalized_inputs.append(i.digest)
+            except AttributeError:
+                normalized_inputs.append(i)
+        self.inputs = tuple(normalized_inputs)
 
         # Want to be sure that digest hasn't been set until now, because
         # otherwise __hash__() can silently return garbage and corrupt things
@@ -196,7 +189,7 @@ class Hash(Op):
 
         h = hash_fn()
         for i in self.inputs:
-            h.update(i.digest)
+            h.update(i)
 
         # Ugly way of determining if we need to hash things twice.
         if self.algorithm[0:3] == 'sha':
@@ -240,106 +233,268 @@ class Verify(Op):
 
 
 
-class Dag(object):
-    """Store the directed acyclic graph of digests
+class DigestDependents(set):
+    """The set of dependents for a digest
 
-    The key thing the Dag provides is the ability to find paths from one digest
-    to another. Note that the typical use case, where you have a digest and
-    want to find out what sequence of Op's calculates a digest that has been
-    timestamped, is exactly the opposite of what data is available. Essentially
-    an Op, which computes a digest, has a list of inputs, but we want to go
-    from inputs to the Op calculating a digest based on them.
+    This acts like a frozenset of Op's.
+    """
+    def __init__(self):
+        super(DigestDependents,self).__init__()
 
-    Thus the Dag keeps track of what Op's are dependent on the digests in the
-    dag, but if, and only if, both are stored in the Dag.
+    # Act like a frozenset
+    def _raise_readonly_error(self):
+        raise NotImplementedError("The set of dependents for a digest is calculated and can not be changed directly.")
+    def add(self,other):
+        self._raise_readonly_error()
+    def clear(self,other):
+        self._raise_readonly_error()
+    def difference_update(self,other):
+        self._raise_readonly_error()
+    def discard(self,other):
+        self._raise_readonly_error()
+    def intersection_update(self,other):
+        self._raise_readonly_error()
+    def pop(self,other):
+        self._raise_readonly_error()
+    def remove(self,other):
+        self._raise_readonly_error()
+    def symmetric_difference_update(self,other):
+        self._raise_readonly_error()
+    def update(self,other):
+        self._raise_readonly_error()
 
-    dependents[] - set of dependents for a given digest
+    def _add(self,dependent):
+        """Ignore write restrictions and add a dependent to the set anyway"""
+        super(DigestDependents,self).add(dependent)
+
+
+class DependentsMap(dict):
+    """Map digests and their dependents
+
+    Found in the dependents attribute of Dag-subclass instances.
+
+    This is a defaultdict-like whose keys are digests that are depended on by
+    operations in the dag. The value for a given key is defined as the set of
+    all such operations; any key will at least map to an empty set. These sets
+    are frozen and can not be changed directly.
     """
 
+    # Included for use by subclasses
+    _DigestDependents_instantiator = DigestDependents
+
+    def __init__(self):
+        super(DependentsMap,self).__init__()
+
+    # Disable modifications
+    def _raise_readonly_error(self):
+        raise NotImplementedError("Dependency information is calculated and can not be changed directly")
+    def __setitem__(self,key,value):
+        self._raise_readonly_error()
+    def clear(self,key,value):
+        self._raise_readonly_error()
+    def pop(self,key,value):
+        self._raise_readonly_error()
+    def popitem(self,key,value):
+        self._raise_readonly_error()
+    def setdefault(self,key,value):
+        self._raise_readonly_error()
+    def update(self,key,value):
+        self._raise_readonly_error()
+
+
     def __contains__(self,other):
-        raise NotImplementedError
+        try:
+            return other.digest in self
+        except AttributeError:
+            return super(DependentsMap,self).__contains__(other)
+
+    def __getitem__(self,key):
+        try:
+            return self[key.digest]
+        except AttributeError:
+            try:
+                return super(DependentsMap,self).__getitem__(key)
+            except KeyError:
+                return frozenset()
+
+    def _add_dependency(self,child_op,digest):
+        """Add op child as a dependency of digest"""
+        digest_dependents = \
+                super(DependentsMap,self).setdefault(digest,
+                        self._DigestDependents_instantiator())
+        digest_dependents._add(child_op)
+
+    def _remove_dependency(self,child_op,digest):
+        """Remove op child as a dependency of digest"""
+        try:
+            digest_dependents = super(DependentsMap,self).__getitem__(digest)
+        except KeyError:
+            return
+        digest_dependents.pop(child_op)
+        if not digest_dependents:
+            super(DependentsMap,self).pop(digest)
+
+    def _add_op(self,op):
+        """Add the dependencies of an op"""
+        for parent_digest in op.inputs:
+            self._add_dependency(op,parent_digest)
+
+    def _remove_op(self,op):
+        """Remove the dependencies of an op"""
+        for parent_digest in op.inputs:
+            self._remove_dependency(op,parent_digest)
 
 
-    def __getitem__(self,digest):
-        raise NotImplementedError
+class Dag(set):
+    """Store the directed acyclic graph of operations
+
+    Dag's also provide access to dependency information, as well as methods to
+    search for paths in the graph.
+
+    Dag's are set-subclasses and behave essentially just like sets. Membership
+    is defined by digest. A Dag with a Hash operation hash_op whose digest is
+    'foo' will return true for the following:
+
+        hash_op in dag
+        Digest('foo') in dag
+
+    In addition Dag's support indexing to allow the actual stored object to be
+    retrieved:
+
+        hash_op is dag[hash_op]
+        hash_op is dag[Digest('foo')]
+
+    Queries by raw bytes are not coerced; use Digest(bytes) instead.
+
+    dependents[] - A DependentsMap
+
+    The Dag class itself stores operations in memory.
+
+    FIXME: the more advanced set stuff might not work
+    """
+
+    def clear(self):
+        """Remove all operations from the Dag"""
+        self.dependents = DependentsMap()
+
+        # This is a little strange... it's a dict whose key and value is the
+        # same.
+        self._ops_by_op = {}
+        super(Dag,self).clear()
 
 
-    def _add(self,new_digest_obj):
-        """Underlying add() implementation"""
-        raise NotImplementedError
+    def __init__(self,iterable=()):
+        super(Dag,self).__init__(self)
+        self.clear()
+        self.update(iterable)
 
+    def __getitem__(self,key):
+        return self._ops_by_op[key]
 
-    def _swap(self,existing_digest_obj,new_digest_obj):
-        """Internal function to swap existing with new
+    def update(self,iterable):
+        """Update the dag with a union of itself and others"""
+        for i in iterable:
+            self.add(i)
 
-        Don't use this; use add()
+    def pop(self,op):
+        """Remove an operation from the dag
+
+        Raises a KeyError is the operation is not a part of the dag.
         """
-        raise NotImplementedError
+        self._ops_by_op.pop(op)
+        super(Dag,self).remove(op)
+        self.dependents._remove_op(op)
+
+    def discard(self,op):
+        """Same as set.discard()"""
+        if op in self:
+            self.pop(op)
 
 
-    def add(self,new_digest_obj):
-        """Add a digest to the Dag
+    def _add_unconditionally(self,new_op):
+        """Low-level add implementation
 
-        Returns the new_digest_obj object you should be using; if the Dag
-        contains an Op object that produces the same digest you'll get that
-        back instead. There also may be other cases where this happens.
+        This just needs to do the add; dependencies are handled by
+        add_unconditionally()
         """
-        if new_digest_obj not in self:
-            self._add(new_digest_obj)
-            return new_digest_obj
+        self._ops_by_op[new_op] = new_op
+        super(Dag,self).add(new_op)
 
-        existing_digest_obj = self[new_digest_obj]
-        if isinstance(new_digest_obj,Digest):
-            # Callee has a plain Digest, we have something else. If it's an Op,
-            # what we have is better because it has more information. If it's
-            # just a Digest, what we have is still better to promote object
-            # re-use.
-            return existing_digest_obj
+    def add_unconditionally(self,new_op):
+        """Add an operation to the Dag, unconditionally
 
-        elif isinstance(existing_digest_obj,Digest):
+        If the Dag already includes an operation with the same digest, that
+        operation will be replaced.
+
+        Returns nothing.
+        """
+        self.discard(new_op)
+        self._add_unconditionally(new_op)
+
+        self.dependents._add_op(new_op)
+
+
+    def add(self,new_op):
+        """Add an operation to the Dag
+
+        This will return the 'best' operation object to use to work with this
+        dag. This will be different from what you added if the Dag already
+        includes an operation with the same digest, and that operation already
+        has as much, or more, information on how the digest was calculated.
+
+        Basically Digest-not-in-dag < Digest-in-dag < Hash/Verify/etc
+
+        Operations other than Digests always replace Digest operations in the
+        Dag.
+        """
+        try:
+            existing_op = self[new_op]
+        except KeyError:
+            self.add_unconditionally(new_op)
+            return new_op
+
+        # Decide who has the better operation
+        if isinstance(new_op,Digest):
+            # Callee has a plain Digest, we have something else. If it's not a
+            # Digest, what we have is better because it has more information.
+            # If it's just a Digest, what we have is still better to promote
+            # object re-use.
+            return existing_op
+
+        elif isinstance(existing_op,Digest):
             # We have a Digest, callee has something more interesting. Use
             # callee's new object instead of ours.
-            self._swap(existing_digest_obj,new_digest_obj)
-            return new_digest_obj
+            self.add_unconditionally(new_op)
+            return new_op
 
-        elif existing_digest_obj == new_digest_obj:
-            # Both parties have an equivalent object, although old is not new
-            #
-            # FIXME: it'd be good to add some sort of test here to detect
-            # broken hash algorithms, or more likely, implementations. It'd
-            # probably be cheap too because this case is likely to not come up
-            # all that often. I might be wrong though.
-            return existing_digest_obj
+        elif existing_op == new_op:
+            # Both parties have an equivalent non-Digest object.
+            return existing_op
 
         else:
             # This shouldn't happen even if a hash function is broken because
             # Op's are compared by their .digest
             assert False
 
-    def digests(self):
-        """Returns an iterable of all digests in this Dag
-
-        This may be expensive.
-        """
-        raise NotImplementedError
-
-
     def path(self,start,dest,chain=None):
         """Find a path from start to dest
 
-        start - Digest
-        dest  - One of Digest or NotarySpec
+        start - digest, can be outside the dag, provided an operation in the
+                dag has the digest as one of its inputs. 
 
-        The returned path includes start, and the order is start,...,dest
+        dest  - Either a digest or a NotarySpecification
+
+        The returned path includes the destination, and every operation needed
+        to recalculate the destination. Note that if the destination matches
+        the starting point, path() will always return exactly the destination;
+        what is in the dag is irrelevant.
 
         Returns None if the path can not be found.
-
-        If the starting digest is not in this dag, that is considered as the
-        path not being found, unless the start and destination are the same.
         """
 
-        if chain is None:
-            chain = (None,start)
+        # Handle the stupid case of the callee calling with start == dest
+        if chain is None and start == dest:
+            return (dest,)
 
         if start == dest:
             # Path found!
@@ -351,9 +506,6 @@ class Dag(object):
                 chain = chain[0]
             return reversed(r)
 
-        if start not in self:
-            return None
-
         for dependent in self.dependents[start]:
             assert dependent in self
             p = self.path(dependent,dest,chain=(chain,dependent))
@@ -361,92 +513,6 @@ class Dag(object):
                 return p
 
         return None
-
-
-
-class MemoryDag(Dag):
-    digests = None
-
-    def __init__(self):
-        # Every digest in the Dag.
-        #
-        # For each given digest object we store:
-        #
-        #     self._digests[obj] = obj
-        #
-        # A bit odd looking, a set is closer to what we want, but we need to be
-        # able to retrieve the actual object whose digest matches what we want.
-        self._digests = {}
-
-        # parent:set(all Ops in the Dag with parent as an input)
-        self.dependents = {}
-
-        # As above, but this time parent is *not* in the Dag. This allows us to
-        # later link the dependency of child on parent if the parent is later
-        # added to the Dag.
-        self._dependents_just_beyond_edge = {}
-
-    def __contains__(self,other):
-        try:
-            return other.digest in self._digests
-        except AttributeError:
-            return False
-
-
-    def __getitem__(self,digest):
-        if not isinstance(digest,Op):
-            raise TypeError
-        else:
-            return self._digests[digest.digest]
-
-
-    def __link_inputs(self,new_digest_obj):
-        for i in new_digest_obj.inputs:
-            if i in self:
-                # Input is already in the dag
-                self.dependents[i].add(new_digest_obj)
-
-            else:
-                # Input is not in the dag yet, mark it so we can later update
-                # the dependencies properly if it is later added to the dag.
-
-                i_edge_deps = self._dependents_just_beyond_edge.setdefault(i,set())
-                i_edge_deps.add(new_digest_obj)
-
-
-    def _swap(self,old_digest_obj,new_digest_obj):
-        assert old_digest_obj.digest in self._digests
-
-        # If we're being asked to replace an object with one whose inputs are
-        # not a strict superset, something is quite wrong.
-        assert set(old_digest_obj.inputs).issubset(set(new_digest_obj.inputs))
-
-        self._digests[old_digest_obj.digest] = new_digest_obj
-        self.__link_inputs(new_digest_obj)
-
-
-    def _add(self,new_digest_obj):
-        assert new_digest_obj.digest not in self._digests
-        self._digests[new_digest_obj.digest] = new_digest_obj
-
-        assert new_digest_obj not in self.dependents
-        self.dependents[new_digest_obj] = set()
-
-        # Update other digests .inputs to point to the new object
-        dependents = self._dependents_just_beyond_edge.get(new_digest_obj,None)
-        if dependents is not None:
-            for dependent in dependents:
-                dependent._swap_input_obj(new_digest_obj)
-            self._dependents_just_beyond_edge.pop(new_digest_obj)
-
-
-        # Add dependencies for the new digest's inputs
-        self.__link_inputs(new_digest_obj)
-
-
-    def digests(self):
-        return self._digests.iterkeys()
-
 
 
 def build_merkle_tree(parents,algorithm=None,_accumulator=None):

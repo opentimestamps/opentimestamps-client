@@ -161,7 +161,7 @@ class TestVerifyOp(unittest.TestCase):
 
         # FIXME: better testing of this would be good
 
-class TestMemoryDag(unittest.TestCase):
+class TestDag(unittest.TestCase):
     # TODO: we need a Dag conformance test basically, one that all Dag
     # implementations must pass.
     #
@@ -170,7 +170,7 @@ class TestMemoryDag(unittest.TestCase):
     # TODO: also, add test to ensure _swap_input_obj swaps all inputs, even if
     # the same object is presence multiple times.
     def test_in_operator(self):
-        dag = MemoryDag()
+        dag = Dag()
 
         self.assertFalse(b'' in dag)
         self.assertFalse(Digest(b'') in dag)
@@ -185,11 +185,11 @@ class TestMemoryDag(unittest.TestCase):
 
 
     def test_getitem_operator(self):
-        dag = MemoryDag()
+        dag = Dag()
 
-        with self.assertRaises(TypeError):
+        with self.assertRaises(KeyError):
             dag[1]
-        with self.assertRaises(TypeError):
+        with self.assertRaises(KeyError):
             dag[b'']
         with self.assertRaises(KeyError):
             dag[Digest(b'')]
@@ -203,9 +203,9 @@ class TestMemoryDag(unittest.TestCase):
 
 
     def test_dependencies(self):
-        dag = MemoryDag()
+        dag = Dag()
 
-        self.assertTrue(len(tuple(dag.digests())) == 0)
+        self.assertTrue(len(tuple(dag)) == 0)
 
         # Basic insertion
         d1a = Digest(digest=b'd1')
@@ -237,7 +237,7 @@ class TestMemoryDag(unittest.TestCase):
 
     def test_path(self):
         n = 100
-        dag = MemoryDag()
+        dag = Dag()
         def r(start,dest,expected_path):
             def tuple_or_none(v):
                 if v is None:
@@ -261,21 +261,21 @@ class TestMemoryDag(unittest.TestCase):
         dag.add(chain[0])
         r(chain[0],chain[1],None)
         dag.add(chain[1])
-        r(chain[0],chain[1],(chain[0],chain[1]))
+        r(chain[0],chain[1],(chain[1],))
         r(chain[0],chain[2],None)
 
         # Add the rest
         for i in range(2,n):
             dag.add(chain[i])
 
-        r(chain[0],chain[n-1],chain)
+        r(chain[0],chain[n-1],chain[1:])
         r(chain[n-1],chain[0],None)
 
 
 class Test_build_merkle_tree(unittest.TestCase):
     def test(self):
         def t(n,algorithm=None):
-            dag = MemoryDag()
+            dag = Dag()
             parents = [Digest(digest=bytes(str(i))) for i in range(0,n)]
 
             tree = build_merkle_tree(parents,algorithm=algorithm)
