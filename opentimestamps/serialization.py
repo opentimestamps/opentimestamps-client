@@ -968,3 +968,9 @@ class ObjectWithDictEquality(object):
 
     def __eq__(self,other):
         return self.__class__ is other.__class__ and self.__dict__ == other.__dict__
+
+    def __hash__(self):
+        # FIXME: ObjectWithDictEquality really needs to be extended to
+        # "SerializableObject" or something, ideally with digests and locking
+        # via __setattr__
+        return hash(binary_serialize(self))
