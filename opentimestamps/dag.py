@@ -125,6 +125,9 @@ class Op(object):
         return hash(self.digest)
 
 
+    def __repr__(self):
+        return '%s(<%s>)' % (self.__class__.__name__,binascii.hexlify(self.digest[0:8]))
+
     def _swap_input_obj(self,better_input):
         """Swap an input object with a better object"""
         for obj,i in enumerate(self.inputs):
