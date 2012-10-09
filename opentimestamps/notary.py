@@ -129,6 +129,14 @@ class Notary(serialization.ObjectWithDictEquality):
         self.validate_canonical_identity(self.identity)
 
 
+    def canonicalized(self):
+        try:
+            self.validate_canonical_identity(self.identity)
+        except ValueError:
+            return False
+        return True
+
+
     def sign(self,digest,timestamp):
         """Sign a digest and timestamp with this notary
 
