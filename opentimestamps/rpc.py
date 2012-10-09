@@ -23,6 +23,7 @@ class OtsServer(object):
     # version here.
 
     def __init__(self,url):
+        self.url = url
         self.__server = jsonrpclib.Server(url)
 
     def __getattr__(self,name):

@@ -17,8 +17,10 @@ if sys.version_info[1] < 7:
     sys.exit("OpenTimestamps requires Python version 2.7.0 or newer. "\
              "(you have %d.%d.%d)"%sys.version_info[0:3])
 
-import hashlib
 import argparse
+import binascii
+import datetime
+import hashlib
 import json
 import jsonrpclib
 import io
@@ -90,29 +92,26 @@ def sign_command(args):
 
         notary = PGPNotary(identity=args.fingerprint)
         notary.canonicalize_identity()
-        print(notary)
 
         child = server.get_merkle_child(notary)
-        print(child)
         sig = notary.sign(child.digest,int(time.time()*1000000))
-        print(sig.notary)
 
         verify_op = Verify(inputs=(child,),signature=sig)
-        print(verify_op)
         r = server.add_verification(verify_op)
 
         responses.append(r)
 
-    print(json.dumps(json_serialize(responses),indent=4))
+        print('Signed digest %s for server %s' % (binascii.hexlify(child.digest),server.url))
 
 
 def complete_command(args):
     in_fd = None
     out_fd = None
     in_fd = open_file_or_stdinout(args.input,'rb')
-    out_fd = open_file_or_stdinout(args.timestamp,'wb')
+    if args.output is None:
+        args.output = args.input
 
-    timestamp_file = TimestampFile(in_fd=in_fd,out_fd=out_fd)
+    timestamp_file = TimestampFile(in_fd=in_fd,out_fd=None)
     timestamp_file.read()
 
     new_ops = []
@@ -128,6 +127,9 @@ def complete_command(args):
                 new_ops.extend(r)
 
     timestamp_file.digests.extend(new_ops)
+
+    out_fd = open_file_or_stdinout(args.output,'wb')
+    timestamp_file = TimestampFile(digests=timestamp_file.digests,out_fd=out_fd)
     timestamp_file.write()
     print(json.dumps(json_serialize(timestamp_file.digests),indent=4))
 
@@ -145,17 +147,58 @@ def jsondump_command(args):
     print(json.dumps(json_serialize(timestamp_file.digests),indent=4))
 
 
-def validate_command(args):
+def verify_command(args):
     if args.timestamp is None:
         if args.input is not '-':
             args.timestamp = '%s.ots' % args.input
         else:
             parser.error("Must specify timestamp file if input is stdin")
 
-    input_fd = open_file_or_stdinout(args.input,'rb')
+    in_fd = open_file_or_stdinout(args.input,'rb')
     timestamp_fd = open_file_or_stdinout(args.timestamp,'rb')
-    print(args)
-    raise NotImplementedError()
+
+    file_digest = hashlib.sha256()
+    while True:
+        d = in_fd.read(io.DEFAULT_BUFFER_SIZE)
+        if d == '':
+            break
+        file_digest.update(d)
+    file_digest = file_digest.digest()
+
+    dag = Dag()
+
+    file_digest = Digest(file_digest)
+
+    timestamp_file = TimestampFile(in_fd=timestamp_fd,out_fd=None)
+    timestamp_file.read()
+
+    dag.update(timestamp_file.digests)
+
+    successful_verification = False
+    for v in dag.verifications:
+        path = dag.path(file_digest,v)
+
+        if path is not None:
+            try:
+                v.signature.verify(v.inputs[0])
+            except SignatureVerificationError as err:
+                print('BAD signature from %s:%s, got err %r' % \
+                        (v.signature.notary.method,
+                         v.signature.notary.identity,
+                         err))
+                continue
+
+            successful_verification = True
+            timestamp = datetime.datetime.fromtimestamp(v.signature.timestamp / 1000000)
+            print('GOOD signature from %s:%s with timestamp %s' % \
+                    (v.signature.notary.method,
+                     v.signature.notary.identity,
+                     timestamp.isoformat(' ')))
+
+    if not dag.verifications:
+        print('No signatures found!')
+    elif not successful_verification:
+        print('No successful verifications!')
 
 
 def getsourcecode_command(args):
@@ -226,7 +269,7 @@ parser_complete.add_argument("fingerprint",action="store",
 parser_complete.add_argument("input",action="store",
         help="Filename of timestamp to complete. (or - for standard input)")
 
-parser_complete.add_argument("timestamp",action="store",
+parser_complete.add_argument("output",action="store",nargs='?',
         help="Filename to write completed timestamp to. (or - for standard output)")
 
 # ----- jsondump -----
@@ -237,14 +280,14 @@ parser_jsondump.set_defaults(cmd_func=jsondump_command)
 parser_jsondump.add_argument("input",action="store",
         help="Filename of timestamp to jsondump. (or - for standard input)")
 
-# ----- validate -----
-parser_validate = subparsers.add_parser('validate',#aliases=['v'], aliases not supported in 2.7!
+# ----- verify -----
+parser_verify = subparsers.add_parser('verify',#aliases=['v'], aliases not supported in 2.7!
         help='Validate a timestamp.')
-parser_validate.set_defaults(cmd_func=validate_command)
+parser_verify.set_defaults(cmd_func=verify_command)
 
-parser_validate.add_argument("input",action="store",
-        help="Input file validate timestamp of. (or - for standard input)")
-parser_validate.add_argument("timestamp",action="store",nargs='?',
+parser_verify.add_argument("input",action="store",
+        help="Input file verify timestamp of. (or - for standard input)")
+parser_verify.add_argument("timestamp",action="store",nargs='?',
         help="Optionally specify filename of timestamp. Required if input is standard input.")
 
 # ----- getsourcecode -----

@@ -94,6 +94,8 @@ class Op(object):
         self.digest = digest
         if self.digest is None:
             self.digest = self.calculate_digest()
+        else:
+            assert self.digest == self.calculate_digest()
 
 
     def calculate_digest(self):
@@ -102,7 +104,8 @@ class Op(object):
         This method will always calculate the digest from scratch based on the
         inputs and operation arguments.
         """
-        raise NotImplementedError
+        # FIXME: we shouldn't be doing this...
+        return self.digest
 
 
     def __eq__(self,other):

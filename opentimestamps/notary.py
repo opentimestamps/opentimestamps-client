@@ -296,6 +296,8 @@ class PGPNotary(Notary):
 
         sig = sig_buf.read()
 
+        assert len(sig) > 20
+
         return PGPSignature(notary=self,timestamp=timestamp,sig=sig)
 
 
