@@ -369,7 +369,8 @@ class Dag(set):
 
     Queries by raw bytes are not coerced; use Digest(bytes) instead.
 
-    dependents[] - A DependentsMap
+    dependents    - A DependentsMap
+    verifications - The set of all Verify operations in the dag.
 
     The Dag class itself stores operations in memory.
 
@@ -383,6 +384,8 @@ class Dag(set):
         # This is a little strange... it's a dict whose key and value is the
         # same.
         self._ops_by_op = {}
+
+        self.verifications = set()
         super(Dag,self).clear()
 
 
@@ -399,19 +402,42 @@ class Dag(set):
         for i in iterable:
             self.add(i)
 
+    def _remove_verification(self,new_verify_op):
+        """Called for each Verify operation removed
+
+        This is called before anything else happens.
+        """
+        self.verifications.remove(new_verify_op)
+
     def pop(self,op):
         """Remove an operation from the dag
 
         Raises a KeyError is the operation is not a part of the dag.
         """
+        if op not in self:
+            raise KeyError
+
+        if isinstance(op,Verify):
+            self._add_verification(op)
         self._ops_by_op.pop(op)
         super(Dag,self).remove(op)
         self.dependents._remove_op(op)
 
+
     def discard(self,op):
         """Same as set.discard()"""
-        if op in self:
+        try:
             self.pop(op)
+        except KeyError:
+            pass
+
+
+    def _add_verification(self,new_verify_op):
+        """Called for each new Verify operation added
+
+        This is called just before add() returns; the op will be in the dag.
+        """
+        self.verifications.add(new_verify_op)
 
 
     def _add_unconditionally(self,new_op):
@@ -422,6 +448,10 @@ class Dag(set):
         """
         self._ops_by_op[new_op] = new_op
         super(Dag,self).add(new_op)
+
+        if isinstance(new_op,Verify):
+            self._add_verification(new_op)
+
 
     def add_unconditionally(self,new_op):
         """Add an operation to the Dag, unconditionally
