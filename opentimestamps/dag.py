@@ -524,12 +524,20 @@ class Dag(set):
 
         Returns None if the path can not be found.
         """
+        def op_matches_target(op,target):
+            if op == target:
+                return True
+            try:
+                return op.signature.notary == target
+            except AttributeError:
+                return False
+
 
         # Handle the stupid case of the callee calling with start == dest
-        if chain is None and start == dest:
+        if chain is None and op_matches_target(start,dest):
             return (dest,)
 
-        if start == dest:
+        if op_matches_target(start,dest):
             # Path found!
             #
             # Turn the chain back into a linked list
