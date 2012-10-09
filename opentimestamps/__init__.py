@@ -10,18 +10,18 @@
 # in the LICENSE file.
 
 # Standard python version
-__version__ = '0.0'
+__version__ = u'0.0'
 
 # Perhaps a bit overkill, but given that this is cryptographic software, where
 # any bugs will render the resulting timestamps totally invalid, it's probably
 # worth giving lots of way to track down exactly what happened.
-git_revision = '$Id$'
+git_revision = u'$Id$'
 try:
     git_revision = git_revision.split(' ')[1]
 except IndexError:
-    git_revision = '(unknown git revision)'
+    git_revision = u'(unknown git revision)'
 
 # Implementation identitifier. Hopefully this will give enough info to track
 # down any problems.
-implementation_identifier = 'OpenTimestamps Client v%s - %s' % \
+implementation_identifier = u'OpenTimestamps Client v%s - %s' % \
         (__version__,git_revision)
