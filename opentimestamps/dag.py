@@ -516,13 +516,14 @@ class Dag(set):
 
 
 def build_merkle_tree(parents,algorithm=None,_accumulator=None):
-    """Builds a merkle tree.
+    """Build a merkle tree
 
     parents   - iterable of all the parents you want in the tree.
     algorithm - will be passed to Hash if set.
 
-    Returns an iterable of all the intermediate digests created; the child of
-    the tree will be at the end.
+    Returns an iterable of all the intermediate digests created, and the final
+    child, which will be at the end. If parents has exactly one item in it,
+    that parent is the merkle tree child.
     """
 
     accumulator = _accumulator
@@ -532,30 +533,39 @@ def build_merkle_tree(parents,algorithm=None,_accumulator=None):
 
     next_level_starting_idx = len(accumulator)
 
-
     while True:
         try:
             p1 = parents.next()
         except StopIteration:
-            if next_level_starting_idx != len(accumulator):
+            # Even number of items, possibly zero.
+            if len(accumulator) == 0 and _accumulator is None:
+                # We must have been called with nothing at all.
+                raise ValueError("No parent digests given to build a merkle tree from""")
+            elif next_level_starting_idx < len(accumulator):
                 return build_merkle_tree(iter(accumulator[next_level_starting_idx:]),
                         _accumulator=accumulator,algorithm=algorithm)
             else:
-                # parents must have been empty
                 return accumulator
 
         try:
             p2 = parents.next()
         except StopIteration:
-            # We must have an odd number of elements at this level, or there is
-            # only one parent.
-            if next_level_starting_idx != len(accumulator):
-                # The former
+            # We must have an odd number of elements at this level, or there
+            # was only one parent.
+            if len(accumulator) == 0 and _accumulator is None:
+                # Called with exactly one parent
+                return (p1,)
+            elif next_level_starting_idx < len(accumulator):
                 accumulator.append(p1)
-                return build_merkle_tree(iter(accumulator[next_level_starting_idx:]),
+                # Note how for an odd number of items we reverse the list. This
+                # switches the odd item out each time. If we didn't do this the
+                # odd item out on the first level would effectively rise to the
+                # top, and have an abnormally short path. This also makes the
+                # overall average path length slightly shorter by distributing
+                # unfairness.
+                return build_merkle_tree(iter(reversed(accumulator[next_level_starting_idx:])),
                         _accumulator=accumulator,algorithm=algorithm)
             else:
-                # The latter
                 return accumulator
 
         h = None

@@ -280,26 +280,41 @@ class Test_build_merkle_tree(unittest.TestCase):
 
             tree = build_merkle_tree(parents,algorithm=algorithm)
 
-            for p in parents:
-                dag.add(p)
-            for t in tree:
-                dag.add(t)
+            dag.update(parents)
+            dag.update(tree)
 
-            all_digests = []
-            all_digests.extend(parents)
-            all_digests.extend(tree)
-
-            for d in all_digests:
+            # The whole tree has a path to the tree child.
+            max_path = 0
+            for d in tree:
                 path = tuple(dag.path(d,tree[-1]))
                 self.assertFalse(path is None)
                 self.assertTrue(len(path) > 0)
+                max_path = max(max_path,len(path))
 
-                # Make sure the paths are short
-                from math import sqrt
-                self.assertLess(len(path),sqrt(n) + 2)
+            # Parents have paths to the tree child
+            min_path = 2**32
+            avg_path = 0
+            for d in parents:
+                path = tuple(dag.path(d,tree[-1]))
+                self.assertFalse(path is None)
+                self.assertTrue(len(path) > 0)
+                avg_path += len(path)
+                min_path = min(len(path),min_path)
+                max_path = max(max_path,len(path))
 
-        self.assertEquals(tuple(build_merkle_tree(())),())
-        self.assertEquals(tuple(build_merkle_tree((Digest(digest=b''),))),())
+            # Check path lengths are all reasonable
+            from math import log
+            avg_path /= float(len(parents))
+            expected_path = log(n,2)
+            self.assertLess(max_path,expected_path+1)
+            self.assertGreater(min_path,expected_path/2)
+            self.assertTrue(expected_path - 1 < avg_path < expected_path + 1)
 
-        for i in (2,3,4,5,10,21,64,513):
+        with self.assertRaises(ValueError):
+            build_merkle_tree(())
+
+        d = Digest('')
+        self.assertSequenceEqual(build_merkle_tree((d,)),(d,))
+
+        for i in (3,4,5,10,21,64,513):
             t(i)
