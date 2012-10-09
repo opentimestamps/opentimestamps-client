@@ -256,7 +256,7 @@ class PGPNotary(Notary):
 
     compatible_versions = (1,)
 
-    canonical_identity_regex = '^[a-f0-9]+$' # hex digits
+    canonical_identity_regex = '^[a-f0-9]{40}$' # a fingerprint and nothing else
     canonical_identity_re = re.compile(canonical_identity_regex) 
 
     def __init__(self,method='pgp',version=1,**kwargs):
@@ -294,9 +294,9 @@ class PGPNotary(Notary):
         # FIXME: so SEEK_SET should be defined somewhere...
         sig_buf.seek(0,0)
 
-        pgp_sig = sig_buf.read()
+        sig = sig_buf.read()
 
-        return PGPSignature(msg=msg,notary=self,timestamp=timestamp,pgp_sig=pgp_sig)
+        return PGPSignature(notary=self,timestamp=timestamp,sig=sig)
 
 
 class PGPSignatureVerificationError(SignatureVerificationError):
@@ -317,7 +317,7 @@ class PGPSignature(Signature):
         gpg_ctx = _setup_pyme_context(context)
 
         msg_buf = pyme.core.Data(msg)
-        sig_buf = pyme.core.Data(self.pgp_sig)
+        sig_buf = pyme.core.Data(self.sig)
         gpg_ctx.op_verify(sig_buf,msg_buf,None)
         result = gpg_ctx.op_verify_result()
 
