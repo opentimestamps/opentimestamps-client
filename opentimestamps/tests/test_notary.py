@@ -63,7 +63,7 @@ class TestTestNotary(unittest.TestCase):
 
 class TestPGPNotary(unittest.TestCase):
     def setUp(self):
-        self.temp_dir = tempfile.mkdtemp()
+        self.temp_dir = tempfile.mkdtemp(prefix='tmpPGPNotary')
         self.gpg_dir = self.temp_dir + '/gnupg'
 
         testing_key_dir = os.path.dirname(__file__) + '/test_keyring'
