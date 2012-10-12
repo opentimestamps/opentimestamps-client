@@ -331,7 +331,7 @@ class TestObjectSerializer(unittest.TestCase):
 
 
     def test_unknown_object_sane_repr(self):
-        """Make sure UnknownTypeOfSerializedObjectect has a sane repr()"""
+        """Make sure UnknownTypeOfSerializedObject has a sane repr()"""
         o = json_deserialize({u'unknown.foo':{}})
         self.assertEquals(repr(o),"UnknownTypeOfSerializedObject(_ots_unknown_obj_type_name=u'unknown.foo')")
         o.foo = 10
