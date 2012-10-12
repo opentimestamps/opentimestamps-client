@@ -21,69 +21,64 @@ import argparse
 import binascii
 import datetime
 import hashlib
+import io
 import json
 import jsonrpclib
-import io
 import os
 
-from opentimestamps.io import *
+from opentimestamps._internal import FileManager
 from opentimestamps.dag import *
-from opentimestamps.serialization import *
+from opentimestamps.io import *
 from opentimestamps.notary import *
 from opentimestamps.rpc import *
+from opentimestamps.serialization import *
 
 parser = argparse.ArgumentParser(description="OpenTimestamps client.")
 
-def open_file_or_stdinout(name,mode):
-    if name is '-':
-        if mode[0] is 'r':
-            return sys.stdin
-        elif mode[0] is 'w':
-            return sys.stdout
-        else:
-            raise Exception("Invalid mode '%s'" % mode)
-    else:
-        return open(name,mode)
-
 def submit_command(args):
     if args.timestamp is None:
-        if args.input is not '-':
-            args.timestamp = '%s.ots' % args.input
+        if args.file is not '-':
+            args.timestamp = args.file + '.ots'
         else:
             parser.error("Must specify timestamp file (or stdout) if input is stdin")
 
+    if os.path.exists(args.timestamp):
+        parser.error("file '%s' already exists" % args.timestamp)
 
-    in_fd = open_file_or_stdinout(args.input,'rb')
-    out_fd = open_file_or_stdinout(args.timestamp,'wb')
+    # Don't let the user overwrite the input
+    if os.path.realpath(args.file) == os.path.realpath(args.timestamp):
+        parser.error("timestamp would overwrite file")
 
-    file_digest = hashlib.sha256()
-    while True:
-        d = in_fd.read(io.DEFAULT_BUFFER_SIZE)
-        if d == '':
-            break
-        file_digest.update(d)
-    file_digest = file_digest.digest()
+    with FileManager(args.file,args.timestamp) as fm:
+        file_digest = hashlib.sha256()
+        while True:
+            d = fm.in_fd.read(io.DEFAULT_BUFFER_SIZE)
+            if d == '':
+                break
+            file_digest.update(d)
+        file_digest = file_digest.digest()
 
-    hash_op = None
-    if not args.no_nonce:
-        nonce = os.urandom(hashlib.sha256().digestsize)
-        hash_op = Hash(inputs=(file_digest,nonce))
-    else:
-        hash_op = Digest(digest=file_digest)
+        hash_op = None
+        if not args.no_nonce:
+            nonce = os.urandom(hashlib.sha256().digestsize)
+            hash_op = Hash(inputs=(file_digest,nonce))
+        else:
+            hash_op = Digest(digest=file_digest)
 
-    responses = []
-    for server in args.server:
-        server = OtsServer(server)
+        responses = []
+        for server in args.server:
+            server = OtsServer(server)
 
-        r = server.submit(hash_op)
-        responses.extend(r)
+            r = server.submit(hash_op)
+            responses.extend(r)
 
-    all_digests = responses
-    all_digests.append(hash_op)
+        all_ops = responses
+        all_ops.append(hash_op)
 
-    timestamp_file = TimestampFile(digests=all_digests,in_fd=None,out_fd=out_fd)
-    timestamp_file.write()
+        timestamp_file = TimestampFile(ops=all_ops,out_fd=fm.out_fd)
+        timestamp_file.write()
 
+        fm.commit()
 
 def sign_command(args):
     responses = []
@@ -105,100 +100,90 @@ def sign_command(args):
 
 
 def complete_command(args):
-    in_fd = None
-    out_fd = None
-    in_fd = open_file_or_stdinout(args.input,'rb')
-    if args.output is None:
-        args.output = args.input
+    with FileManager(args.timestamp,args.output) as fm:
+        timestamp_file = TimestampFile(in_fd=fm.in_fd,out_fd=fm.out_fd)
+        timestamp_file.read()
 
-    timestamp_file = TimestampFile(in_fd=in_fd,out_fd=None)
-    timestamp_file.read()
+        new_ops = []
+        for server in args.server:
+            server = OtsServer(server)
 
-    new_ops = []
-    for server in args.server:
-        server = OtsServer(server)
+            notary = PGPNotary(identity=args.fingerprint)
+            notary.canonicalize_identity()
 
-        notary = PGPNotary(identity=args.fingerprint)
-        notary.canonicalize_identity()
+            for d in timestamp_file.ops:
+                r = server.path(d,notary)
+                if r is not None:
+                    new_ops.extend(r)
 
-        for d in timestamp_file.digests:
-            r = server.path(d,notary)
-            if r is not None:
-                new_ops.extend(r)
+        timestamp_file.ops.extend(new_ops)
+        timestamp_file.write()
+        fm.commit()
 
-    timestamp_file.digests.extend(new_ops)
-
-    out_fd = open_file_or_stdinout(args.output,'wb')
-    timestamp_file = TimestampFile(digests=timestamp_file.digests,out_fd=out_fd)
-    timestamp_file.write()
-    print(json.dumps(json_serialize(timestamp_file.digests),indent=4))
+        print(json.dumps(json_serialize(timestamp_file.ops),indent=4))
 
 
 def jsondump_command(args):
-    in_fd = None
-    out_fd = None
-    in_fd = open_file_or_stdinout(args.input,'rb')
+    with FileManager(args.timestamp,'-') as fm:
+        timestamp_file = TimestampFile(in_fd=fm.in_fd,out_fd=None)
+        timestamp_file.read()
 
-    timestamp_file = TimestampFile(in_fd=in_fd,out_fd=None)
-    timestamp_file.read()
-
-    print(json.dumps(json_serialize(timestamp_file.header),indent=4))
-    print(json.dumps(json_serialize(timestamp_file.options),indent=4))
-    print(json.dumps(json_serialize(timestamp_file.digests),indent=4))
+        print(json.dumps(json_serialize(timestamp_file.options),indent=4))
+        print(json.dumps(json_serialize(timestamp_file.ops),indent=4))
 
 
 def verify_command(args):
     if args.timestamp is None:
-        if args.input is not '-':
-            args.timestamp = '%s.ots' % args.input
+        if args.file is not '-':
+            args.timestamp = args.file + '.ots'
         else:
-            parser.error("Must specify timestamp file if input is stdin")
+            parser.error("Must specify timestamp filename if input is stdin")
 
-    in_fd = open_file_or_stdinout(args.input,'rb')
-    timestamp_fd = open_file_or_stdinout(args.timestamp,'rb')
+    with FileManager(args.file,'-') as fm_file,\
+         FileManager(args.timestamp,'-') as fm_timestamp:
 
-    file_digest = hashlib.sha256()
-    while True:
-        d = in_fd.read(io.DEFAULT_BUFFER_SIZE)
-        if d == '':
-            break
-        file_digest.update(d)
-    file_digest = file_digest.digest()
+        file_digest = hashlib.sha256()
+        while True:
+            d = fm_file.in_fd.read(io.DEFAULT_BUFFER_SIZE)
+            if d == '':
+                break
+            file_digest.update(d)
+        file_digest = file_digest.digest()
 
-    dag = Dag()
+        dag = Dag()
 
-    file_digest = Digest(file_digest)
+        file_digest = Digest(file_digest)
 
-    timestamp_file = TimestampFile(in_fd=timestamp_fd,out_fd=None)
-    timestamp_file.read()
+        timestamp_file = TimestampFile(in_fd=fm_timestamp.in_fd,out_fd=None)
+        timestamp_file.read()
 
-    dag.update(timestamp_file.digests)
+        dag.update(timestamp_file.digests)
 
-    successful_verification = False
-    for v in dag.verifications:
-        path = dag.path(file_digest,v)
+        successful_verification = False
+        for v in dag.verifications:
+            path = dag.path(file_digest,v)
 
-        if path is not None:
-            try:
-                v.signature.verify(v.inputs[0])
-            except SignatureVerificationError as err:
-                print('BAD signature from %s:%s, got err %r' % \
+            if path is not None:
+                try:
+                    v.signature.verify(v.inputs[0])
+                except SignatureVerificationError as err:
+                    print('BAD signature from %s:%s, got err %r' % \
+                            (v.signature.notary.method,
+                             v.signature.notary.identity,
+                             err))
+                    continue
+
+                successful_verification = True
+                timestamp = datetime.datetime.fromtimestamp(v.signature.timestamp / 1000000)
+                print('GOOD signature from %s:%s with timestamp %s' % \
                         (v.signature.notary.method,
                          v.signature.notary.identity,
-                         err))
-                continue
+                         timestamp.isoformat(' ')))
 
-            successful_verification = True
-            timestamp = datetime.datetime.fromtimestamp(v.signature.timestamp / 1000000)
-            print('GOOD signature from %s:%s with timestamp %s' % \
-                    (v.signature.notary.method,
-                     v.signature.notary.identity,
-                     timestamp.isoformat(' ')))
-
-    if not dag.verifications:
-        print('No signatures found!')
-    elif not successful_verification:
-        print('No successful verifications!')
+        if not dag.verifications:
+            print('No signatures found!')
+        elif not successful_verification:
+            print('No successful verifications!')
 
 
 def getsourcecode_command(args):
@@ -247,16 +232,16 @@ parser_sign.add_argument("fingerprint",action="store",
 
 # ----- submit -----
 parser_submit = subparsers.add_parser('submit',#aliases=['s'],
-        help='Submit data to be timestamped.')
+        help='Submit a file to be timestamped.')
 parser_submit.set_defaults(cmd_func=submit_command)
 parser_submit.add_argument("--no-nonce",action="store_true",default=False,
         help="Don't use a nonce in the hash calculation. Note: this means that"\
         " the server knows what data you have submitted.")
-parser_submit.add_argument("input",action="store",
-        help="Input file to timestamp. (or - for standard input)")
+parser_submit.add_argument("file",action="store",
+        help="The file to timestamp. (or - for standard input)")
 parser_submit.add_argument("timestamp",action="store",nargs='?',
-        help="Optionally specify filename to write timestamp to. Required if"\
-        " input is standard input. Defaults to input.ots")
+        help="Optionally specify filename (or - for standard output) to write timestamp to. Required if"\
+        " input is standard input. Defaults to <file>.ots")
 
 # ----- complete -----
 parser_complete = subparsers.add_parser('complete',#aliases=['x'],
@@ -266,27 +251,27 @@ parser_complete.set_defaults(cmd_func=complete_command)
 parser_complete.add_argument("fingerprint",action="store",
         help="fingerprint")
 
-parser_complete.add_argument("input",action="store",
+parser_complete.add_argument("timestamp",action="store",
         help="Filename of timestamp to complete. (or - for standard input)")
 
 parser_complete.add_argument("output",action="store",nargs='?',
-        help="Filename to write completed timestamp to. (or - for standard output)")
+        help="Write to this filename (or - for standard output) instead of modifying existing timestamp.")
 
 # ----- jsondump -----
 parser_jsondump = subparsers.add_parser('jsondump',#aliases=['x'],
         help='JSON dump a timestamp')
 parser_jsondump.set_defaults(cmd_func=jsondump_command)
 
-parser_jsondump.add_argument("input",action="store",
-        help="Filename of timestamp to jsondump. (or - for standard input)")
+parser_jsondump.add_argument("timestamp",action="store",
+        help="Filename (or - for standard input)")
 
 # ----- verify -----
 parser_verify = subparsers.add_parser('verify',#aliases=['v'], aliases not supported in 2.7!
-        help='Validate a timestamp.')
+        help="Verify a file's timestamp")
 parser_verify.set_defaults(cmd_func=verify_command)
 
-parser_verify.add_argument("input",action="store",
-        help="Input file verify timestamp of. (or - for standard input)")
+parser_verify.add_argument("file",action="store",
+        help="File to verify (or - for standard input)")
 parser_verify.add_argument("timestamp",action="store",nargs='?',
         help="Optionally specify filename of timestamp. Required if input is standard input.")
 
