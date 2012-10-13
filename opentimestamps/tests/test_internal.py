@@ -60,55 +60,53 @@ class TestFileManager(unittest.TestCase):
 
 
     def test_stdin_stdout(self):
-        fake_stdin = tempfile.TemporaryFile()
-        fake_stdout = tempfile.TemporaryFile()
+        with tempfile.TemporaryFile() as fake_stdin, tempfile.TemporaryFile() as fake_stdout:
+            fake_stdin.write(b'in magic')
+            fake_stdin.seek(0,0)
 
-        fake_stdin.write(b'in magic')
-        fake_stdin.seek(0,0)
+            with FileManager('-','-',stdin=fake_stdin,stdout=fake_stdout) as f:
+                self.assertEqual(f.in_fd.read(),b'in magic')
+                f.out_fd.write(b'out magic')
 
-        with FileManager('-','-',stdin=fake_stdin,stdout=fake_stdout) as f:
-            self.assertEqual(f.in_fd.read(),b'in magic')
-            f.out_fd.write(b'out magic')
-
-        fake_stdout.seek(0,0)
-        self.assertEqual(fake_stdout.read(),b'out magic')
+            fake_stdout.seek(0,0)
+            self.assertEqual(fake_stdout.read(),b'out magic')
 
 
     def test_stdin_file(self):
-        fake_stdin = tempfile.TemporaryFile()
-        new_name = self.mktemp()
+        with tempfile.TemporaryFile() as fake_stdin:
+            new_name = self.mktemp()
 
-        fake_stdin.write(b'stdin_file_in_magic')
-        fake_stdin.seek(0,0)
+            fake_stdin.write(b'stdin_file_in_magic')
+            fake_stdin.seek(0,0)
 
-        saved_out_fd = None
-        with FileManager('-',new_name,stdin=fake_stdin) as f:
-            saved_out_fd = f.out_fd
-
-            self.assertFalse(os.path.exists(new_name))
-            f.out_fd.write(b'stdin_file_out_magic1')
-
-            f.commit()
-
-            self.assertEqual(f.in_fd.read(),b'stdin_file_in_magic')
-
-            self.assertTrue(os.path.exists(new_name))
-            f.out_fd.write(b'magic2')
-
-            self.check_file_mode(new_name)
-
-        self.assertTrue(saved_out_fd.closed)
-        self.check_file_contents(new_name,b'stdin_file_out_magic1magic2')
-
-        # errors keep old contents
-        with self.assertRaises(Exception):
+            saved_out_fd = None
             with FileManager('-',new_name,stdin=fake_stdin) as f:
                 saved_out_fd = f.out_fd
-                f.out_fd.write(b'these changes are thrown away')
-                raise Exception()
 
-        self.assertTrue(saved_out_fd.closed)
-        self.check_file_contents(new_name,b'stdin_file_out_magic1magic2')
+                self.assertFalse(os.path.exists(new_name))
+                f.out_fd.write(b'stdin_file_out_magic1')
+
+                f.commit()
+
+                self.assertEqual(f.in_fd.read(),b'stdin_file_in_magic')
+
+                self.assertTrue(os.path.exists(new_name))
+                f.out_fd.write(b'magic2')
+
+                self.check_file_mode(new_name)
+
+            self.assertTrue(saved_out_fd.closed)
+            self.check_file_contents(new_name,b'stdin_file_out_magic1magic2')
+
+            # errors keep old contents
+            with self.assertRaises(Exception):
+                with FileManager('-',new_name,stdin=fake_stdin) as f:
+                    saved_out_fd = f.out_fd
+                    f.out_fd.write(b'these changes are thrown away')
+                    raise Exception()
+
+            self.assertTrue(saved_out_fd.closed)
+            self.check_file_contents(new_name,b'stdin_file_out_magic1magic2')
 
 
     def test_file_file_different(self):
