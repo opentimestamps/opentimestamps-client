@@ -283,11 +283,13 @@ class Serializer(object):
 
         if fd is None:
             our_fd.seek(0)
-            return our_fd.read()
+            r = our_fd.read()
+            our_fd.close()
+            return r
 
 
     @classmethod
-    def _binary_deserialize(cls,obj,fd):
+    def _binary_deserialize(cls,fd):
         """Actual binary_deserialize() implementation.
 
         Type-specific code goes here. You don't need to include the typecode
@@ -312,9 +314,10 @@ class Serializer(object):
         """
         if isinstance(fd,bytes):
             import io
-            fd = io.BytesIO(fd)
-
-        return cls._binary_deserialize(fd)
+            with io.BytesIO(fd) as fd:
+                return cls._binary_deserialize(fd)
+        else:
+            return cls._binary_deserialize(fd)
 
 
 
@@ -365,17 +368,15 @@ def binary_serialize(obj,fd=None):
     As a convenience for debugging and similar activities, if fd is not set
     this function returns bytes instead.
     """
-    our_fd = fd
-    if our_fd is None:
-        import io
-        our_fd = io.BytesIO()
-
-    (cls,obj) = get_serializer_for_obj(obj)
-    cls.binary_serialize(obj,our_fd)
-
     if fd is None:
-        our_fd.seek(0)
-        return our_fd.read()
+        import io
+        with io.BytesIO() as fd:
+            binary_serialize(obj,fd)
+            fd.seek(0)
+            return fd.read()
+    else:
+        (cls,obj) = get_serializer_for_obj(obj)
+        cls.binary_serialize(obj,fd)
 
 
 def binary_deserialize(fd):
@@ -393,16 +394,17 @@ def binary_deserialize(fd):
     """
     if isinstance(fd,bytes):
         import io
-        fd = io.BytesIO(fd)
+        with io.BytesIO(fd) as fd:
+            return binary_deserialize(fd)
+    else:
+        typecode_byte = fd.read(1)
 
-    typecode_byte = fd.read(1)
+        try:
+            cls = serializers_by_typecode_byte[typecode_byte]
+        except KeyError:
+            raise SerializationUnknownTypeCodeError('Unknown typecode %r' % typecode_byte)
 
-    try:
-        cls = serializers_by_typecode_byte[typecode_byte]
-    except KeyError:
-        raise SerializationUnknownTypeCodeError('Unknown typecode %r' % typecode_byte)
-
-    return cls.binary_deserialize(fd)
+        return cls.binary_deserialize(fd)
 
 
 
