@@ -123,7 +123,6 @@ binary_major_version = 0
 binary_minor_version = 0
 
 
-import io
 import unicodedata
 import binascii
 import types
@@ -274,6 +273,7 @@ class Serializer(object):
         """
         our_fd = fd
         if our_fd is None:
+            import io
             our_fd = io.BytesIO()
 
         # Write the typecode byte.
@@ -311,6 +311,7 @@ class Serializer(object):
         bytes rather than a file descriptor.
         """
         if isinstance(fd,bytes):
+            import io
             fd = io.BytesIO(fd)
 
         return cls._binary_deserialize(fd)
@@ -366,6 +367,7 @@ def binary_serialize(obj,fd=None):
     """
     our_fd = fd
     if our_fd is None:
+        import io
         our_fd = io.BytesIO()
 
     (cls,obj) = get_serializer_for_obj(obj)
@@ -390,6 +392,7 @@ def binary_deserialize(fd):
     bytes rather than a file descriptor.
     """
     if isinstance(fd,bytes):
+        import io
         fd = io.BytesIO(fd)
 
     typecode_byte = fd.read(1)

@@ -11,11 +11,12 @@
 # modified, propagated, or distributed except according to the terms contained
 # in the LICENSE file.
 
+from opentimestamps.serialization import *
+
 import unittest
 import io
 import json
 
-from ..serialization import *
 def make_json_round_trip_tester(self):
     def r(value,expected_representation,new_value=None):
         # serialize to json-compat representation

@@ -9,8 +9,8 @@
 # modified, propagated, or distributed except according to the terms contained
 # in the LICENSE file.
 
-import io
 import binascii
+import io
 import json
 import struct
 import uuid
@@ -18,15 +18,14 @@ import uuid
 import bz2
 import zlib
 
-from .serialization import *
-from .dag import *
-from ._internal import BinaryHeader
+from opentimestamps.serialization import *
+from opentimestamps._internal import BinaryHeader
 
-from . import implementation_identifier
+from opentimestamps import implementation_identifier
 
 class TimestampFile(BinaryHeader):
     header_magic_uuid = uuid.UUID('0062fc5c-0d26-11e2-97e4-6f3bd8706b74')
-    header_magic_text = 'OpenTimestamps'
+    header_magic_text = b'OpenTimestamps'
 
     major_version = 0
     minor_version = 0
