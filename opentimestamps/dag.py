@@ -168,8 +168,8 @@ class Hash(Op):
     op_name = 'Hash'
     op_arguments = ('algorithm',)
 
-    def __init__(self,algorithm=u'sha256',**kwargs):
-        if algorithm not in (u'sha256',u'sha1',u'sha512',u'crc32'):
+    def __init__(self,algorithm='sha256',**kwargs):
+        if algorithm not in ('sha256','sha1','sha512','crc32'):
             raise ValueError('Unsupported hash algorithm %s' % algorithm)
         self.algorithm = algorithm
 
@@ -183,7 +183,7 @@ class Hash(Op):
             class hash_crc32(object):
                 def update(self,newdata):
                     self.crc = binascii.crc32(newdata,self.crc)
-                def __init__(self,data=''):
+                def __init__(self,data=b''):
                     self.crc = 0
                     self.update(data)
                 def digest(self):
@@ -579,7 +579,7 @@ def build_merkle_tree(parents,algorithm=None,_accumulator=None):
 
     while True:
         try:
-            p1 = parents.next()
+            p1 = next(parents)
         except StopIteration:
             # Even number of items, possibly zero.
             if len(accumulator) == 0 and _accumulator is None:
@@ -592,7 +592,7 @@ def build_merkle_tree(parents,algorithm=None,_accumulator=None):
                 return accumulator
 
         try:
-            p2 = parents.next()
+            p2 = next(parents)
         except StopIteration:
             # We must have an odd number of elements at this level, or there
             # was only one parent.

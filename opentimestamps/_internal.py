@@ -21,10 +21,10 @@ import uuid
 class BinaryHeader(object):
     """Mix-in to deal with binary headers"""
 
-    class UnknownFileTypeError(StandardError):
+    class UnknownFileTypeError(Exception):
         pass
 
-    class VersionError(StandardError):
+    class VersionError(Exception):
         pass
 
     # The UUID makes pretty much guarantees the magic database will return the
@@ -92,7 +92,7 @@ class BinaryHeader(object):
 
         hdr_bytes = fd.read(self.header_length)
         hdr_fields = struct.unpack(self.__struct_format,hdr_bytes)
-        hdr = dict(zip(self.__field_names,hdr_fields))
+        hdr = dict(list(zip(self.__field_names,hdr_fields)))
 
         # test magic and version
         if hdr['header_magic_bytes'] != self.header_magic_bytes:
@@ -285,6 +285,6 @@ class FileManager(object):
             # so if we didn't overwrite-in-place, set mode based on umask.
             our_umask = os.umask(0)
             os.umask(our_umask) # gah, wish there was a get_umask...
-            os.chmod(self.real_new_filename,~our_umask & 0666)
+            os.chmod(self.real_new_filename,~our_umask & 0o666)
 
         # FIXME: windows support

@@ -9,7 +9,7 @@
 # modified, propagated, or distributed except according to the terms contained
 # in the LICENSE file.
 
-import StringIO
+import io
 import binascii
 import json
 import struct
@@ -56,7 +56,7 @@ class TimestampFile(BinaryHeader):
 
     dag = None
 
-    class CorruptTimestampError(StandardError):
+    class CorruptTimestampError(Exception):
         pass
 
     def __init__(self,
@@ -73,7 +73,7 @@ class TimestampFile(BinaryHeader):
 
         self.compressor = compressor
         self.mode = mode
-        self.algorithms = [unicode(a) for a in algorithms]
+        self.algorithms = [str(a) for a in algorithms]
         self.ops = ops
 
         self.in_fd = in_fd
@@ -107,7 +107,7 @@ class TimestampFile(BinaryHeader):
 
         assert struct.unpack('>L',in_crc32)[0] == binascii.crc32(uncompressed_bytes) & 0xffffffff
 
-        deser_fd = StringIO.StringIO(uncompressed_bytes)
+        deser_fd = io.StringIO(uncompressed_bytes)
 
         self.options = binary_deserialize(deser_fd)
         self.ops = binary_deserialize(deser_fd)

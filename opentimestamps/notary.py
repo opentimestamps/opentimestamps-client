@@ -11,9 +11,7 @@
 
 import re
 
-import pyme
-import pyme.core
-import pyme.pygpgme
+import gnupg
 
 from binascii import hexlify
 
@@ -23,7 +21,7 @@ notary_methods_by_name = {}
 
 
 def register_notary_method(cls):
-    cls.method_name = unicode(cls.method_name)
+    cls.method_name = str(cls.method_name)
     notary_methods_by_name[cls.method_name] = cls
     cls.validate_method_name()
 
@@ -37,7 +35,7 @@ def register_signature_class(cls):
     return cls
 
 
-class SignatureError(StandardError):
+class SignatureError(Exception):
     pass
 
 
@@ -49,24 +47,24 @@ class SignatureVerificationError(SignatureError):
 class Notary(serialization.ObjectWithDictEquality):
     """Notary base class"""
 
-    method_name = u'_null'
+    method_name = '_null'
 
-    method_name_regex = u'^(_*[a-z][a-z0-9\-\.\+]+|\*)$'
+    method_name_regex = '^(_*[a-z][a-z0-9\-\.\+]+|\*)$'
     method_name_re = re.compile(method_name_regex)
 
     compatible_versions = ()
 
-    canonical_identity_regex = u'^[A-Za-z0-9\@\:\-\_]*$'
+    canonical_identity_regex = '^[A-Za-z0-9\@\:\-\_]*$'
     canonical_identity_re = re.compile(canonical_identity_regex) 
 
-    identity_regex = u'^([A-Za-z0-9\@\:\-\_ ]*|\*)$'
+    identity_regex = '^([A-Za-z0-9\@\:\-\_ ]*|\*)$'
     identity_re = re.compile(identity_regex)
 
     @classmethod
     def validate_method_name(cls,method_name=None):
         if not method_name:
             method_name = cls.method_name
-        if not isinstance(method_name,unicode):
+        if not isinstance(method_name,str):
             raise TypeError('method_name must be unicode string; got type %r' % method_name.__class__)
 
         if not re.match(cls.method_name_re,method_name):
@@ -93,7 +91,7 @@ class Notary(serialization.ObjectWithDictEquality):
 
     @classmethod
     def validate_canonical_identity(cls,canonical_identity):
-        if not isinstance(canonical_identity,unicode):
+        if not isinstance(canonical_identity,str):
             raise TypeError('Canonical identity must be unicode string; got type %r' % canonical_identity.__class__)
 
         if not re.match(cls.canonical_identity_re,canonical_identity):
@@ -101,7 +99,7 @@ class Notary(serialization.ObjectWithDictEquality):
 
     @classmethod
     def validate_method_identity(cls,identity):
-        if not isinstance(identity,unicode):
+        if not isinstance(identity,str):
             raise TypeError('identity must be unicode string; got type %r' % identity.__class__)
 
         if not re.match(cls.identity_re,identity):
@@ -111,7 +109,7 @@ class Notary(serialization.ObjectWithDictEquality):
     def __init__(self,method='_null',version=1,identity='',**kwargs):
         self.__dict__.update(kwargs)
 
-        self.method = unicode(method)
+        self.method = str(method)
         self.validate_method_name(self.method)
 
         # FIXME: what do we do when a newer version is on the network? we
@@ -121,7 +119,7 @@ class Notary(serialization.ObjectWithDictEquality):
         self.version = version
         self.validate_method_version(self.version)
 
-        self.identity = unicode(identity)
+        self.identity = str(identity)
         self.validate_method_identity(self.identity)
 
 
@@ -152,7 +150,7 @@ class Signature(serialization.ObjectWithDictEquality):
 
     expected_notary_class = Notary
     def __init__(self,notary=Notary(),timestamp=0,**kwargs):
-        if not (isinstance(timestamp,int) or isinstance(timestamp,long)):
+        if not (isinstance(timestamp,int) or isinstance(timestamp,int)):
             raise TypeError("Timestamp must be an integer")
         elif timestamp < 0:
             raise ValueError("Timestamp must be a positive integer")
@@ -194,10 +192,10 @@ class TestNotary(Notary):
     compatible_versions = (1,)
 
     # pass or fail, followed by disambiguation
-    canonical_identity_regex = u'^(pass|fail)[a-z0-9\-\_]*$'
+    canonical_identity_regex = '^(pass|fail)[a-z0-9\-\_]*$'
     canonical_identity_re = re.compile(canonical_identity_regex) 
 
-    identity_regex = u'^([a-z0-9\-\_]*|\*)$'
+    identity_regex = '^([a-z0-9\-\_]*|\*)$'
     identity_re = re.compile(identity_regex)
 
     def __init__(self,method='test',**kwargs):
@@ -211,8 +209,8 @@ class TestNotary(Notary):
         if not (self.identity.startswith('pass') or self.identity.startswith('fail')):
             # Identity is a failure by not having 'pass' at the front
             if len(self.identity) > 0:
-                self.identity = u'-' + self.identity
-            self.identity = u'fail' + self.identity
+                self.identity = '-' + self.identity
+            self.identity = 'fail' + self.identity
 
         super(TestNotary,self).canonicalize_identity()
 
@@ -231,19 +229,9 @@ class TestSignature(Signature):
     def verify(self,digest):
         if digest != self.expected_digest:
             raise SignatureVerificationError
-        elif self.notary.identity.startswith(u'fail'):
+        elif self.notary.identity.startswith('fail'):
             raise SignatureVerificationError
 
-
-def _setup_pyme_context(context):
-    gpg_ctx = pyme.core.Context()
-
-    try:
-        gpg_ctx.set_engine_info(gpg_ctx.get_protocol(),None,context.gpg_home_dir)
-    except AttributeError:
-        pass
-
-    return gpg_ctx
 
 @register_notary_method
 class PGPNotary(Notary):
@@ -271,32 +259,17 @@ class PGPNotary(Notary):
 
     def make_verification_message(self,digest,otstime):
         str_id = self.identity.encode('utf8')
-        str_digest = hexlify(digest)
+        str_digest = str(hexlify(digest),'utf8')
         str_time = '%d' % otstime
-        return b"The owner of the PGP key with fingerprint "+str_id+" certifies that the digest "+str_digest+" existed on, or before, "+str_time+" microseconds after Jan 1st 1970 00:00 UTC. (the Unix epoch)"""
+        return bytes(
+""""The owner of the PGP key with fingerprint %s certifies that the digest %s existed on, or before, %s microseconds after Jan 1st 1970 00:00 UTC. (the Unix epoch)""" % (str_id,str_digest,str_time),'utf8')
 
 
     def sign(self,digest,timestamp,context=None):
         super(PGPNotary,self).sign(digest,timestamp)
 
         msg = self.make_verification_message(digest,timestamp)
-
-        gpg_ctx = _setup_pyme_context(context)
-
-        signing_key = gpg_ctx.get_key(bytes(self.identity),0)
-        gpg_ctx.signers_add(signing_key)
-
-        msg_buf = pyme.core.Data(msg)
-        sig_buf = pyme.core.Data()
-
-        gpg_ctx.op_sign(msg_buf,sig_buf,pyme.pygpgme.GPGME_SIG_MODE_DETACH)
-
-        # FIXME: so SEEK_SET should be defined somewhere...
-        sig_buf.seek(0,0)
-
-        sig = sig_buf.read()
-
-        assert len(sig) > 20
+        sig = b''
 
         return PGPSignature(notary=self,timestamp=timestamp,sig=sig)
 
@@ -315,17 +288,3 @@ class PGPSignature(Signature):
 
     def verify(self,digest,context=None):
         msg = self.notary.make_verification_message(digest,self.timestamp)
-
-        gpg_ctx = _setup_pyme_context(context)
-
-        msg_buf = pyme.core.Data(msg)
-        sig_buf = pyme.core.Data(self.sig)
-        gpg_ctx.op_verify(sig_buf,msg_buf,None)
-        result = gpg_ctx.op_verify_result()
-
-        index = 0
-        for sign in result.signatures:
-            try:
-                pyme.errors.errorcheck(sign.status)
-            except pyme.errors.GPGMEError as gpg_error:
-                raise PGPSignatureVerificationError(gpg_error)

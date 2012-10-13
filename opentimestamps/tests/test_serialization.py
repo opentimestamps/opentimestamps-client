@@ -12,7 +12,7 @@
 # in the LICENSE file.
 
 import unittest
-import StringIO
+import io
 import json
 
 from ..serialization import *
@@ -78,14 +78,14 @@ class Test(unittest.TestCase):
 
     def test_unknown_types_raise_errors_binary(self):
         with self.assertRaises(SerializationUnknownTypeCodeError):
-            binary_deserialize('\xff')
+            binary_deserialize(b'\xff')
 
 
 
 class TestUIntSerialization(unittest.TestCase):
     def test_varint_serialization(self):
         def r(value,expected_representation):
-            fd = StringIO.StringIO()
+            fd = io.BytesIO()
             UIntSerializer._binary_serialize(value,fd)
 
             fd.seek(0)
@@ -127,7 +127,7 @@ class TestIntSerialization(unittest.TestCase):
     def test_zigzag_serialization(self):
         # round trip
         def r(value,expected_representation):
-            fd = StringIO.StringIO()
+            fd = io.BytesIO()
             IntSerializer._binary_serialize(value,fd)
 
             fd.seek(0)
@@ -182,8 +182,8 @@ class TestIntSerialization(unittest.TestCase):
         r(-1,b'\x02\x01')
 
         # long ints
-        r(long( 0),b'\x02\x00')
-        r(long(-1),b'\x02\x01')
+        r(int( 0),b'\x02\x00')
+        r(int(-1),b'\x02\x01')
         r(2**31,b'\x02\x80\x80\x80\x80\x10')
         r(-2**31,b'\x02\xff\xff\xff\xff\x0f')
         r(2**65,b'\x02\x80\x80\x80\x80\x80\x80\x80\x80\x80\x08')
@@ -204,10 +204,10 @@ class TestBytesSerialization(unittest.TestCase):
     def test_json_serialization(self):
         r = make_json_round_trip_tester(self)
 
-        r(b'',u'#')
-        r(b'\xff',u'#ff')
-        r(b'\x00',u'#00')
-        r(b'\x00\x11\x22',u'#001122')
+        r(b'','#')
+        r(b'\xff','#ff')
+        r(b'\x00','#00')
+        r(b'\x00\x11\x22','#001122')
 
     def test_binary_serialization(self):
         r = make_binary_round_trip_tester(self)
@@ -230,38 +230,38 @@ class TestStrSerialization(unittest.TestCase):
     def test_json_serialization(self):
         r = make_json_round_trip_tester(self)
 
-        r(u'',u'')
-        r(u'foo',u'foo')
+        r('','')
+        r('foo','foo')
 
         # Escape #'s at the start of a string.
-        r(u'#',u'\\#')
-        r(u'###',u'\\###')
-        r(u'# 2324',u'\\# 2324')
+        r('#','\\#')
+        r('###','\\###')
+        r('# 2324','\\# 2324')
 
         # Also, \'s at the start of a string need to be escaped as well.
-        r(u'\\',u'\\\\')
-        r(u'\\# 2324',u'\\\\# 2324')
+        r('\\','\\\\')
+        r('\\# 2324','\\\\# 2324')
 
         # NFC normalization example: <A + grave> is transformed into À
-        r(u'\u0041\u0300',u'\u00c0',u'\u00c0')
+        r('\u0041\u0300','\u00c0','\u00c0')
 
     def test_binary_serialization(self):
         r = make_binary_round_trip_tester(self)
 
-        r(u'',b'\x04\x00')
-        r(u'foo',b'\x04\x03foo')
+        r('',b'\x04\x00')
+        r('foo',b'\x04\x03foo')
 
         # NFC normalization example: <A + grave> is transformed into À
-        r(u'\u0041\u0300',b'\x04\x02\xc3\x80',u'\u00c0')
+        r('\u0041\u0300',b'\x04\x02\xc3\x80','\u00c0')
 
         with self.assertRaises(ValueError):
-            StrSerializer.binary_serialize(u'foo \u0000')
+            StrSerializer.binary_serialize('foo \u0000')
         with self.assertRaises(ValueError):
-            StrSerializer.json_serialize(u'foo \u0000')
+            StrSerializer.json_serialize('foo \u0000')
         with self.assertRaises(ValueError):
-            json_serialize(u'foo \u0000')
+            json_serialize('foo \u0000')
         with self.assertRaises(ValueError):
-            binary_serialize(u'foo \u0000')
+            binary_serialize('foo \u0000')
 
 
 class TestObjectSerializer(unittest.TestCase):
@@ -285,21 +285,21 @@ class TestObjectSerializer(unittest.TestCase):
 
 
         f = Foo()
-        rj(f,{u'test.Foo':{}},f)
+        rj(f,{'test.Foo':{}},f)
 
         f.bar = 1
-        rj(f,{u'test.Foo':{'bar':1}},f)
+        rj(f,{'test.Foo':{'bar':1}},f)
 
         f2 = Foo()
         f.f2 = f2
-        rj(f,{u'test.Foo':{'bar':1,'f2':{u'test.Foo':{}}}},f)
+        rj(f,{'test.Foo':{'bar':1,'f2':{'test.Foo':{}}}},f)
 
         rb(f,b'\t\x08test.Foo\x03bar\x02\x02\x02f2\t\x08test.Foo\x00\x00',f)
 
 
     def test_invalid_type_names(self):
         with self.assertRaises(SerializationTypeNameInvalidError):
-            json_deserialize({u'*':{}})
+            json_deserialize({'*':{}})
 
         with self.assertRaises(SerializationTypeNameInvalidError):
             json_deserialize({None:{}})
@@ -316,28 +316,28 @@ class TestObjectSerializer(unittest.TestCase):
     def test_deserializing_unknown_object_types(self):
         def rj(json_obj,expected_obj):
             actual_obj = json_deserialize(json_obj)
-            self.assertEquals(actual_obj,expected_obj)
+            self.assertEqual(actual_obj,expected_obj)
 
         def rb(serialized_representation,expected_obj):
             actual_obj = binary_deserialize(serialized_representation)
-            self.assertEquals(actual_obj,expected_obj)
+            self.assertEqual(actual_obj,expected_obj)
 
-        rj({u'unknown.foo':{}},UnknownTypeOfSerializedObject(_ots_unknown_obj_type_name=u'unknown.foo'))
-        rj({u'unknown.foo':{u'foo':10,u'bar':None}},
-                UnknownTypeOfSerializedObject(_ots_unknown_obj_type_name=u'unknown.foo',bar=None,foo=10))
+        rj({'unknown.foo':{}},UnknownTypeOfSerializedObject(_ots_unknown_obj_type_name='unknown.foo'))
+        rj({'unknown.foo':{'foo':10,'bar':None}},
+                UnknownTypeOfSerializedObject(_ots_unknown_obj_type_name='unknown.foo',bar=None,foo=10))
 
         rb(b'\t\x0bunknown.foo\x00',
-            UnknownTypeOfSerializedObject(_ots_unknown_obj_type_name=u'unknown.foo'))
+            UnknownTypeOfSerializedObject(_ots_unknown_obj_type_name='unknown.foo'))
 
 
     def test_unknown_object_sane_repr(self):
         """Make sure UnknownTypeOfSerializedObject has a sane repr()"""
-        o = json_deserialize({u'unknown.foo':{}})
-        self.assertEquals(repr(o),"UnknownTypeOfSerializedObject(_ots_unknown_obj_type_name=u'unknown.foo')")
+        o = json_deserialize({'unknown.foo':{}})
+        self.assertEqual(repr(o),"UnknownTypeOfSerializedObject(_ots_unknown_obj_type_name='unknown.foo')")
         o.foo = 10
         o.bar = None
-        self.assertEquals(repr(o),
-                "UnknownTypeOfSerializedObject(_ots_unknown_obj_type_name=u'unknown.foo',bar=None,foo=10)")
+        self.assertEqual(repr(o),
+                "UnknownTypeOfSerializedObject(_ots_unknown_obj_type_name='unknown.foo',bar=None,foo=10)")
 
 
 class TestJsonTypedObjectSerializer(unittest.TestCase):
@@ -349,10 +349,10 @@ class TestJsonTypedObjectSerializer(unittest.TestCase):
             actual_out = json_deserialize(actual_json)
             self.assertEqual(expected_out,actual_out)
 
-        r({},{u'dict':{}},{})
-        r(1,{u'int':1},1)
-        r(u'foo',{u'str':u'foo'},u'foo')
-        r([1,2,b'\xff'],{u'list':[1,2,'#ff']},[1,2,b'\xff'])
+        r({},{'dict':{}},{})
+        r(1,{'int':1},1)
+        r('foo',{'str':'foo'},'foo')
+        r([1,2,b'\xff'],{'list':[1,2,'#ff']},[1,2,b'\xff'])
 
 
 
@@ -363,9 +363,9 @@ class TestDictSerialization(unittest.TestCase):
         r({},{})
 
         # Note the str and unicode key's
-        r({'a':u'b',u'c':1},{u'a':u'b',u'c':1})
-        r({'a':u'b',u'c':{}},{u'a':u'b',u'c':{}})
-        r({'a':u'b',u'c':{'a':5,'b':b'\xff'}},{u'a':u'b',u'c':{u'a':5,u'b':u'#ff'}})
+        r({'a':'b','c':1},{'a':'b','c':1})
+        r({'a':'b','c':{}},{'a':'b','c':{}})
+        r({'a':'b','c':{'a':5,'b':b'\xff'}},{'a':'b','c':{'a':5,'b':'#ff'}})
 
         # non-str keys should fail
         with self.assertRaises(SerializationError):
@@ -376,7 +376,7 @@ class TestDictSerialization(unittest.TestCase):
             json_serialize({'':2,'foo':4})
 
         # Trigger the typed object hack.
-        r({'a':None},{u'dict':{u'a':None}})
+        r({'a':None},{'dict':{'a':None}})
 
     def test_binary_serialization(self):
         r = make_binary_round_trip_tester(self)
@@ -384,7 +384,7 @@ class TestDictSerialization(unittest.TestCase):
         r({},b'\x06\x00')
 
         # Note the str and unicode key's
-        r({'a':u'b',u'c':{}},b'\x06\x01a\x04\x01b\x01c\x06\x00\x00')
+        r({'a':'b','c':{}},b'\x06\x01a\x04\x01b\x01c\x06\x00\x00')
 
         # non-str keys should fail
         with self.assertRaises(SerializationError):
@@ -405,8 +405,8 @@ class TestListSerialization(unittest.TestCase):
         r((),[],[])
 
         r([None,False,True,1,2,3],[None,False,True,1,2,3])
-        r([b'\xff'],[u'#ff'])
-        r([b'\xff',[[[False,u'hi there']]]],[u'#ff',[[[False,u'hi there']]]])
+        r([b'\xff'],['#ff'])
+        r([b'\xff',[[[False,'hi there']]]],['#ff',[[[False,'hi there']]]])
 
         # Generators should work
         nones_list = [None for i in range(0,128)]

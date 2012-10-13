@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/python3
 # Copyright (C) 2012 Peter Todd <pete@petertodd.org>
 #
 # This file is part of the OpenTimestamps Client.
@@ -10,12 +10,7 @@
 # modified, propagated, or distributed except according to the terms contained
 # in the LICENSE file.
 
-from __future__ import print_function
-
 import sys
-if sys.version_info[1] < 7:
-    sys.exit("OpenTimestamps requires Python version 2.7.0 or newer. "\
-             "(you have %d.%d.%d)"%sys.version_info[0:3])
 
 import argparse
 import binascii

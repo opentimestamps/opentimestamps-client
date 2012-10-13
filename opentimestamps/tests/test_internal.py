@@ -24,7 +24,7 @@ class TestFileManager(unittest.TestCase):
 
         # Need to leave at least group write/exec to be able to check that
         # permissions get moved over appropriately.
-        self.old_umask = os.umask(0002)
+        self.old_umask = os.umask(0o002)
 
     def tearDown(self):
         shutil.rmtree(self.temp_dir)
@@ -50,13 +50,13 @@ class TestFileManager(unittest.TestCase):
     def check_file_contents(self,name,magic):
         """Fail if a file doesn't have some magic bytes in it"""
         fd = open(name,'rb')
-        self.assertEquals(fd.read(),magic)
+        self.assertEqual(fd.read(),magic)
         fd.close()
 
-    def check_file_mode(self,name,expected_mode=0664):
+    def check_file_mode(self,name,expected_mode=0o664):
         """Fail if file doesn't have expected mode"""
         st = os.stat(name)
-        self.assertEquals(oct(stat.S_IMODE(st.st_mode)),oct(expected_mode))
+        self.assertEqual(oct(stat.S_IMODE(st.st_mode)),oct(expected_mode))
 
 
     def test_stdin_stdout(self):
@@ -67,11 +67,11 @@ class TestFileManager(unittest.TestCase):
         fake_stdin.seek(0,0)
 
         with FileManager('-','-',stdin=fake_stdin,stdout=fake_stdout) as f:
-            self.assertEquals(f.in_fd.read(),b'in magic')
+            self.assertEqual(f.in_fd.read(),b'in magic')
             f.out_fd.write(b'out magic')
 
         fake_stdout.seek(0,0)
-        self.assertEquals(fake_stdout.read(),b'out magic')
+        self.assertEqual(fake_stdout.read(),b'out magic')
 
 
     def test_stdin_file(self):
@@ -90,7 +90,7 @@ class TestFileManager(unittest.TestCase):
 
             f.commit()
 
-            self.assertEquals(f.in_fd.read(),b'stdin_file_in_magic')
+            self.assertEqual(f.in_fd.read(),b'stdin_file_in_magic')
 
             self.assertTrue(os.path.exists(new_name))
             f.out_fd.write(b'magic2')
@@ -154,7 +154,7 @@ class TestFileManager(unittest.TestCase):
         new_name = old_name
 
         # Give it some odd permissions
-        os.chmod(old_name,0610)
+        os.chmod(old_name,0o610)
 
         saved_in_fd = None
         saved_out_fd = None
@@ -163,16 +163,16 @@ class TestFileManager(unittest.TestCase):
             saved_out_fd = f.out_fd
 
             self.assertTrue(os.path.exists(new_name))
-            f.out_fd.write('file_file_inplace_out_magic1')
+            f.out_fd.write(b'file_file_inplace_out_magic1')
 
             self.check_file_contents(old_name,b'file_file_inplace_in')
             f.commit()
             self.assertTrue(os.path.exists(new_name))
 
             # New file does gets weird permissions
-            self.check_file_mode(new_name,0610)
+            self.check_file_mode(new_name,0o610)
 
-            f.out_fd.write('magic2')
+            f.out_fd.write(b'magic2')
 
         # Make sure in_fd and out_fd have been closed.
         self.assertTrue(saved_in_fd.closed)
@@ -185,7 +185,7 @@ class TestFileManager(unittest.TestCase):
         with self.assertRaises(Exception):
             with FileManager('-',new_name,stdin=fake_stdin) as f:
                 saved_out_fd = f.out_fd
-                f.out_fd.write('these changes are thrown away')
+                f.out_fd.write(b'these changes are thrown away')
                 raise Exception()
 
         self.assertTrue(saved_out_fd.closed)
@@ -205,8 +205,9 @@ class TestFileManager(unittest.TestCase):
         new_name = self.temp_dir + '/fake_dir/foo'
 
         # Create existing, but give it some odd permissions.
-        open(old_name,'wb').write(b'magic')
-        os.chmod(old_name,0610)
+        with open(old_name,'wb') as fd:
+            fd.write(b'magic')
+        os.chmod(old_name,0o610)
 
         saved_in_fd = None
         saved_out_fd = None
@@ -215,7 +216,7 @@ class TestFileManager(unittest.TestCase):
             saved_out_fd = f.out_fd
 
             self.assertTrue(os.path.exists(new_name))
-            f.out_fd.write('out magic1')
+            f.out_fd.write(b'out magic1')
 
             f.commit()
             self.assertTrue(os.path.exists(new_name))
@@ -223,7 +224,7 @@ class TestFileManager(unittest.TestCase):
             # New file does *not* get weird permissions, not an in-place change
             self.check_file_mode(new_name)
 
-            f.out_fd.write('magic2')
+            f.out_fd.write(b'magic2')
 
         # Make sure in_fd and out_fd have been closed.
         self.assertTrue(saved_in_fd.closed)
@@ -236,7 +237,7 @@ class TestFileManager(unittest.TestCase):
         with self.assertRaises(Exception):
             with FileManager('-',new_name,stdin=fake_stdin) as f:
                 saved_out_fd = f.out_fd
-                f.out_fd.write('these changes are thrown away')
+                f.out_fd.write(b'these changes are thrown away')
                 raise Exception()
 
         self.assertTrue(saved_out_fd.closed)

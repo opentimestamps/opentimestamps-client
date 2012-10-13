@@ -10,7 +10,7 @@
 # in the LICENSE file.
 
 import unittest
-import StringIO
+import io
 import json
 
 from ..dag import *
@@ -80,7 +80,7 @@ class TestDigestOp(unittest.TestCase):
         r = make_json_round_trip_tester(self)
 
         d = Digest(digest=b'\xff\x00')
-        r(d,{'ots.dag.Digest': {'inputs': [], 'digest': u'#ff00'}})
+        r(d,{'ots.dag.Digest': {'inputs': [], 'digest': '#ff00'}})
 
     def test_binary_serialization(self):
         r = make_binary_round_trip_tester(self)
@@ -89,16 +89,16 @@ class TestDigestOp(unittest.TestCase):
 
 class TestHashOp(unittest.TestCase):
     def test_hash_algorithm_support(self):
-        def t(algo,expected,d=('',)):
+        def t(algo,expected,d=(b'',)):
             h = Hash(inputs=d,algorithm=algo)
-            self.assertEquals(h.digest,expected)
+            self.assertEqual(h.digest,expected)
 
         t('sha1',b'\xbe\x1b\xde\xc0\xaat\xb4\xdc\xb0y\x94>pR\x80\x96\xcc\xa9\x85\xf8')
         t('sha256',b']\xf6\xe0\xe2v\x13Y\xd3\n\x82u\x05\x8e)\x9f\xcc\x03\x81SEE\xf5\\\xf4>A\x98?]L\x94V')
         t('sha512',b'\x82m\xf0hE}\xf5\xdd\x19[Cz\xb7\xe7s\x9f\xf7]&r\x18?\x02\xbb\x8e\x10\x89\xfa\xbc\xf9{\xd9\xdc\x80\x11\x0c\xf4-\xbc|\xffA\xc7\x8e\xcbh\xd8\xbax\xab\xe6\xb5\x17\x8d\xea9\x84\xdf\x8cUT\x1b\xf9I')
 
-        t('crc32','\x00\x00\x00\x00')
-        t('crc32',':,\xcd\x8d',d=(b"Testing an awful hash algorithm.",))
+        t('crc32',b'\x00\x00\x00\x00')
+        t('crc32',b':,\xcd\x8d',d=(b"Testing an awful hash algorithm.",))
 
     def test_json_serialization(self):
         r = make_json_round_trip_tester(self)
@@ -107,9 +107,9 @@ class TestHashOp(unittest.TestCase):
         b = Digest(digest=b'b')
         h1 = Hash(inputs=(a,b))
         r(h1,{'ots.dag.Hash':
-                {'inputs':[u'#61', u'#62'],
-                 'algorithm':u'sha256',
-                 'digest':u'#a1ff8f1856b5e24e32e3882edd4a021f48f28a8b21854b77fdef25a97601aace'}})
+                {'inputs':['#61', '#62'],
+                 'algorithm':'sha256',
+                 'digest':'#a1ff8f1856b5e24e32e3882edd4a021f48f28a8b21854b77fdef25a97601aace'}})
 
     def test_binary_serialization(self):
         r = make_binary_round_trip_tester(self)
@@ -125,7 +125,7 @@ class TestVerifyOp(unittest.TestCase):
         a = Digest(digest=b'a')
         b = Digest(digest=b'b')
         h1 = Hash(inputs=(a,b))
-        v = Verify(inputs=(h1,),notary_method=u'foo')
+        v = Verify(inputs=(h1,),notary_method='foo')
         r(v)
 
     def test_binary_serialization(self):
@@ -244,7 +244,7 @@ class TestDag(unittest.TestCase):
                     return v
                 else:
                     return tuple(v)
-            self.assertEquals(
+            self.assertEqual(
                     tuple_or_none(dag.path(start,dest)),
                     tuple_or_none(expected_path))
 
@@ -276,7 +276,7 @@ class Test_build_merkle_tree(unittest.TestCase):
     def test(self):
         def t(n,algorithm=None):
             dag = Dag()
-            parents = [Digest(digest=bytes(str(i))) for i in range(0,n)]
+            parents = [Digest(digest=bytes(str(i),'utf8')) for i in range(0,n)]
 
             tree = build_merkle_tree(parents,algorithm=algorithm)
 
@@ -313,7 +313,7 @@ class Test_build_merkle_tree(unittest.TestCase):
         with self.assertRaises(ValueError):
             build_merkle_tree(())
 
-        d = Digest('')
+        d = Digest(b'')
         self.assertSequenceEqual(build_merkle_tree((d,)),(d,))
 
         for i in (3,4,5,10,21,64,513):

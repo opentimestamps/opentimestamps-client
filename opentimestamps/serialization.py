@@ -123,13 +123,13 @@ binary_major_version = 0
 binary_minor_version = 0
 
 
-import cStringIO
+import io
 import unicodedata
 import binascii
 import types
 import re
 
-class SerializationError(StandardError):
+class SerializationError(Exception):
     pass
 
 class SerializationUnknownTypeError(SerializationError):
@@ -170,7 +170,7 @@ def register_serializer(cls):
 
     Use this with every Serializer class you make.
     """
-    cls.type_name = unicode(cls.type_name)
+    cls.type_name = str(cls.type_name)
     cls.validate_type_name()
     for auto_cls in cls.auto_serialized_classes:
         auto_serializers_by_class[auto_cls] = cls
@@ -222,7 +222,7 @@ class Serializer(object):
         if name is None:
             name = cls.type_name
 
-        if not isinstance(name,unicode):
+        if not isinstance(name,str):
             raise SerializationTypeNameInvalidError('Type name must be unicode string; got type %r' % name.__class__)
 
         if not re.match(cls.type_name_re,name):
@@ -274,7 +274,7 @@ class Serializer(object):
         """
         our_fd = fd
         if our_fd is None:
-            our_fd = cStringIO.StringIO()
+            our_fd = io.BytesIO()
 
         # Write the typecode byte.
         our_fd.write(cls.typecode_byte)
@@ -311,7 +311,7 @@ class Serializer(object):
         bytes rather than a file descriptor.
         """
         if isinstance(fd,bytes):
-            fd = cStringIO.StringIO(fd)
+            fd = io.BytesIO(fd)
 
         return cls._binary_deserialize(fd)
 
@@ -366,7 +366,7 @@ def binary_serialize(obj,fd=None):
     """
     our_fd = fd
     if our_fd is None:
-        our_fd = cStringIO.StringIO()
+        our_fd = io.BytesIO()
 
     (cls,obj) = get_serializer_for_obj(obj)
     cls.binary_serialize(obj,our_fd)
@@ -390,7 +390,7 @@ def binary_deserialize(fd):
     bytes rather than a file descriptor.
     """
     if isinstance(fd,bytes):
-        fd = cStringIO.StringIO(fd)
+        fd = io.BytesIO(fd)
 
     typecode_byte = fd.read(1)
 
@@ -407,8 +407,8 @@ def binary_deserialize(fd):
 class NullSerializer(Serializer):
     type_name = 'null'
     typecode_byte = typecodes_by_typename[type_name]
-    auto_serialized_classes = (types.NoneType,)
-    auto_json_deserialized_classes = (types.NoneType,)
+    auto_serialized_classes = (type(None),)
+    auto_json_deserialized_classes = (type(None),)
 
     # Since there is only one None value, we don't actually have to do
     # anything.
@@ -464,9 +464,9 @@ class UIntSerializer(Serializer):
     @classmethod
     def _binary_serialize(cls,obj,fd):
         while obj >= 0b10000000:
-            fd.write(chr((obj & 0b01111111) | 0b10000000))
+            fd.write(bytes([(obj & 0b01111111) | 0b10000000]))
             obj = obj >> 7
-        fd.write(chr((obj & 0b01111111) | 0b00000000))
+        fd.write(bytes([(obj & 0b01111111) | 0b00000000]))
 
     @classmethod
     def _binary_deserialize(cls,fd):
@@ -493,8 +493,8 @@ class IntSerializer(Serializer):
     """
     type_name = 'int'
     typecode_byte = typecodes_by_typename[type_name]
-    auto_serialized_classes = (int,long)
-    auto_json_deserialized_classes = (int,long)
+    auto_serialized_classes = (int,int)
+    auto_json_deserialized_classes = (int,int)
 
     # FIXME: we should handle integers larger than what JavaScript can support
     # by using the JSON typed object hack and converting them to strings.
@@ -529,12 +529,12 @@ class BytesSerializer(Serializer):
 
     @classmethod
     def json_serialize(cls,obj):
-        return u'#' + binascii.hexlify(obj)
+        return '#' + str(binascii.hexlify(obj),'utf8')
 
     @classmethod
     def json_deserialize(cls,json_obj):
-        assert json_obj[0] == u'#'
-        return binascii.unhexlify(json_obj[1:])
+        assert json_obj[0] == '#'
+        return binascii.unhexlify(bytes(json_obj[1:],'utf8'))
 
     @classmethod
     def _binary_serialize(cls,obj,fd):
@@ -552,14 +552,14 @@ class BytesSerializer(Serializer):
 class StrSerializer(Serializer):
     type_name = 'str'
     typecode_byte = typecodes_by_typename[type_name]
-    auto_serialized_classes = (unicode,)
-    auto_json_deserialized_classes = (unicode,)
+    auto_serialized_classes = (str,)
+    auto_json_deserialized_classes = (str,)
 
     @classmethod
     def __utf8_normalize(cls,obj):
         # Ban nulls to make life easier for implementers, particularly C/C++
         # versions.
-        if u'\u0000' in obj:
+        if '\u0000' in obj:
             raise ValueError("Strings must not have null characters in them to be serialized.")
 
         # NFC normalization is shortest. We don't care about legacy characters;
@@ -573,17 +573,17 @@ class StrSerializer(Serializer):
 
         if len(obj) > 0:
             if obj[0] == '#':
-                obj = u'\\' + obj
+                obj = '\\' + obj
             elif obj[0] == '\\':
-                obj = u'\\' + obj
+                obj = '\\' + obj
         return obj
 
     @classmethod
     def json_deserialize(cls,json_obj):
-        if len(json_obj) > 0 and json_obj[0] == u'#':
+        if len(json_obj) > 0 and json_obj[0] == '#':
             # This is actually bytes, let the bytes serializer handle it.
             return BytesSerializer.json_deserialize(json_obj)
-        elif len(json_obj) > 0 and json_obj[0] == u'\\':
+        elif len(json_obj) > 0 and json_obj[0] == '\\':
             # Something got escaped.
             return json_obj[1:]
         else:
@@ -717,7 +717,7 @@ def make_simple_object_serializer(cls,type_name_prefix,type_name=None,get_dict_t
     get_dict_to_serialize() with your own version.
     """
     if type_name is None:
-        type_name = type_name_prefix + u'.' + cls.__name__
+        type_name = type_name_prefix + '.' + cls.__name__
 
     class new_serializer(ObjectSerializer):
         auto_serialized_classes = (cls,)
@@ -794,7 +794,7 @@ class JsonTypedObjectSerializer(Serializer):
 
     @classmethod
     def json_deserialize(cls,json_obj):
-        keys = json_obj.keys()
+        keys = list(json_obj.keys())
         assert len(keys) == 1
         type_name = keys[0]
 
@@ -839,7 +839,7 @@ class DictSerializer(Serializer):
 
     @classmethod
     def __check_key(cls,key):
-        if not isinstance(key,str) and not isinstance(key,unicode):
+        if not isinstance(key,str) and not isinstance(key,str):
             raise SerializationError("Can't serialize dicts with non-string keys; got %r" % key)
         elif len(key) < 1:
             raise SerializationError("Can't serialize dicts with empty keys")
@@ -848,26 +848,26 @@ class DictSerializer(Serializer):
     def json_serialize(cls,obj,do_typed_object_hack=True):
         json_obj = {}
 
-        for key,value in obj.items():
+        for key,value in list(obj.items()):
             cls.__check_key(key)
             json_obj[key] = json_serialize(value)
 
-        if len(json_obj.keys()) == 1 and do_typed_object_hack:
+        if len(list(json_obj.keys())) == 1 and do_typed_object_hack:
             # Hack! Serialize with a typed object wrapper, because otherwise
             # we'll trigger the typed object code.
-            json_obj = {u'dict':json_obj}
+            json_obj = {'dict':json_obj}
         return json_obj
 
     @classmethod
     def json_deserialize(cls,json_obj,do_typed_object_hack=True):
-        if len(json_obj.keys()) == 1 and do_typed_object_hack:
+        if len(list(json_obj.keys())) == 1 and do_typed_object_hack:
             # Hack! This looks like a typed object, so send it to the JSON
             # typed object deserializer.
             return JsonTypedObjectSerializer.json_deserialize(json_obj)
 
         obj = {}
 
-        for key,value in json_obj.items():
+        for key,value in list(json_obj.items()):
             obj[key] = json_deserialize(value)
         return obj
 
@@ -876,13 +876,13 @@ class DictSerializer(Serializer):
         for key in sorted(obj.keys()):
             value = obj[key]
             cls.__check_key(key)
-            key = unicode(key)
+            key = str(key)
             StrSerializer._binary_serialize(key,fd)
 
             binary_serialize(value,fd)
 
         # empty key signals the end
-        StrSerializer._binary_serialize(u'',fd)
+        StrSerializer._binary_serialize('',fd)
 
     @classmethod
     def _binary_deserialize(cls,fd):

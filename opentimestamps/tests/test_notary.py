@@ -27,19 +27,19 @@ class TestTestNotary(unittest.TestCase):
         pass_notary = TestNotary(identity='pass')
 
         rj(pass_notary,
-                {u'ots.notary.TestNotary': 
-                    {'identity': u'pass',
-                     'method': u'test',
+                {'ots.notary.TestNotary': 
+                    {'identity': 'pass',
+                     'method': 'test',
                      'version': 1}})
 
         rb(pass_notary,b'\t\x15ots.notary.TestNotary\x08identity\x04\x04pass\x06method\x04\x04test\x07version\x02\x02\x00')
 
     def test_identity_canonicalization(self):
         notary = TestNotary(identity='notpass')
-        self.assertEquals(notary.identity,u'notpass')
+        self.assertEqual(notary.identity,'notpass')
 
         notary.canonicalize_identity()
-        self.assertEquals(notary.identity,u'fail-notpass')
+        self.assertEqual(notary.identity,'fail-notpass')
 
     def test_signatures(self):
         pass_notary = TestNotary(identity='pass')
@@ -49,16 +49,16 @@ class TestTestNotary(unittest.TestCase):
 
         pass_sig = pass_notary.sign(digest,1)
         fail_sig = fail_notary.sign(digest,1)
-        self.assertEquals(fail_notary.identity,u'fail-notpass')
+        self.assertEqual(fail_notary.identity,'fail-notpass')
 
         pass_sig.verify(digest)
         with self.assertRaises(SignatureVerificationError):
-            pass_sig.verify(digest + 'junk')
+            pass_sig.verify(digest + b'junk')
 
         with self.assertRaises(SignatureVerificationError):
             fail_sig.verify(digest)
         with self.assertRaises(SignatureVerificationError):
-            fail_sig.verify(digest + 'junk')
+            fail_sig.verify(digest + b'junk')
 
 
 class TestPGPNotary(unittest.TestCase):
