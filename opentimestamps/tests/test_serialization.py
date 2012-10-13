@@ -430,3 +430,188 @@ class TestListSerialization(unittest.TestCase):
 
         # Also iterators should work
         r(iter([None for i in range(0,128)]),b'\x07' + b'\x00'*128 + b'\x08',list(None for i in range(0,128)))
+
+
+@simple_serialized_object('TestDigestible')
+class DigestibleFoo(Digestible):
+    digested_attributes = ('digested',)
+
+# Two different digestible classes, but they always produce the same digest!
+@simple_serialized_object('TestDigestible')
+class DigestibleSameDigest1(Digestible):
+    digested_attributes = ('digested',)
+    def calculate_digest(self):
+        return b'groundhog day'
+
+@simple_serialized_object('TestDigestible')
+class DigestibleSameDigest2(Digestible):
+    digested_attributes = ('digested',)
+    def calculate_digest(self):
+        return b'groundhog day'
+
+@simple_serialized_object('TestDigestible')
+class DigestibleMutatableDigest(Digestible):
+    digested_attributes = ('digested',)
+    def calculate_digest(self):
+        return self.mutatable_digest
+
+
+class TestDigestible(unittest.TestCase):
+    def digestsEqual(self,a,b):
+        self.assertEqual(a,b)
+        self.assertEqual(hash(a),hash(b))
+    def digestsNotEqual(self,a,b):
+        self.assertNotEqual(a,b)
+        self.assertNotEqual(hash(a),hash(b))
+
+    def test_digests_are_tested_solely_by_digest(self):
+        a = DigestibleSameDigest1()
+        b = DigestibleSameDigest2()
+        a.lock()
+        b.lock()
+        self.digestsEqual(a,b)
+
+    def test_digests_are_calculated_once(self):
+        a = DigestibleMutatableDigest()
+        a.mutatable_digest = b'a'
+        a.lock()
+
+        a2 = DigestibleMutatableDigest()
+        a2.mutatable_digest = b'a'
+        a2.lock()
+
+        b = DigestibleMutatableDigest()
+        b.mutatable_digest = b'b'
+        b.lock()
+
+        self.digestsEqual(a,a)
+        self.digestsEqual(a,a2)
+        self.digestsNotEqual(a,b)
+
+        a2.mutatable_digest = b'b'
+        b.mutatable_digest = b'a'
+        self.digestsEqual(a,a2)
+        self.digestsNotEqual(a,b)
+
+
+    def test_digest_must_be_bytes(self):
+        a = DigestibleMutatableDigest()
+        a.mutatable_digest = None
+
+        with self.assertRaises(TypeError):
+            a.lock()
+
+        a.mutatable_digest = bytearray(b'foo')
+        with self.assertRaises(TypeError):
+            a.lock()
+
+        class bytes_subclass(bytes):
+            pass
+
+        a.mutable_digest = bytes_subclass(b'foo')
+        with self.assertRaises(TypeError):
+            a.lock()
+
+    def test_digest_attribute_is_immutable(self):
+        a = DigestibleFoo()
+
+        with self.assertRaises(AttributeError):
+            a.digest = None
+        with self.assertRaises(AttributeError):
+            del a.digest
+
+        a.lock()
+        with self.assertRaises(AttributeError):
+            a.digest = None
+        with self.assertRaises(AttributeError):
+            del a.digest
+
+    def test_attribute_locking(self):
+        a = DigestibleFoo()
+        a.lock()
+        with self.assertRaises(AttributeError):
+            a.digested = None
+        self.assertFalse(hasattr(a,'digested'))
+
+        a = DigestibleFoo()
+        a.digested = 'deleted'
+        del a.digested
+        a.digested = 'not deleted'
+        a.lock()
+        with self.assertRaises(AttributeError):
+            a.digested = None
+        with self.assertRaises(AttributeError):
+            del a.digested
+        self.assertEqual(a.digested,'not deleted')
+
+    def test_equality(self):
+        a = DigestibleFoo()
+        b = DigestibleFoo()
+        b.undigested = 'asdf'
+
+        # Can test for equality with an unrelated object before locking.
+        self.assertFalse(a == None)
+        self.assertFalse(None == a)
+        self.assertFalse(a.__eq__(None))
+
+        # Can not test for equality with other Digestibles if either is
+        # unlocked.
+        with self.assertRaises(ValueError):
+            self.assertEqual(a,b)
+        a.lock()
+        with self.assertRaises(ValueError):
+            self.assertEqual(a,b)
+        b.lock()
+
+        self.assertEqual(a,b)
+        b.undigested = 'qwer'
+        self.assertEqual(a,b)
+
+        b2 = DigestibleFoo()
+        b2.digested = None
+        b2.lock()
+        self.assertNotEqual(a,b2)
+
+        b3 = DigestibleFoo()
+        b3.digested = b2
+        b3.lock()
+        self.assertNotEqual(a,b3)
+
+
+    def test_hashing(self):
+        a = DigestibleFoo()
+        b = DigestibleFoo()
+
+        with self.assertRaises(ValueError):
+            hash(a)
+        a.lock()
+        b.lock()
+
+        self.assertEqual(hash(a),hash(b))
+
+        b2 = DigestibleFoo()
+        b2.undigested = 'asdf'
+        b2.lock()
+        self.assertEqual(hash(a),hash(b2))
+
+        b3 = DigestibleFoo()
+        b3.digested = a
+        b3.lock()
+        self.assertNotEqual(hash(a),hash(b3))
+
+    def test_locking(self):
+        f = DigestibleFoo()
+        with self.assertRaises(AttributeError):
+            f.locked = True
+
+        # Won't lock if there are unlocked Digestible attribute values.
+        f.digested = DigestibleFoo()
+        with self.assertRaises(ValueError):
+            f.lock()
+        self.assertFalse(f.locked)
+
+        f.digested.lock()
+        f.lock()
+
+        self.assertEqual(f.digest,
+b'\x06\x1cTestDigestible.DigestibleFoo\x06\x08digested\x05!\x06\x1cTestDigestible.DigestibleFoo\x06\x00\x00\x00\x00')

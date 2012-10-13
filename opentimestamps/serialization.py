@@ -981,3 +981,98 @@ class ObjectWithDictEquality(object):
         # "SerializableObject" or something, ideally with digests and locking
         # via __setattr__
         return hash(binary_serialize(self))
+
+
+class Digestible(object):
+    """Base class for objects with digests
+
+    Digestible objects are equality tested and hashed based on their .digest
+    attribute. The digest is calculated from the attributes in
+    .digested_attributes, any attempt to set or delete an attribute in that
+    list after the digest has been calculated will fail.
+
+    Digests are always bytes instances, no sub-classes are allowed.
+    """
+
+    __locked = False
+    digest = None
+    digested_attributes = ()
+
+    locked = property(lambda self: self.__locked)
+
+    def calculate_digest(self):
+        """Calculate and return the digest
+
+        This method must alway calculate the digest from scratch each time.
+
+        The default implementation is to take the values of each attribute (with getattr) in
+        .digested_attributes, add them to a dict, and binary serialize that
+        dict and the object's serialization type name. Missing attributes are
+        ignored.
+
+        As a special case, values that are isinstance(Digestible) use the
+        value's digest attribute instead of the value.
+        """
+        d = {}
+        for attr in self.digested_attributes:
+            try:
+                value = getattr(self,attr)
+            except AttributeError:
+                continue
+
+            if isinstance(value,Digestible):
+                if not value.__locked:
+                    raise ValueError("Can't calculate digest; attribute %s not locked." % attr)
+                value = value.digest
+            d[attr] = value
+
+        d = {auto_serializers_by_class[self.__class__].type_name:d}
+
+        return binary_serialize(d)
+
+
+
+    def lock(self):
+        """Lock the instance from any changes that would change the digest
+
+        The digest attribute is calculated and saved by lock()
+        """
+        new_digest = self.calculate_digest()
+        if not new_digest.__class__ is bytes:
+            raise TypeError('digest must be bytes; got %r instance instead.' % new_digest.__class__)
+
+        super().__setattr__('digest',new_digest)
+        self.__locked = True
+        self.__digest_hash = hash(self.digest)
+
+
+    def __setattr__(self,name,value):
+        if name == 'digest':
+            raise AttributeError("Can't set digest attribute of a Digestible instance directly.")
+        elif self.__locked and name in self.digested_attributes:
+            raise AttributeError("Can't set attribute; used to calculate digest and %s instance is locked." % type(self))
+        super(Digestible,self).__setattr__(name,value)
+
+    def __delattr__(self,name):
+        if name == 'digest':
+            raise AttributeError("Can't delete digest attribute from a Digestible instance.")
+        elif self.__locked and name in self.digested_attributes:
+            raise AttributeError("Can't delete attribute; used to calculate digest and %s instance is locked." % type(self))
+        super(Digestible,self).__delattr__(name)
+
+    def __eq__(self,other):
+        if not isinstance(other,Digestible):
+            # If we don't allow unlocked == <other type>, the order of the
+            # operands in == would change whether the test was allowed or not!
+            return False
+        else:
+            if not self.__locked or not other.__locked:
+                raise ValueError('Digestible objects can not be tested for equality until they are locked.')
+            else:
+                return self.digest == other.digest
+
+
+    def __hash__(self):
+        if not self.__locked:
+            raise ValueError('Digestible objects can not be hashed until they are locked')
+        return self.__digest_hash
