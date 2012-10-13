@@ -9,9 +9,9 @@
 # modified, propagated, or distributed except according to the terms contained
 # in the LICENSE file.
 
-import re
-
 import gnupg
+import io
+import re
 
 from binascii import hexlify
 
@@ -232,6 +232,8 @@ class TestSignature(Signature):
         elif self.notary.identity.startswith('fail'):
             raise SignatureVerificationError
 
+def _setup_gpg(context):
+    return gnupg.GPG(gnupghome=getattr(context,'gpg_home_dir',None))
 
 @register_notary_method
 class PGPNotary(Notary):
@@ -268,10 +270,15 @@ class PGPNotary(Notary):
     def sign(self,digest,timestamp,context=None):
         super(PGPNotary,self).sign(digest,timestamp)
 
-        msg = self.make_verification_message(digest,timestamp)
-        sig = b''
+        gpg = _setup_gpg(context)
 
-        return PGPSignature(notary=self,timestamp=timestamp,sig=sig)
+        msg = self.make_verification_message(digest,timestamp)
+        sig = gpg.sign(msg,detach=True,clearsign=False,binary=True,keyid=self.identity)
+
+        # FIXME: python3-gnupg seems to return clearsigned signatures no matter
+        # what. Not a big deal, they still verify, but this wastes space.
+
+        return PGPSignature(notary=self,timestamp=timestamp,sig=sig.data)
 
 
 class PGPSignatureVerificationError(SignatureVerificationError):
@@ -287,4 +294,19 @@ class PGPSignature(Signature):
         super(PGPSignature,self).__init__(**kwargs)
 
     def verify(self,digest,context=None):
+        import tempfile
+
         msg = self.notary.make_verification_message(digest,self.timestamp)
+
+        gpg = _setup_gpg(context)
+
+        # Yuck, since this is a detached sig, we have to actually put the
+        # message into a file for python3-gnupg to verify against.
+        with tempfile.NamedTemporaryFile(mode='wb+') as msg_file:
+            msg_file.write(msg)
+            msg_file.flush()
+
+            verified = gpg.verify_file(io.BytesIO(self.sig),msg_file.name)
+
+            if not verified.valid:
+                raise PGPSignatureVerificationError(verified)
