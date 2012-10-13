@@ -36,7 +36,7 @@ from . import notary
 # Digests - vertexes in DAG
 
 def register_Op(cls):
-    serialization.make_simple_object_serializer(cls,'ots.dag')
+    serialization.simple_serialized_object('ots.dag')(cls)
     return cls
 
 

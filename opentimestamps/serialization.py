@@ -707,11 +707,11 @@ class ObjectSerializer(Serializer):
 
 
 
-def make_simple_object_serializer(cls,type_name_prefix,type_name=None,get_dict_to_serialize=None):
-    """Make a simple ObjectSerializer-subclass for a class
+def simple_serialized_object(type_name_prefix,type_name=None,get_dict_to_serialize=None):
+    """Decorator for classes that need simple serialization support
 
-    Intended to cover the general case of an object where the whole __dict__ is
-    serialized.
+    Will create an appropriate ObjectSerializer-subclass to serialize your
+    class. The serialization method simply serializes the instance __dict__
 
     If type_name is not set it is taken from cls.__name__
 
@@ -721,28 +721,30 @@ def make_simple_object_serializer(cls,type_name_prefix,type_name=None,get_dict_t
     Specifying get_dict_to_serialize() will replace the generic
     get_dict_to_serialize() with your own version.
     """
-    if type_name is None:
-        type_name = type_name_prefix + '.' + cls.__name__
+    def f(cls):
+        nonlocal type_name
+        if type_name is None:
+            type_name = type_name_prefix + '.' + cls.__name__
 
-    class new_serializer(ObjectSerializer):
-        auto_serialized_classes = (cls,)
-        instantiator = cls
+        class new_serializer(ObjectSerializer):
+            auto_serialized_classes = (cls,)
+            instantiator = cls
 
-    new_serializer.type_name = type_name
+        new_serializer.type_name = type_name
 
-    if get_dict_to_serialize is not None:
-        new_serializer.get_dict_to_serialize = classmethod(get_dict_to_serialize)
+        if get_dict_to_serialize is not None:
+            new_serializer.get_dict_to_serialize = classmethod(get_dict_to_serialize)
 
-    # Set a sane name.
-    new_serializer.__name__ = '_%sSerializer' % cls.__name__
+        # Set a sane name.
+        new_serializer.__name__ = '_%sSerializer' % cls.__name__
 
-    # Module should be the module the class was defined in, not here.
-    new_serializer.__module__ = cls.__module__
+        # Module should be the module the class was defined in, not here.
+        new_serializer.__module__ = cls.__module__
 
-    register_serializer(new_serializer)
+        register_serializer(new_serializer)
 
-    return cls
-
+        return cls
+    return f
 
 
 class UnknownTypeOfSerializedObject(object):

@@ -25,14 +25,11 @@ def register_notary_method(cls):
     notary_methods_by_name[cls.method_name] = cls
     cls.validate_method_name()
 
-    serialization.make_simple_object_serializer(cls,'ots.notary')
-
-    return cls
+    return serialization.simple_serialized_object('ots.notary')(cls)
 
 
 def register_signature_class(cls):
-    serialization.make_simple_object_serializer(cls,'ots.notary')
-    return cls
+    return serialization.simple_serialized_object('ots.notary')(cls)
 
 
 class SignatureError(Exception):
