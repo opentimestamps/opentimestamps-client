@@ -106,7 +106,7 @@ class TimestampFile(BinaryHeader):
 
         assert struct.unpack('>L',in_crc32)[0] == binascii.crc32(uncompressed_bytes) & 0xffffffff
 
-        deser_fd = io.StringIO(uncompressed_bytes)
+        deser_fd = io.BytesIO(uncompressed_bytes)
 
         self.options = binary_deserialize(deser_fd)
         self.ops = binary_deserialize(deser_fd)
@@ -134,7 +134,7 @@ class TimestampFile(BinaryHeader):
 
         out_bytes.append(binary_serialize(options))
         out_bytes.append(binary_serialize(tuple(self.ops)))
-        out_bytes = ''.join(out_bytes)
+        out_bytes = b''.join(out_bytes)
 
         compressed_bytes = self.compressors_by_number[self.compression_type](out_bytes)
 
