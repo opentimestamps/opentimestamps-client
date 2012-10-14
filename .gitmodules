@@ -1,3 +1,0 @@
-[submodule "external/jsonrpclib"]
-	path = external/jsonrpclib
-	url = https://github.com/joshmarshall/jsonrpclib

@@ -18,7 +18,6 @@ import datetime
 import hashlib
 import io
 import json
-import jsonrpclib
 import os
 
 from opentimestamps._internal import FileManager
@@ -46,16 +45,12 @@ def submit_command(args):
 
     with FileManager(args.file,args.timestamp) as fm:
         file_digest = hashlib.sha256()
-        while True:
-            d = fm.in_fd.read(io.DEFAULT_BUFFER_SIZE)
-            if d == '':
-                break
-            file_digest.update(d)
+        file_digest.update(fm.in_fd.read())
         file_digest = file_digest.digest()
 
         hash_op = None
         if not args.no_nonce:
-            nonce = os.urandom(hashlib.sha256().digestsize)
+            nonce = os.urandom(hashlib.sha256().digest_size)
             hash_op = Hash(inputs=(file_digest,nonce))
         else:
             hash_op = Digest(digest=file_digest)
@@ -64,7 +59,7 @@ def submit_command(args):
         for server in args.server:
             server = OtsServer(server)
 
-            r = server.submit(hash_op)
+            r = server.post_digest(op=hash_op)
             responses.extend(r)
 
         all_ops = responses
@@ -83,11 +78,11 @@ def sign_command(args):
         notary = PGPNotary(identity=args.fingerprint)
         notary.canonicalize_identity()
 
-        child = server.get_merkle_child(notary)
+        child = server.get_merkle_child(notary=notary)
         sig = notary.sign(child.digest,int(time.time()*1000000))
 
         verify_op = Verify(inputs=(child,),signature=sig)
-        r = server.add_verification(verify_op)
+        r = server.post_verification(verify_op=verify_op)
 
         responses.append(r)
 
@@ -107,7 +102,7 @@ def complete_command(args):
             notary.canonicalize_identity()
 
             for d in timestamp_file.ops:
-                r = server.path(d,notary)
+                r = server.get_path(d,notary)
                 if r is not None:
                     new_ops.extend(r)
 
@@ -138,11 +133,7 @@ def verify_command(args):
          FileManager(args.timestamp,'-') as fm_timestamp:
 
         file_digest = hashlib.sha256()
-        while True:
-            d = fm_file.in_fd.read(io.DEFAULT_BUFFER_SIZE)
-            if d == '':
-                break
-            file_digest.update(d)
+        file_digest.update(fm_file.in_fd.read())
         file_digest = file_digest.digest()
 
         dag = Dag()
@@ -152,7 +143,7 @@ def verify_command(args):
         timestamp_file = TimestampFile(in_fd=fm_timestamp.in_fd,out_fd=None)
         timestamp_file.read()
 
-        dag.update(timestamp_file.digests)
+        dag.update(timestamp_file.ops)
 
         successful_verification = False
         for v in dag.verifications:
@@ -185,14 +176,14 @@ def getsourcecode_command(args):
     for server_url in args.server:
         server = OtsServer(server_url)
 
-        sourcecode_url = server.sourcecode()
+        sourcecode_url = server.get_sourcecode()
 
         print("%s - %s" % (server_url,sourcecode_url))
 
 
 def server_command(args):
     for server_url in args.server:
-        server = jsonrpclib.Server(server_url)
+        server = OtsServer(server_url)
 
         evald_rpc_args = [eval(rpc_arg) for rpc_arg in args.args]
 
