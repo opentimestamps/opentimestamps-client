@@ -155,10 +155,16 @@ class FileManager(object):
         self.out_mode = out_mode
 
         if not stdin:
-            stdin = sys.stdin
+            if 'b' in in_mode:
+                stdin = sys.stdin.buffer
+            else:
+                stdin = sys.stdin
         self.stdin = stdin
         if not stdout:
-            stdout = sys.stdout
+            if 'b' in out_mode:
+                stdout = sys.stdout.buffer
+            else:
+                stdout = sys.stdout
         self.stdout = stdout
 
         self.dash_for_stdinout = dash_for_stdinout
