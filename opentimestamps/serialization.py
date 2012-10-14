@@ -181,7 +181,7 @@ def register_serializer(cls):
     # classes. Bit ugly though, as we have to handle the fact that it's also a
     # forward declaration.
     try:
-        if not issubclass(cls,ObjectSerializer) or cls is ObjectSerializer:
+        if not issubclass(cls,SerializedObjectSerializer) or cls is SerializedObjectSerializer:
             serializers_by_typecode_byte[cls.typecode_byte] = cls
     except NameError:
         serializers_by_typecode_byte[cls.typecode_byte] = cls
@@ -608,74 +608,232 @@ class StrSerializer(Serializer):
 
 
 
-@register_serializer
-class ObjectSerializer(Serializer):
-    """Generic serialization method for objects
+class Digestible(object):
+    """Base class for objects with digests
 
-    Everything in the object's __dict__ will be serialized; you can override
-    this behavior with the get_dict_to_serialize() hook. On deserialization the
-    instantiator you specify will be called, and the deserialized __dict__ will
-    be passed to your instantiator as keyword arguments.
+    Digestible objects are equality tested and hashed based on their .digest
+    attribute. The digest is calculated from the attributes in
+    .all_digested_attributes, any attempt to set or delete an attribute in that
+    list after the digest has been calculated will fail.
 
-    To use this you make a subclass of ObjSerializer for the type you want
-    serialized. Example:
+    Digests are always bytes instances, no sub-classes are allowed.
 
-    class Foo(object):
-        pass
-
-    @register_object_serializer
-    class FooSerializer(ObjSerializer):
-        type_name = 'd6cd52dc-10c4-11e2-8507-6f3bd8706b74.Foo'
-        instantiator = Foo
-
-
-    Remember to follow the advice about unique type names in the docstring of
-    the opentimestamps.serialization module.
+    Use with the digestible_object_subclass decorator to setup
+    all_digested_attributes properly, including all base classes.
     """
+
+    __locked = False
+    digest = None
+    digested_attributes = frozenset()
+    all_digested_attributes = frozenset()
+
+    locked = property(lambda self: self.__locked)
+
+    def calculate_digest(self):
+        """Calculate and return the digest
+
+        This method must alway calculate the digest from scratch each time.
+
+        The default implementation is to take the values of each attribute (with getattr) in
+        .digested_attributes, add them to a dict, and binary serialize that
+        dict and the object's serialization type name. Missing attributes are
+        ignored.
+
+        As a special case, values that are isinstance(Digestible) use the
+        value's digest attribute instead of the value.
+        """
+        d = {}
+        for attr in self.all_digested_attributes:
+            try:
+                value = getattr(self,attr)
+            except AttributeError:
+                continue
+
+            if isinstance(value,Digestible):
+                if not value.__locked:
+                    raise ValueError("Can't calculate digest; attribute %s not locked." % attr)
+                value = value.digest
+            d[attr] = value
+
+        d = {auto_serializers_by_class[self.__class__].type_name:d}
+
+        return binary_serialize(d)
+
+
+
+    def lock(self):
+        """Lock the instance from any changes that would change the digest
+
+        The digest attribute is calculated and saved by lock()
+        """
+        new_digest = self.calculate_digest()
+        if not new_digest.__class__ is bytes:
+            raise TypeError('digest must be bytes; got %r instance instead.' % new_digest.__class__)
+
+        super().__setattr__('digest',new_digest)
+        self.__locked = True
+        self.__digest_hash = hash(self.digest)
+
+
+    def __setattr__(self,name,value):
+        if name == 'digest':
+            raise AttributeError("Can't set digest attribute of a Digestible instance directly.")
+        elif self.__locked and name in self.all_digested_attributes:
+            raise AttributeError("Can't set attribute; used to calculate digest and %s instance is locked." % type(self))
+        super(Digestible,self).__setattr__(name,value)
+
+    def __delattr__(self,name):
+        if name == 'digest':
+            raise AttributeError("Can't delete digest attribute from a Digestible instance.")
+        elif self.__locked and name in self.all_digested_attributes:
+            raise AttributeError("Can't delete attribute; used to calculate digest and %s instance is locked." % type(self))
+        super(Digestible,self).__delattr__(name)
+
+    def __eq__(self,other):
+        if not isinstance(other,Digestible):
+            # If we don't allow unlocked == <other type>, the order of the
+            # operands in == would change whether the test was allowed or not!
+            return False
+        else:
+            if not self.__locked or not other.__locked:
+                raise ValueError('Digestible objects can not be tested for equality until they are locked.')
+            else:
+                return self.digest == other.digest
+
+    def __hash__(self):
+        if not self.__locked:
+            raise ValueError('Digestible objects can not be hashed until they are locked')
+        return self.__digest_hash
+
+
+def digestible_object_subclass():
+    """Decorator to set all_digested_attributes, including from base classes"""
+    def f(cls):
+        if not 'digested_attributes' in cls.__dict__:
+            cls.digested_attributes = ()
+        cls.digested_attributes = frozenset(cls.digested_attributes)
+
+        # Get the set of all digested attributes
+        def walk(cls,all_attrs,defining_classes):
+            defining_classes = defining_classes.copy()
+            try:
+                attrs = cls.digested_attributes
+            except AttributeError:
+                pass
+            else:
+                for attr in cls.digested_attributes:
+                    if attr in defining_classes:
+                        raise AttributeError(\
+"Digested attribute '{}' already defined by base class {}; conflicts with definition in subclass {}"\
+.format(attr,defining_classes[attr],cls))
+                    else:
+                        defining_classes[attr] = cls
+
+                    all_attrs.add(attr)
+
+            for base_cls in cls.__bases__:
+                if issubclass(base_cls,SerializedObject):
+                    walk(base_cls,all_attrs,defining_classes)
+                else:
+                    continue
+
+        all_attrs = set()
+        walk(cls,all_attrs,{})
+        cls.all_digested_attributes = frozenset(all_attrs)
+
+        return cls
+
+    return f
+
+class SerializedObject:
+    """Serialization support for objects
+
+    Make your class a subclass of this class, and use the
+    serialized_object_subclass decorator.
+
+    On de-serialization your __init__() method is called with those attributes
+    as keyword arguments. Unknown attributes that were deserialized, but are
+    not in serialized_attributes, will not be in kwargs, but they will be saved
+    to be re-serialized later.
+
+    Unknown types of objects are also handled gracefully, and will wind up as
+    plain SerializedObject instances and can be re-serialized losslessly.
+    """
+
+    # These attributes will be serialized. It is an error to set an attribute
+    # here that is already set by a base class.
+    serialized_attributes = frozenset()
+
+    # This will be set to the union of every serialized_attribute defined in
+    # your class and all base classes by the simple_serialized_object
+    # decorator.
+    all_serialized_attributes = frozenset()
+
+    def get_dict_to_serialize(self):
+        """Return the dict to be serialized.
+
+        Default behavior is for every attribute in serialized_attributes to be
+        extracted from the instance __dict__, and any unknown attributes added
+        in. Override this if requird.
+
+        For forward compatibility missing attributes are ignored.
+        """
+
+        r = {}
+        for name in self.all_serialized_attributes:
+            try:
+                r[name] = self.__dict__[name]
+            except KeyError:
+                pass
+        try:
+            r.update(self._SerializedObject_unknown_attributes)
+        except AttributeError:
+            pass
+
+        return r
+
+    def __init__(self,**kwargs):
+        """Initialize
+
+        All keys in the keyword arguments will be setattr'd to self.
+        """
+        for name,value in kwargs.items():
+            setattr(self,name,value)
+
+
+@register_serializer
+class SerializedObjectSerializer(Serializer):
+    """The serialization method for SerializedObject subclasses"""
     type_name = 'obj'
     typecode_byte = typecodes_by_typename[type_name]
-    auto_serialized_classes = ()
+    auto_serialized_classes = (SerializedObject,)
     auto_json_deserialized_classes = ()
 
-    @classmethod
-    def _instantiator(cls,type_name=None,**kwargs):
-        """instantiator hook if you need to know the object type
-
-        Same as instantiator, however the type name is provided.
-
-        Used by the UnknownObjectSerializer; you probably don't need this.
-        """
-        return cls.instantiator(**kwargs)
-
-    @classmethod
-    def instantiator(cls,**kwargs):
-        """Called to actually instantiate the deserialized object
-
-        Just setting this to a class works, although you can further
-        customize this hook.
-        """
-        raise NotImplementedError("You need to make an ObjSerializer subclass; don't use it directly")
-
-    @classmethod
-    def get_dict_to_serialize(cls,obj):
-        """Hook to modify what exactly will be serialized
-
-        Default behavior is to just serialize the object's __dict__
-        """
-        return obj.__dict__
+    serialized_class = SerializedObject
 
     @classmethod
     def get_type_name(cls,obj):
-        """Hook to modify how the type name is determined
+        """Return the type name for the object instance
 
-        The default behavior is to use the type_name set in the objects
-        serializer class.
+        You need to change this; default is for unknown objects.
         """
-        return cls.type_name
+        return obj._SerializedObjectSerializer_type_name
+
+    @classmethod
+    def create_kwargs(cls,args_dict):
+        kwargs = {}
+        for name in cls.serialized_class.all_serialized_attributes:
+            try:
+                kwargs[name] = args_dict.pop(name)
+            except KeyError:
+                pass
+        kwargs['_SerializedObject_unknown_attributes'] = args_dict
+
+        return kwargs
 
     @classmethod
     def json_serialize(cls,obj):
-        dict_to_serialize = cls.get_dict_to_serialize(obj)
+        dict_to_serialize = obj.get_dict_to_serialize()
         return {cls.get_type_name(obj):
                     DictSerializer.json_serialize(dict_to_serialize,do_typed_object_hack=False)}
 
@@ -685,12 +843,13 @@ class ObjectSerializer(Serializer):
             type_name = cls.type_name
         cls.validate_type_name(type_name)
         args_dict = DictSerializer.json_deserialize(json_obj,do_typed_object_hack=False)
-        return cls._instantiator(type_name=type_name,**args_dict)
+        kwargs = cls.create_kwargs(args_dict)
+        return cls.serialized_class(_SerializedObjectSerializer_type_name=type_name,**kwargs)
 
     @classmethod
     def _binary_serialize(cls,obj,fd):
         StrSerializer._binary_serialize(cls.get_type_name(obj),fd)
-        dict_to_serialize = cls.get_dict_to_serialize(obj)
+        dict_to_serialize = obj.get_dict_to_serialize()
         DictSerializer._binary_serialize(dict_to_serialize,fd)
 
     @classmethod
@@ -702,38 +861,59 @@ class ObjectSerializer(Serializer):
         try:
             cls = serializers_by_type_name[type_name]
         except KeyError:
-            cls = UnknownObjectSerializer
-        return cls._instantiator(type_name=type_name,**args_dict)
+            cls = SerializedObjectSerializer
+
+        kwargs = cls.create_kwargs(args_dict)
+        return cls.serialized_class(_SerializedObjectSerializer_type_name=type_name,**kwargs)
 
 
+def serialized_object_subclass(type_name_prefix,type_name=None):
+    """Decorator to use with SerializedObjects subclasses
 
-def simple_serialized_object(type_name_prefix,type_name=None,get_dict_to_serialize=None):
-    """Decorator for classes that need simple serialization support
-
-    Will create an appropriate ObjectSerializer-subclass to serialize your
-    class. The serialization method simply serializes the instance __dict__
-
-    If type_name is not set it is taken from cls.__name__
-
-    The actual type name will be set to type_name_prefix + '.' + type_name; the
-    prefix must be provided.
-
-    Specifying get_dict_to_serialize() will replace the generic
-    get_dict_to_serialize() with your own version.
+    The type name will be set to type_name_prefix + '.' + cls.__name__
     """
     def f(cls):
+        if not 'serialized_attributes' in cls.__dict__:
+            cls.serialized_attributes = ()
+        cls.serialized_attributes = frozenset(cls.serialized_attributes)
+
+        # Get the set of all serialized attributes
+        def walk(cls,all_attrs,defining_classes):
+            defining_classes = defining_classes.copy()
+            for attr in cls.serialized_attributes:
+                if attr in defining_classes:
+                    raise AttributeError(\
+"Serialized attribute '{}' already defined by base class {}; conflicts with definition in subclass {}"\
+.format(attr,defining_classes[attr],cls))
+                else:
+                    defining_classes[attr] = cls
+
+                all_attrs.add(attr)
+
+            for base_cls in cls.__bases__:
+                if issubclass(base_cls,SerializedObject):
+                    walk(base_cls,all_attrs,defining_classes)
+                else:
+                    continue
+
+        all_attrs = set()
+        walk(cls,all_attrs,{})
+        cls.all_serialized_attributes = frozenset(all_attrs)
+
         nonlocal type_name
         if type_name is None:
             type_name = type_name_prefix + '.' + cls.__name__
 
-        class new_serializer(ObjectSerializer):
+        class new_serializer(SerializedObjectSerializer):
+            @classmethod
+            def get_type_name(serializer_cls,obj):
+                return type_name
+
+            get_dict_to_serialize = cls.get_dict_to_serialize 
             auto_serialized_classes = (cls,)
-            instantiator = cls
+            serialized_class = cls
 
         new_serializer.type_name = type_name
-
-        if get_dict_to_serialize is not None:
-            new_serializer.get_dict_to_serialize = classmethod(get_dict_to_serialize)
 
         # Set a sane name.
         new_serializer.__name__ = '_%sSerializer' % cls.__name__
@@ -747,39 +927,22 @@ def simple_serialized_object(type_name_prefix,type_name=None,get_dict_to_seriali
     return f
 
 
-class UnknownTypeOfSerializedObject(object):
-    """Holder for serialized objects with unknown types"""
-    def __init__(self,**kwargs):
-        self.__dict__.update(kwargs)
+class DigestibleSerializedObject(SerializedObject,Digestible):
+    """A serialized object that is digestible"""
+    serialized_attributes = frozenset()
+    def __init__(self,digest=None,**kwargs):
+        super().__init__(**kwargs)
 
-    def __eq__(self,other):
-        return self.__class__ is other.__class__ and self.__dict__ == other.__dict__
+def digestible_serialized_object_subclass(*args,**kwargs):
+    """Decorator to use with DigestibleSerializedObjects subclasses
 
-    def __repr__(self):
-        args_str = ','.join(
-                tuple(('%s=%r'%(attr,self.__dict__[attr]) for attr in sorted(self.__dict__.keys()))))
-        return '%s(%s)' % (self.__class__.__name__,args_str)
-
-
-@register_serializer
-class UnknownObjectSerializer(ObjectSerializer):
-    instantiator = None
-    auto_serialized_classes = {}
-
-    @classmethod
-    def _instantiator(cls,type_name=None,**kwargs):
-        cls.validate_type_name(type_name)
-        return UnknownTypeOfSerializedObject(_ots_unknown_obj_type_name=type_name,**kwargs)
-
-    @classmethod
-    def get_dict_to_serialize(cls,obj):
-        d = obj.__dict__.copy()
-        d.pop('_ots_unknown_obj_type_name')
-        return d
-
-    @classmethod
-    def get_type_name(cls,obj):
-        return obj._ots_unknown_obj_type_name
+    Applies both the appropriate decorators.
+    """
+    def f(cls):
+        cls = serialized_object_subclass(*args,**kwargs)(cls)
+        cls = digestible_object_subclass()(cls)
+        return cls
+    return f
 
 
 class JsonTypedObjectSerializer(Serializer):
@@ -810,12 +973,12 @@ class JsonTypedObjectSerializer(Serializer):
         try:
             serializer_cls = serializers_by_type_name[type_name]
         except KeyError:
-            serializer_cls = UnknownObjectSerializer
+            serializer_cls = SerializedObjectSerializer
 
         if serializer_cls is DictSerializer:
             # Don't apply the hack recursively.
             return serializer_cls.json_deserialize(json_obj[type_name],do_typed_object_hack=False)
-        elif serializer_cls is UnknownObjectSerializer:
+        elif serializer_cls is SerializedObjectSerializer:
             return serializer_cls.json_deserialize(json_obj[type_name],type_name=type_name)
         else:
             return serializer_cls.json_deserialize(json_obj[type_name])
@@ -965,114 +1128,3 @@ class ListSerializer(Serializer):
             if obj[-1] is _list_end_marker:
                 obj.pop()
                 return obj
-
-class ObjectWithDictEquality(object):
-    """Class where equality is compared by the contents of __dict__
-
-    If your object is serializable via the generic ObjectSerializable
-    mechanism, this is true.
-    """
-
-    def __eq__(self,other):
-        return self.__class__ is other.__class__ and self.__dict__ == other.__dict__
-
-    def __hash__(self):
-        # FIXME: ObjectWithDictEquality really needs to be extended to
-        # "SerializableObject" or something, ideally with digests and locking
-        # via __setattr__
-        return hash(binary_serialize(self))
-
-
-class Digestible(object):
-    """Base class for objects with digests
-
-    Digestible objects are equality tested and hashed based on their .digest
-    attribute. The digest is calculated from the attributes in
-    .digested_attributes, any attempt to set or delete an attribute in that
-    list after the digest has been calculated will fail.
-
-    Digests are always bytes instances, no sub-classes are allowed.
-    """
-
-    __locked = False
-    digest = None
-    digested_attributes = ()
-
-    locked = property(lambda self: self.__locked)
-
-    def calculate_digest(self):
-        """Calculate and return the digest
-
-        This method must alway calculate the digest from scratch each time.
-
-        The default implementation is to take the values of each attribute (with getattr) in
-        .digested_attributes, add them to a dict, and binary serialize that
-        dict and the object's serialization type name. Missing attributes are
-        ignored.
-
-        As a special case, values that are isinstance(Digestible) use the
-        value's digest attribute instead of the value.
-        """
-        d = {}
-        for attr in self.digested_attributes:
-            try:
-                value = getattr(self,attr)
-            except AttributeError:
-                continue
-
-            if isinstance(value,Digestible):
-                if not value.__locked:
-                    raise ValueError("Can't calculate digest; attribute %s not locked." % attr)
-                value = value.digest
-            d[attr] = value
-
-        d = {auto_serializers_by_class[self.__class__].type_name:d}
-
-        return binary_serialize(d)
-
-
-
-    def lock(self):
-        """Lock the instance from any changes that would change the digest
-
-        The digest attribute is calculated and saved by lock()
-        """
-        new_digest = self.calculate_digest()
-        if not new_digest.__class__ is bytes:
-            raise TypeError('digest must be bytes; got %r instance instead.' % new_digest.__class__)
-
-        super().__setattr__('digest',new_digest)
-        self.__locked = True
-        self.__digest_hash = hash(self.digest)
-
-
-    def __setattr__(self,name,value):
-        if name == 'digest':
-            raise AttributeError("Can't set digest attribute of a Digestible instance directly.")
-        elif self.__locked and name in self.digested_attributes:
-            raise AttributeError("Can't set attribute; used to calculate digest and %s instance is locked." % type(self))
-        super(Digestible,self).__setattr__(name,value)
-
-    def __delattr__(self,name):
-        if name == 'digest':
-            raise AttributeError("Can't delete digest attribute from a Digestible instance.")
-        elif self.__locked and name in self.digested_attributes:
-            raise AttributeError("Can't delete attribute; used to calculate digest and %s instance is locked." % type(self))
-        super(Digestible,self).__delattr__(name)
-
-    def __eq__(self,other):
-        if not isinstance(other,Digestible):
-            # If we don't allow unlocked == <other type>, the order of the
-            # operands in == would change whether the test was allowed or not!
-            return False
-        else:
-            if not self.__locked or not other.__locked:
-                raise ValueError('Digestible objects can not be tested for equality until they are locked.')
-            else:
-                return self.digest == other.digest
-
-
-    def __hash__(self):
-        if not self.__locked:
-            raise ValueError('Digestible objects can not be hashed until they are locked')
-        return self.__digest_hash

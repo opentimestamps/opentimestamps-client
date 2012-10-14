@@ -36,11 +36,12 @@ from . import notary
 # Digests - vertexes in DAG
 
 def register_Op(cls):
-    serialization.simple_serialized_object('ots.dag')(cls)
+    cls.digested_attributes = cls.op_arguments
+    serialization.digestible_serialized_object_subclass('ots.dag')(cls)
     return cls
 
 
-class Op(object):
+class Op(serialization.DigestibleSerializedObject):
     """Base class for operations
 
     Attributes
@@ -73,10 +74,11 @@ class Op(object):
     implementation. isinstance(Op) and so on is guaranteed to work.
     """
     op_name = 'Op'
-    op_arguments = ('digest','inputs',)
+    op_arguments = ('inputs',)
+    serialized_attributes = ('digest','inputs')
 
     def __init__(self,inputs=(),digest=None,**kwargs):
-        self.__dict__.update(kwargs)
+        super().__init__(**kwargs)
 
         normalized_inputs = []
         for i in inputs:
@@ -86,46 +88,10 @@ class Op(object):
                 normalized_inputs.append(i)
         self.inputs = tuple(normalized_inputs)
 
-        # Want to be sure that digest hasn't been set until now, because
-        # otherwise __hash__() can silently return garbage and corrupt things
-        # like set() memberships.
-        assert not hasattr(self,'digest')
+        self.lock()
 
-        self.digest = digest
-        if self.digest is None:
-            self.digest = self.calculate_digest()
-        else:
-            assert self.digest == self.calculate_digest()
-
-
-    def calculate_digest(self):
-        """Calculate the digest
-
-        This method will always calculate the digest from scratch based on the
-        inputs and operation arguments.
-        """
-        # FIXME: we shouldn't be doing this...
-        return self.digest
-
-
-    def __eq__(self,other):
-        """Equality comparison.
-
-        Equality is defined by the digests, nothing else. Even different
-        sub-classes will compare equal if their digests are equal.
-        """
-        # It'd be cute to define < and > as which operation is most complex...
-        try:
-            if isinstance(other,Op):
-                return self.digest == other.digest
-            else:
-                return False
-        except AttributeError:
-            return False
-
-
-    def __hash__(self):
-        return hash(self.digest)
+        if digest is not None and self.digest != digest:
+            assert False
 
 
     def __repr__(self):
@@ -145,8 +111,12 @@ Op = register_Op(Op)
 class Digest(Op):
     op_name = 'Digest'
     op_arguments = ()
+    serialized_attributes = ()
 
-    def __init__(self,digest=None,inputs=()):
+    def calculate_digest(self):
+        return self.__fixed_digest
+
+    def __init__(self,digest=None,inputs=(),**kwargs):
         if digest is None:
             raise ValueError('Must specify digest value')
         elif isinstance(digest,bytes):
@@ -159,14 +129,15 @@ class Digest(Op):
         if len(inputs) > 0:
             raise ValueError("Digest Op's can not have inputs")
 
-        super(Digest,self).__init__(digest=digest,inputs=inputs)
-
+        self.__fixed_digest = digest
+        super().__init__(digest=digest,inputs=inputs,**kwargs)
 
 
 @register_Op
 class Hash(Op):
     op_name = 'Hash'
     op_arguments = ('algorithm',)
+    serialized_attributes = ('algorithm',)
 
     def __init__(self,algorithm='sha256',**kwargs):
         if algorithm not in ('sha256','sha1','sha512','crc32'):
@@ -217,6 +188,7 @@ def time_from_timestamp(t):
 class Verify(Op):
     op_name = 'Verify'
     op_arguments = ('signature',)
+    serialized_attributes = ('signature',)
 
     def __init__(self,
             inputs=(),

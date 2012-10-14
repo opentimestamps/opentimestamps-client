@@ -25,11 +25,15 @@ def register_notary_method(cls):
     notary_methods_by_name[cls.method_name] = cls
     cls.validate_method_name()
 
-    return serialization.simple_serialized_object('ots.notary')(cls)
+    try:
+        cls.digested_attributes = cls.__dict__['serialized_attributes']
+    except KeyError:
+        pass
+    return serialization.digestible_serialized_object_subclass('ots.notary')(cls)
 
 
 def register_signature_class(cls):
-    return serialization.simple_serialized_object('ots.notary')(cls)
+    return serialization.digestible_serialized_object_subclass('ots.notary')(cls)
 
 
 class SignatureError(Exception):
@@ -41,7 +45,7 @@ class SignatureVerificationError(SignatureError):
 
 
 @register_notary_method
-class Notary(serialization.ObjectWithDictEquality):
+class Notary(serialization.DigestibleSerializedObject):
     """Notary base class"""
 
     method_name = '_null'
@@ -56,6 +60,8 @@ class Notary(serialization.ObjectWithDictEquality):
 
     identity_regex = '^([A-Za-z0-9\@\:\-\_ ]*|\*)$'
     identity_re = re.compile(identity_regex)
+
+    serialized_attributes = ('method','identity','version')
 
     @classmethod
     def validate_method_name(cls,method_name=None):
@@ -119,10 +125,18 @@ class Notary(serialization.ObjectWithDictEquality):
         self.identity = str(identity)
         self.validate_method_identity(self.identity)
 
+        # Locking now lets serialization/deserialization work, yet still allows
+        # you to create a notary with a non-canonical name and have the
+        # instance do the canonicalization.
+        try:
+            self.validate_canonical_identity(self.identity)
+        except ValueError:
+            pass
+        else:
+            self.lock()
 
     def canonicalize_identity(self):
         self.validate_canonical_identity(self.identity)
-
 
     def canonicalized(self):
         try:
@@ -142,8 +156,10 @@ class Notary(serialization.ObjectWithDictEquality):
 
 
 @register_signature_class
-class Signature(serialization.ObjectWithDictEquality):
+class Signature(serialization.SerializedObject):
     """The signature a notary produces"""
+
+    serialized_attributes = ('timestamp','notary')
 
     expected_notary_class = Notary
     def __init__(self,notary=Notary(),timestamp=0,**kwargs):
@@ -286,6 +302,8 @@ class PGPSignatureVerificationError(SignatureVerificationError):
 
 @register_signature_class
 class PGPSignature(Signature):
+    serialized_attributes = ('sig',)
+
     expected_notary_class = PGPNotary
     def __init__(self,**kwargs):
         super(PGPSignature,self).__init__(**kwargs)

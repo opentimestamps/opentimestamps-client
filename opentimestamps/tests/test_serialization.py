@@ -13,9 +13,10 @@
 
 from opentimestamps.serialization import *
 
-import unittest
+from copy import copy
 import io
 import json
+import unittest
 
 def make_json_round_trip_tester(self):
     def r(value,expected_representation,new_value=None):
@@ -265,82 +266,6 @@ class TestStrSerialization(unittest.TestCase):
             binary_serialize('foo \u0000')
 
 
-class TestObjectSerializer(unittest.TestCase):
-    def test_custom_object_serializer(self):
-        rj = make_json_round_trip_tester(self)
-        rb = make_binary_round_trip_tester(self)
-
-        class Foo(object):
-            def __init__(iself,*args,**kwargs):
-                self.assertTrue(len(args) == 0)
-                iself.__dict__.update(kwargs)
-
-            def __eq__(self,other):
-                return self.__dict__ == other.__dict__ and self.__class__ is other.__class__
-
-        @register_serializer
-        class FooSerializer(ObjectSerializer):
-            instantiator = Foo
-            auto_serialized_classes = (Foo,)
-            type_name = 'test.Foo'
-
-
-        f = Foo()
-        rj(f,{'test.Foo':{}},f)
-
-        f.bar = 1
-        rj(f,{'test.Foo':{'bar':1}},f)
-
-        f2 = Foo()
-        f.f2 = f2
-        rj(f,{'test.Foo':{'bar':1,'f2':{'test.Foo':{}}}},f)
-
-        rb(f,b'\t\x08test.Foo\x03bar\x02\x02\x02f2\t\x08test.Foo\x00\x00',f)
-
-
-    def test_invalid_type_names(self):
-        with self.assertRaises(SerializationTypeNameInvalidError):
-            json_deserialize({'*':{}})
-
-        with self.assertRaises(SerializationTypeNameInvalidError):
-            json_deserialize({None:{}})
-
-        with self.assertRaises(SerializationTypeNameInvalidError):
-            # Empty type name
-            binary_deserialize(b'\t\x00\x00')
-
-        with self.assertRaises(SerializationTypeNameInvalidError):
-            # Invalid character in type name
-            binary_deserialize(b'\t\x01*\x00')
-
-
-    def test_deserializing_unknown_object_types(self):
-        def rj(json_obj,expected_obj):
-            actual_obj = json_deserialize(json_obj)
-            self.assertEqual(actual_obj,expected_obj)
-
-        def rb(serialized_representation,expected_obj):
-            actual_obj = binary_deserialize(serialized_representation)
-            self.assertEqual(actual_obj,expected_obj)
-
-        rj({'unknown.foo':{}},UnknownTypeOfSerializedObject(_ots_unknown_obj_type_name='unknown.foo'))
-        rj({'unknown.foo':{'foo':10,'bar':None}},
-                UnknownTypeOfSerializedObject(_ots_unknown_obj_type_name='unknown.foo',bar=None,foo=10))
-
-        rb(b'\t\x0bunknown.foo\x00',
-            UnknownTypeOfSerializedObject(_ots_unknown_obj_type_name='unknown.foo'))
-
-
-    def test_unknown_object_sane_repr(self):
-        """Make sure UnknownTypeOfSerializedObject has a sane repr()"""
-        o = json_deserialize({'unknown.foo':{}})
-        self.assertEqual(repr(o),"UnknownTypeOfSerializedObject(_ots_unknown_obj_type_name='unknown.foo')")
-        o.foo = 10
-        o.bar = None
-        self.assertEqual(repr(o),
-                "UnknownTypeOfSerializedObject(_ots_unknown_obj_type_name='unknown.foo',bar=None,foo=10)")
-
-
 class TestJsonTypedObjectSerializer(unittest.TestCase):
     def test_typed_json_syntax_for_basic_types(self):
         def r(obj_in,expected_json,expected_out):
@@ -432,25 +357,167 @@ class TestListSerialization(unittest.TestCase):
         r(iter([None for i in range(0,128)]),b'\x07' + b'\x00'*128 + b'\x08',list(None for i in range(0,128)))
 
 
-@simple_serialized_object('TestDigestible')
-class DigestibleFoo(Digestible):
+@serialized_object_subclass('TestSerializedObject')
+class SerializedClass(SerializedObject):
+    serialized_attributes = ('class1',)
+
+    def __init__(self,*args,**kwargs):
+        self.args = copy(args)
+        self.kwargs = copy(kwargs)
+        super().__init__(**kwargs)
+
+@serialized_object_subclass('TestSerializedObject')
+class SerializedSubClass1(SerializedClass):
+    serialized_attributes = ('subclass1',)
+
+@serialized_object_subclass('TestSerializedObject')
+class SerializedSubClass2(SerializedClass):
+    serialized_attributes = ('subclass2',)
+
+@serialized_object_subclass('TestSerializedObject')
+class SerializedMultiple(SerializedSubClass1,SerializedSubClass2):
+    serialized_attributes = ('multiple',)
+
+class TestSerializedObject(unittest.TestCase):
+    def test_single_class(self):
+        self.assertSetEqual(SerializedClass.all_serialized_attributes,set(('class1',)))
+
+    def test_subclasses(self):
+        self.assertSetEqual(SerializedSubClass1.all_serialized_attributes,set(('class1','subclass1')))
+        self.assertSetEqual(SerializedSubClass2.all_serialized_attributes,set(('class1','subclass2')))
+
+    def test_diamond_inheritence(self):
+        self.assertSetEqual(\
+            SerializedMultiple.all_serialized_attributes,
+            set(('class1','subclass1','subclass2','multiple')))
+
+    def test_setting_conflicting_serialized_attributes_fails(self):
+        with self.assertRaises(AttributeError):
+            class Conflicts1(SerializedClass):
+                serialized_attributes = ('class1',)
+            serialized_object_subclass('TestSerializedObject')(Conflicts1)
+
+        with self.assertRaises(AttributeError):
+            class Conflicts2(SerializedSubClass1):
+                serialized_attributes = ('class1',)
+            serialized_object_subclass('TestSerializedObject')(Conflicts2)
+
+    def test_serialization_deserialization(self):
+        m = SerializedMultiple()
+
+        self.assertEqual(
+                json_serialize(m),
+                {'TestSerializedObject.SerializedMultiple': {}})
+
+        m.multiple = 'multi'
+        self.assertEqual(
+                json_serialize(m),
+                {'TestSerializedObject.SerializedMultiple': {'multiple':'multi'}})
+
+        m.class1 = 'class1'
+        self.assertEqual(
+                json_serialize(m),
+                {'TestSerializedObject.SerializedMultiple':
+                    {'class1':'class1',
+                     'multiple':'multi'}})
+
+        m.subclass1 = 1
+        self.assertEqual(
+                json_serialize(m),
+                {'TestSerializedObject.SerializedMultiple':
+                    {'class1':'class1',
+                     'multiple':'multi',
+                     'subclass1':1}})
+
+        m.subclass2 = 2
+        self.assertEqual(
+                json_serialize(m),
+                {'TestSerializedObject.SerializedMultiple':
+                    {'class1':'class1',
+                     'multiple':'multi',
+                     'subclass1':1,
+                     'subclass2':2}})
+
+        m.not_serialized = 'foo'
+        self.assertEqual(
+                json_serialize(m),
+                {'TestSerializedObject.SerializedMultiple': 
+                    {'class1':'class1',
+                     'multiple':'multi',
+                     'subclass1':1,
+                     'subclass2':2}})
+
+        m2 = json_deserialize(json_serialize(m))
+        self.assertEqual(
+                json_serialize(m),
+                {'TestSerializedObject.SerializedMultiple':
+                    {'class1':'class1',
+                     'multiple':'multi',
+                     'subclass1':1,
+                     'subclass2':2}})
+
+    def test_unknown_attributes_are_kept_out_of_kwargs(self):
+        obj = json_deserialize({'TestSerializedObject.SerializedClass': {'unknown':None}})
+
+        self.assertEqual(
+                obj.kwargs,
+                {'_SerializedObject_unknown_attributes': {'unknown': None},
+                 '_SerializedObjectSerializer_type_name': 'TestSerializedObject.SerializedClass'})
+
+    def test_invalid_type_names(self):
+        with self.assertRaises(SerializationTypeNameInvalidError):
+            json_deserialize({'*':{}})
+
+        with self.assertRaises(SerializationTypeNameInvalidError):
+            json_deserialize({None:{}})
+
+        with self.assertRaises(SerializationTypeNameInvalidError):
+            # Empty type name
+            binary_deserialize(b'\t\x00\x00')
+
+        with self.assertRaises(SerializationTypeNameInvalidError):
+            # Invalid character in type name
+            binary_deserialize(b'\t\x01*\x00')
+
+
+    def test_deserializing_unknown_object_types(self):
+        def rj(json_obj):
+            actual_obj = json_deserialize(json_obj)
+            json_obj2 = json_serialize(actual_obj)
+            self.assertEqual(json_obj,json_obj2)
+
+        def rb(binary_obj):
+            actual_obj = binary_deserialize(binary_obj)
+            binary_obj2 = binary_serialize(actual_obj)
+            self.assertEqual(binary_obj,binary_obj2)
+
+        rj({'unknown.foo':{}})
+
+        rj({'unknown.foo':{'foo':10,'bar':None}})
+
+        rb(b'\t\x0bunknown.foo\x00')
+
+
+
+@digestible_serialized_object_subclass('TestDigestible')
+class DigestibleFoo(DigestibleSerializedObject):
     digested_attributes = ('digested',)
 
 # Two different digestible classes, but they always produce the same digest!
-@simple_serialized_object('TestDigestible')
-class DigestibleSameDigest1(Digestible):
+@digestible_serialized_object_subclass('TestDigestible')
+class DigestibleSameDigest1(DigestibleSerializedObject):
     digested_attributes = ('digested',)
     def calculate_digest(self):
         return b'groundhog day'
 
-@simple_serialized_object('TestDigestible')
-class DigestibleSameDigest2(Digestible):
+@digestible_serialized_object_subclass('TestDigestible')
+class DigestibleSameDigest2(DigestibleSerializedObject):
     digested_attributes = ('digested',)
     def calculate_digest(self):
         return b'groundhog day'
 
-@simple_serialized_object('TestDigestible')
-class DigestibleMutatableDigest(Digestible):
+@digestible_serialized_object_subclass('TestDigestible')
+class DigestibleMutatableDigest(DigestibleSerializedObject):
     digested_attributes = ('digested',)
     def calculate_digest(self):
         return self.mutatable_digest
