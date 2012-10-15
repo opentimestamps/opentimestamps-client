@@ -524,6 +524,18 @@ class Dag(set):
 
         return None
 
+    def children(self,parents,all_children=None):
+        """Find all children of a set of parents"""
+        if all_children is None:
+            all_children = set()
+
+        for parent in parents:
+            not_yet_visited = self.dependents[parent].difference(all_children)
+            all_children.update(not_yet_visited)
+            self.children(not_yet_visited,all_children)
+
+        return all_children
+
 
 def build_merkle_tree(parents,algorithm=None,_accumulator=None):
     """Build a merkle tree
