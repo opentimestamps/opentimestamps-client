@@ -644,6 +644,37 @@ class TestDigestible(unittest.TestCase):
         b3.lock()
         self.assertNotEqual(a,b3)
 
+    def test_order_comparison(self):
+        a = DigestibleMutatableDigest()
+        a.mutatable_digest = b'a'
+        a.lock()
+
+        b = DigestibleMutatableDigest()
+        b.mutatable_digest = b'b'
+        b.lock()
+
+        self.assertTrue(a <= a)
+        self.assertTrue(a <= b)
+        self.assertTrue(a < b)
+        self.assertTrue(b > a)
+        self.assertTrue(b >= a)
+        self.assertTrue(b >= b)
+
+        a = DigestibleMutatableDigest()
+        a.mutatable_digest = b'aa'
+        a.lock()
+
+        b = DigestibleMutatableDigest()
+        b.mutatable_digest = b'bb'
+        b.lock()
+
+        self.assertTrue(a <= a)
+        self.assertTrue(a <= b)
+        self.assertTrue(a < b)
+        self.assertTrue(b > a)
+        self.assertTrue(b >= a)
+        self.assertTrue(b >= b)
+
 
     def test_hashing(self):
         a = DigestibleFoo()

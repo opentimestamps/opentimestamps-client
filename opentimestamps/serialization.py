@@ -606,14 +606,14 @@ class StrSerializer(Serializer):
         obj_utf8 = BytesSerializer._binary_deserialize(fd)
         return obj_utf8.decode('utf8')
 
-
-
+import functools
+@functools.total_ordering
 class Digestible(object):
     """Base class for objects with digests
 
-    Digestible objects are equality tested and hashed based on their .digest
-    attribute. The digest is calculated from the attributes in
-    .all_digested_attributes, any attempt to set or delete an attribute in that
+    Digestible objects are equality tested, ordered, and hashed based on their
+    digest attribute. The digest is calculated from the attributes in
+    all_digested_attributes. Any attempt to set or delete an attribute in that
     list after the digest has been calculated will fail.
 
     Digests are always bytes instances, no sub-classes are allowed.
@@ -699,6 +699,16 @@ class Digestible(object):
                 raise ValueError('Digestible objects can not be tested for equality until they are locked.')
             else:
                 return self.digest == other.digest
+
+    def __lt__(self,other):
+        if not isinstance(other,Digestible):
+            return NotImplemented
+        else:
+            if not self.__locked or not other.__locked:
+                raise ValueError('Digestible objects are unordered until they are locked.')
+            else:
+                return self.digest < other.digest
+
 
     def __hash__(self):
         if not self.__locked:
