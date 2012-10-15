@@ -10,7 +10,7 @@
 # in the LICENSE file.
 
 # Standard python version
-__version__ = '0.0'
+__version__ = '0.1'
 
 # Perhaps a bit overkill, but given that this is cryptographic software, where
 # any bugs will render the resulting timestamps totally invalid, it's probably
