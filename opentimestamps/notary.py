@@ -153,6 +153,8 @@ class Notary(serialization.DigestibleSerializedObject):
         """
         self.canonicalize_identity()
 
+    def __str__(self):
+        return '{}:{}'.format(self.method,self.identity)
 
 
 @register_signature_class
@@ -181,6 +183,8 @@ class Signature(serialization.SerializedObject):
 
         self.__dict__.update(kwargs)
 
+    def __str__(self):
+        return "Signature(timestamp={},notary='{}')".format(self.timestamp,self.notary)
 
     def verify(self,digest):
         """Verify a digest"""
