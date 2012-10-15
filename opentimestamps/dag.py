@@ -36,48 +36,88 @@ from . import notary
 # Digests - vertexes in DAG
 
 def register_Op(cls):
-    cls.digested_attributes = cls.op_arguments
     serialization.digestible_serialized_object_subclass('ots.dag')(cls)
     return cls
+
+@serialization.serialized_object_subclass('ots.dag')
+class OpMetadata(serialization.SerializedObject):
+    """Metadata about an operation.
+
+    Any key may be present, but is not required to be present.
+
+    Standard keys
+    -------------
+
+    expiry - The time after which the server expects to no longer have a record
+             of this operation.
+
+    retry  - A mapping of notary specifications to times (integer UNIX time) at
+             which the server expects to have a new signature by that notary.
+             Entries may be deleted by the client without triggering any kind
+             of error.
+
+    uuid   - The unique identifier for the particular calendar the server can
+             find this operation in. Must be universally unique; just use a
+             UUID stored as bytes..
+
+    Server-defined keys must start with a single underscore to prevent
+    namespace clashes.
+    """
+    # FIXME: that _* stuff shouldn't be there... added for MerkleDag until we
+    # get a better system for handling subclasses of serialized objects.
+    serialized_attributes = ('expiry','retry','uuid','_idx','_tips_len')
+
+    def __init__(self,expiry=None,retry=None,**kwargs):
+        if expiry is not None:
+            kwargs['expiry'] = expiry
+            assert isinstance(expiry,int)
+
+        if retry is not None:
+            kwargs['retry'] = retry
+            for k,v in retry.items():
+                assert isinstance(k,str)
+                assert isinstance(v,int)
+
+        super().__init__(**kwargs)
+
 
 
 class Op(serialization.DigestibleSerializedObject):
     """Base class for operations
 
-    Attributes
-    ----------
+    inputs   - List of digests this operation depends on.
+    digest   - Output digest of this operation.
+    metadata - Dict of urls to OpMetadata.
 
-    inputs - Immutable ordered set of references to the digests this operation
-             depends on. Op() in Op().inputs will be implemented efficiently.
-             Note that a two-element tuple is an efficient implementation.
-
-    digest - Immutable bytes of the output digest.
-
-    op_arguments - List of other immutable arguments this Operation depends on.
-
-    Op-subclass instances may have other attributes, but if they aren't in
-    op_arguments, they're not considered in equality testing between instances.
-    Of course, since .digest depends on the arguments, equality testing reduces
-    to a.digest == b.digest
-
-    Equality testing
-    ----------------
-
-    Op-subclass instances are considered equal if their .digests are equal.
-    This is true even if they aren't even the same sub-class.
-
-
-    Proxies
-    -------
-
-    Op-subclass instances may be proxied. This is useful in the server dag
-    implementation. isinstance(Op) and so on is guaranteed to work.
+    The metadata is meant to give a place for servers to put metadata about
+    what *they* know about an operation. An OTS client will accept a server's
+    modified OpMetadata for the server url, and similarly will provide the
+    server with the metadata associated with their url. The client however has
+    the option of not providing metadata set by other servers.
     """
     op_name = 'Op'
-    op_arguments = ('inputs',)
-    serialized_attributes = ('digest','inputs')
+    digested_attributes = ('inputs',)
+    serialized_attributes = ('digest','inputs','metadata')
 
-    def __init__(self,inputs=(),digest=None,**kwargs):
+    def get_dict_to_serialize(self):
+        d = super().get_dict_to_serialize()
+
+        # Delete empty metadata before serialization; most Op's aren't going to
+        # have metadata.
+        if not d['metadata']:
+            d.pop('metadata')
+        return d
+
+
+    def __init__(self,inputs=(),digest=None,metadata=None,**kwargs):
+        if metadata is None:
+            metadata = {}
+
+        for k,v in metadata.items():
+            assert isinstance(k,str)
+            assert isinstance(v,OpMetadata)
+        self.metadata = metadata
+
         super().__init__(**kwargs)
 
         normalized_inputs = []
@@ -93,7 +133,6 @@ class Op(serialization.DigestibleSerializedObject):
         if digest is not None and self.digest != digest:
             assert False
 
-
     def __repr__(self):
         return '%s(<%s>)' % (self.__class__.__name__,binascii.hexlify(self.digest[0:8]))
 
@@ -104,7 +143,7 @@ Op = register_Op(Op)
 @register_Op
 class Digest(Op):
     op_name = 'Digest'
-    op_arguments = ()
+    digested_attributes = ()
     serialized_attributes = ()
 
     def calculate_digest(self):
@@ -130,7 +169,7 @@ class Digest(Op):
 @register_Op
 class Hash(Op):
     op_name = 'Hash'
-    op_arguments = ('algorithm',)
+    digested_attributes = ('algorithm',)
     serialized_attributes = ('algorithm',)
 
     def __init__(self,algorithm='sha256',**kwargs):
@@ -181,7 +220,7 @@ def time_from_timestamp(t):
 @register_Op
 class Verify(Op):
     op_name = 'Verify'
-    op_arguments = ('signature',)
+    digested_attributes = ('signature',)
     serialized_attributes = ('signature',)
 
     def __init__(self,
@@ -202,7 +241,6 @@ class Verify(Op):
 
     def verify(self):
         raise TypeError("Can't verify; unknown notary method %s" % self.notary_method)
-
 
 
 class DigestDependents(set):
@@ -484,7 +522,7 @@ class Dag(set):
         start - digest, can be outside the dag, provided an operation in the
                 dag has the digest as one of its inputs. 
 
-        dest  - Either a digest or a NotarySpecification
+        dest  - Either a digest or a Notary
 
         The returned path includes the destination, and every operation needed
         to recalculate the destination. Note that if the destination matches
