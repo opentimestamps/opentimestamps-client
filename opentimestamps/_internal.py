@@ -96,9 +96,9 @@ class BinaryHeader(object):
 
         # test magic and version
         if hdr['header_magic_bytes'] != self.header_magic_bytes:
-            raise UnknownFileTypeError('Unknown file type')
+            raise self.UnknownFileTypeError('Unknown file type')
         if hdr['major_version'] != self.major_version:
-            raise VersionError('Version %d.%d is not supported' % (hdr['major_version'],hdr['minor_version']))
+            raise self.VersionError('Version %d.%d is not supported' % (hdr['major_version'],hdr['minor_version']))
 
         self.__dict__.update(hdr)
 
