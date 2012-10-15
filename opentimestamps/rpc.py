@@ -10,6 +10,7 @@
 # in the LICENSE file.
 
 import json
+import logging
 import urllib.error
 import urllib.request
 from urllib.parse import quote_plus,unquote_plus,urlencode
@@ -44,11 +45,9 @@ class OtsServer:
 
                 try:
                     with urllib.request.urlopen(self.url + '/' + name + args + kwargs) as r:
-                        print(r.geturl())
-                        print(r.info())
                         return json_deserialize(json.loads(str(r.read(),'utf8')))
                 except urllib.error.HTTPError as ex:
-                    print(str(ex.read(),'utf8'))
+                    logging.error(str(ex.read(),'utf8'))
                     raise ex
             fn = get_fn
         elif name.startswith('post_'):
@@ -65,11 +64,9 @@ class OtsServer:
 
                 try:
                     with urllib.request.urlopen(self.url + '/' + name + args,data=kwargs) as r:
-                        print(r.geturl())
-                        print(r.info())
                         return json_deserialize(json.loads(str(r.read(),'utf8')))
                 except urllib.error.HTTPError as ex:
-                    print(str(ex.read(),'utf8'))
+                    logging.error(str(ex.read(),'utf8'))
                     raise ex
             fn = post_fn
         else:
