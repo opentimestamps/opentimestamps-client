@@ -28,7 +28,7 @@ class TimestampFile(BinaryHeader):
     header_magic_uuid = uuid.UUID('0062fc5c-0d26-11e2-97e4-6f3bd8706b74')
     header_magic_text = b'OpenTimestamps'
 
-    major_version = 0
+    major_version = 1
     minor_version = 0
 
     header_struct_format = 'B'
@@ -43,16 +43,11 @@ class TimestampFile(BinaryHeader):
                                  'bzip2':2}
 
     # assuming timestamp files themselves will be able to fit in memory here...
-    #
-    # TODO: also eval before version 1.0 if both bz2 and zlib are really
-    # useful. zlib is better for small stuff already.
     compressors_by_number =   {0:lambda b: b,
-                               1:lambda b: zlib.compress(b,9),
-                               2:lambda b:  bz2.compress(b,9)}
+                               1:lambda b: zlib.compress(b,9)}
 
     decompressors_by_number = {0:lambda b: b,
-                               1:lambda b: zlib.decompress(b),
-                               2:lambda b:  bz2.decompress(b)}
+                               1:lambda b: zlib.decompress(b)}
 
     dag = None
 
