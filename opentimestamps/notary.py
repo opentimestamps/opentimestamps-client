@@ -192,7 +192,6 @@ class Signature(serialization.SerializedObject):
 
 
 
-
 @register_notary_method
 class TestNotary(Notary):
     """Test notary
@@ -292,10 +291,12 @@ class PGPNotary(Notary):
         msg = self.make_verification_message(digest,timestamp)
         sig = gpg.sign(msg,detach=True,clearsign=False,binary=True,keyid=self.identity)
 
-        # FIXME: python3-gnupg seems to return clearsigned signatures no matter
-        # what. Not a big deal, they still verify, but this wastes space.
-
-        return PGPSignature(notary=self,timestamp=timestamp,sig=sig.data)
+        if sig:
+            return PGPSignature(notary=self,timestamp=timestamp,sig=sig.data)
+        else:
+            # FIXME: need to get better error messages for this; python-gnupg
+            # doesn't seem to throw an exception.
+            raise SignatureError('PGP signing failed')
 
 
 class PGPSignatureVerificationError(SignatureVerificationError):
