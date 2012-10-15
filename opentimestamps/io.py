@@ -18,6 +18,7 @@ import uuid
 import bz2
 import zlib
 
+from opentimestamps.dag import Dag,Verify
 from opentimestamps.serialization import *
 from opentimestamps._internal import BinaryHeader
 
@@ -55,13 +56,18 @@ class TimestampFile(BinaryHeader):
 
     dag = None
 
-    class CorruptTimestampError(Exception):
+    class TimestampError(Exception):
         pass
+    class CorruptTimestampError(TimestampError):
+        pass
+    class InconsistentDigestsError(CorruptTimestampError):
+        pass
+
 
     def __init__(self,
                  in_fd=None,out_fd=None,
-                 algorithms=('sha256',),
-                 ops=None,
+                 digests=None,
+                 ops=(),
                  mode='binary',
                  compressor='zlib'):
 
@@ -72,12 +78,13 @@ class TimestampFile(BinaryHeader):
 
         self.compressor = compressor
         self.mode = mode
-        self.algorithms = [str(a) for a in algorithms]
-        self.ops = ops
+        self.dag = Dag(ops)
+        if digests is None:
+            digests = {}
+        self.digests = digests
 
         self.in_fd = in_fd
         self.out_fd = out_fd
-
 
     def read(self):
         if self.mode is 'binary':
@@ -109,7 +116,23 @@ class TimestampFile(BinaryHeader):
         deser_fd = io.BytesIO(uncompressed_bytes)
 
         self.options = binary_deserialize(deser_fd)
-        self.ops = binary_deserialize(deser_fd)
+        self.dag = Dag(binary_deserialize(deser_fd))
+
+        # Make sure the digests specified match the ones in the file
+        old_digests = self.options['digests']
+        for algo,digest in self.digests.items():
+            if algo in old_digests:
+                if digest != old_digests[algo]:
+                    raise self.InconsistentDigestsError(\
+"Digest {}:{} doesn't match the one in the timestamp, {}:{}".format(\
+    algo,binascii.hexlify(digest),
+    algo,binascii.hexlify(old_digests[algo])))
+
+            else:
+                # Otherwise update
+                old_digests[algo] = digest
+
+        self.digests = old_digests
 
 
     def write(self):
@@ -126,14 +149,18 @@ class TimestampFile(BinaryHeader):
     def write_binary(self):
         self._write_header(self.out_fd)
 
+        # Prune digests that aren't reachable from the digests we're
+        # timestamping.
+        root_digests = set(self.digests.values())
+        self.dag = Dag(self.dag.children(root_digests))
+
         out_bytes = []
 
-        # FIXME: we should have a CRC32 for the input file
-        options = {'algorithms':self.algorithms,
+        options = {'digests':self.digests,
                    'implementation_identifier':implementation_identifier}
 
         out_bytes.append(binary_serialize(options))
-        out_bytes.append(binary_serialize(tuple(self.ops)))
+        out_bytes.append(binary_serialize(tuple(self.dag)))
         out_bytes = b''.join(out_bytes)
 
         compressed_bytes = self.compressors_by_number[self.compression_type](out_bytes)
