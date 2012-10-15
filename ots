@@ -20,6 +20,8 @@ import logging
 import os
 import sys
 
+import opentimestamps
+
 from opentimestamps._internal import FileManager
 from opentimestamps.dag import *
 from opentimestamps.io import *
@@ -220,6 +222,7 @@ def getsourcecode_command(args):
     print("%s - %s" % (args.server,sourcecode_url))
 
 
+parser.add_argument("--version",action="version",version=opentimestamps.implementation_identifier)
 parser.add_argument("-q","--quiet",action="count",default=0,
                              help="Be more quiet.")
 parser.add_argument("-v","--verbose",action="count",default=0,
