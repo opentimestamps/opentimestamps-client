@@ -213,28 +213,11 @@ def verify_command(args):
 
 
 def getsourcecode_command(args):
-    for server_url in args.server:
-        server = OtsServer(server_url)
+    server = OtsServer(args.server)
 
-        sourcecode_url = server.get_sourcecode()
+    sourcecode_url = server.get_sourcecode()
 
-        print("%s - %s" % (server_url,sourcecode_url))
-
-
-def server_command(args):
-    for server_url in args.server:
-        server = OtsServer(server_url)
-
-        evald_rpc_args = [eval(rpc_arg) for rpc_arg in args.args]
-
-        jsond_rpc_args = [json_serialize(rpc_arg) for rpc_arg in evald_rpc_args]
-
-        json_response = getattr(server,args.rpc_function)(*jsond_rpc_args)
-
-        # FIXME: where to print server url?
-        json.dump(json_response,sys.stdout,indent=args.indent)
-
-        print()
+    print("%s - %s" % (args.server,sourcecode_url))
 
 
 parser.add_argument("-q","--quiet",action="count",default=0,
@@ -305,17 +288,6 @@ parser_verify.add_argument("timestamp",action="store",nargs='?',
 parser_getsourcecode = subparsers.add_parser('getsourcecode',
         help='Ask the specified server(s) for where to obtain source code. (AGPL license compliance)')
 parser_getsourcecode.set_defaults(cmd_func=getsourcecode_command)
-
-# ----- server -----
-parser_server = subparsers.add_parser('server',
-        help='Submit an RPC command to the server(s)')
-parser_server.set_defaults(cmd_func=server_command)
-
-parser_server.add_argument("-i","--indent",action="store",default=4,type=int,
-        help="Set the indent level in json.dump()")
-parser_server.add_argument("rpc_function",action="store")
-parser_server.add_argument("args",action="store",nargs='*')
-
 
 args = parser.parse_args()
 
