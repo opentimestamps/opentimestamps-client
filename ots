@@ -89,17 +89,20 @@ def submit_command(args):
 
             server = OtsServer(args.server)
 
-            timestamp_file.dag.update(server.post_digest(op=hash_op))
+            new_ops = server.post_digest(op=hash_op)
+            timestamp_file.dag.update(new_ops)
 
             if hash_op not in timestamp_file.dag:
                 timestamp_file.dag.add(hash_op)
+                new_ops.append(hash_op)
 
             timestamp_file.write()
 
             stamp_fm.commit()
 
             if args.verbosity > 0:
-                logging.debug(json.dumps(json_serialize(tuple(dag)),indent=4))
+                logging.debug("New ops:\n" +
+                        json.dumps(json_serialize(new_ops),indent=4))
 
 
 def sign_command(args):
