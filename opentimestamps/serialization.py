@@ -627,7 +627,10 @@ class Digestible(object):
     digested_attributes = frozenset()
     all_digested_attributes = frozenset()
 
-    locked = property(lambda self: self.__locked)
+    @property
+    def locked(self):
+        """True if the instance is locked"""
+        return self.__locked
 
     def calculate_digest(self):
         """Calculate and return the digest
