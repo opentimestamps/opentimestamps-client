@@ -60,7 +60,7 @@ class BinaryHeader(object):
         if self.__struct_format is None:
             self.header_magic_bytes = self.header_magic_uuid.bytes + self.header_magic_text
 
-            self.__struct_format = ('%ds B B' % len(self.header_magic_bytes)) + self.header_struct_format
+            self.__struct_format = ('>%ds B B' % len(self.header_magic_bytes)) + self.header_struct_format
             self.__field_names = ['header_magic_bytes','major_version','minor_version'] \
                     + list(self.header_field_names)
 
