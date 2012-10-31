@@ -163,6 +163,15 @@ class Signature(serialization.SerializedObject):
 
     serialized_attributes = ('timestamp','notary')
 
+    @property
+    def trusted_crypto(self):
+        """The set of all cryptographic algorithms that are trusted by this signature
+
+        By trusted, we mean algorithms that if they are *broken* the signature
+        cannot be trusted to be valid.
+        """
+        return frozenset()
+
     expected_notary_class = Notary
     def __init__(self,notary=Notary(),timestamp=0,**kwargs):
         if not (isinstance(timestamp,int) or isinstance(timestamp,int)):
@@ -214,7 +223,14 @@ class TestNotary(Notary):
     identity_regex = '^([a-z0-9\-\_]*|\*)$'
     identity_re = re.compile(identity_regex)
 
-    def __init__(self,method='test',**kwargs):
+    serialized_attributes = ('_trusted_crypto',)
+
+    @property
+    def trusted_crypto(self):
+        return self._trusted_crypto
+
+    def __init__(self,method='test',trusted_crypto=(),**kwargs):
+        self._trusted_crypto = trusted_crypto
         super(TestNotary,self).__init__(method=method,**kwargs)
 
     def canonicalize_identity(self):
@@ -312,6 +328,10 @@ class PGPSignature(Signature):
     expected_notary_class = PGPNotary
     def __init__(self,**kwargs):
         super(PGPSignature,self).__init__(**kwargs)
+
+    @property
+    def trusted_crypto(self):
+        return frozenset() # FIXME: implement this!
 
     def verify(self,digest,context=None):
         import tempfile

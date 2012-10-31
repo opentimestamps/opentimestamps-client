@@ -28,11 +28,12 @@ class TestTestNotary(unittest.TestCase):
 
         rj(pass_notary,
                 {'ots.notary.TestNotary': 
-                    {'identity': 'pass',
+                    {'_trusted_crypto': [],
+                     'identity': 'pass',
                      'method': 'test',
                      'version': 1}})
 
-        rb(pass_notary,b'\t\x15ots.notary.TestNotary\x08identity\x04\x04pass\x06method\x04\x04test\x07version\x02\x02\x00')
+        rb(pass_notary,b'\t\x15ots.notary.TestNotary\x0f_trusted_crypto\x07\x08\x08identity\x04\x04pass\x06method\x04\x04test\x07version\x02\x02\x00')
 
     def test_identity_canonicalization(self):
         notary = TestNotary(identity='notpass')
