@@ -69,7 +69,26 @@ class BitcoinSignature(Signature):
 
         return True
 
+def create_checkmultisig_tx(tx_in,m,value,pubkeys,proxy):
+    assert 0 < m < len(pubkeys) <= 16
 
+    pubkeys = [unhexlify(pubkey) for pubkey in pubkeys]
+
+    # Create a transaction with no outputs
+    partial_tx = unhexlify(proxy.createrawtransaction(tx_in,{}).encode('utf8'))
+
+    scriptSig = b''
+
+    scriptSig += bytes([80 + m])
+
+    for pubkey in pubkeys:
+        scriptSig += bytes([len(pubkey)])
+        scriptSig += pubkey
+
+    scriptSig += bytes([80 + len(pubkeys)])
+    scriptSig += b'\xae'
+
+    return partial_tx[:-5] + b'\x01' + struct.pack('<Q',int(value*100000000)) + bytes([len(scriptSig)]) + scriptSig + partial_tx[-4:]
 
 def calc_p2sh_proof_address(digest,pubkey,proxy):
     inserted_digest = digest
