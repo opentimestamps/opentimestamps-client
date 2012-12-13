@@ -9,239 +9,18 @@
 # modified, propagated, or distributed except according to the terms contained
 # in the LICENSE file.
 
-"""Core data structures to work with the dag
+"""Core data structures to work with directed acyclic graphs of operations
 
 Note: read opentimestamps-server/doc/design.md
-
-The timestamping problem can scale pretty well, so we can afford to be
-relatively wasteful in the implementation specifics, provided that everything
-we do maintains scalability; avoid micro-optimizations.
-
-Operations objects (class Op) can all be immutable. Don't mess with that. We
-use __getattr__-type stuff to enforce this.
 
 """
 
 import binascii
 import collections
 import copy
-import hashlib
-import time
-import re
 
-from . import serialization
+from .hashfunc import hash_functions_by_name
 from . import notary
-
-# Operations - edges in DAG
-# Digests - vertexes in DAG
-
-def register_Op(cls):
-    serialization.digestible_serialized_object_subclass('ots.dag')(cls)
-    return cls
-
-@serialization.serialized_object_subclass('ots.dag')
-class OpMetadata(serialization.SerializedObject):
-    """Metadata about an operation.
-
-    Any key may be present, but is not required to be present.
-
-    Standard keys
-    -------------
-
-    expiry - The time after which the server expects to no longer have a record
-             of this operation.
-
-    retry  - A mapping of notary specifications to times (integer UNIX time) at
-             which the server expects to have a new signature by that notary.
-             Entries may be deleted by the client without triggering any kind
-             of error.
-
-    uuid   - The unique identifier for the particular calendar the server can
-             find this operation in. Must be universally unique; just use a
-             UUID stored as bytes..
-
-    Server-defined keys must start with a single underscore to prevent
-    namespace clashes.
-    """
-    # FIXME: that _* stuff shouldn't be there... added for MerkleDag until we
-    # get a better system for handling subclasses of serialized objects.
-    serialized_attributes = ('expiry','retry','uuid','_idx','_tips_len')
-
-    def __init__(self,expiry=None,retry=None,**kwargs):
-        if expiry is not None:
-            kwargs['expiry'] = expiry
-            assert isinstance(expiry,int)
-
-        if retry is not None:
-            kwargs['retry'] = retry
-            for k,v in retry.items():
-                assert isinstance(k,str)
-                assert isinstance(v,int)
-
-        super().__init__(**kwargs)
-
-
-
-class Op(serialization.DigestibleSerializedObject):
-    """Base class for operations
-
-    inputs   - List of digests this operation depends on.
-    digest   - Output digest of this operation.
-    metadata - Dict of urls to OpMetadata.
-
-    The metadata is meant to give a place for servers to put metadata about
-    what *they* know about an operation. An OTS client will accept a server's
-    modified OpMetadata for the server url, and similarly will provide the
-    server with the metadata associated with their url. The client however has
-    the option of not providing metadata set by other servers.
-    """
-    op_name = 'Op'
-    digested_attributes = ('inputs',)
-    serialized_attributes = ('digest','inputs','metadata')
-
-    def get_dict_to_serialize(self):
-        d = super().get_dict_to_serialize()
-
-        # Delete empty metadata before serialization; most Op's aren't going to
-        # have metadata.
-        if not d['metadata']:
-            d.pop('metadata')
-        return d
-
-
-    def __init__(self,inputs=(),digest=None,metadata=None,**kwargs):
-        if metadata is None:
-            metadata = {}
-
-        for k,v in metadata.items():
-            assert isinstance(k,str)
-            assert isinstance(v,OpMetadata)
-        self.metadata = metadata
-
-        super().__init__(**kwargs)
-
-        normalized_inputs = []
-        for i in inputs:
-            try:
-                normalized_inputs.append(i.digest)
-            except AttributeError:
-                normalized_inputs.append(i)
-        self.inputs = tuple(normalized_inputs)
-
-        self.lock()
-
-        if digest is not None and self.digest != digest:
-            assert False
-
-    def __repr__(self):
-        return '%s(<%s>)' % (self.__class__.__name__,binascii.hexlify(self.digest[0:8]))
-
-
-# Done here to avoid needing a forward declaration
-Op = register_Op(Op)
-
-@register_Op
-class Digest(Op):
-    op_name = 'Digest'
-    digested_attributes = ()
-    serialized_attributes = ()
-
-    def calculate_digest(self):
-        return self.__fixed_digest
-
-    def __init__(self,digest=None,inputs=(),**kwargs):
-        if digest is None:
-            raise ValueError('Must specify digest value')
-        elif isinstance(digest,bytes):
-            pass
-        elif isinstance(digest,Op):
-            digest = digest.digest
-        else:
-            raise TypeError('digest must be of type bytes or Op subclass')
-
-        if len(inputs) > 0:
-            raise ValueError("Digest Op's can not have inputs")
-
-        self.__fixed_digest = digest
-        super().__init__(digest=digest,inputs=inputs,**kwargs)
-
-
-@register_Op
-class Hash(Op):
-    op_name = 'Hash'
-    digested_attributes = ('algorithm',)
-    serialized_attributes = ('algorithm',)
-
-    def __init__(self,algorithm='sha256',**kwargs):
-        if algorithm not in ('sha256','sha1','sha512','crc32'):
-            raise ValueError('Unsupported hash algorithm %s' % algorithm)
-        self.algorithm = algorithm
-
-        super(Hash,self).__init__(algorithm=algorithm,**kwargs)
-
-
-    def calculate_digest(self):
-        hash_fn = None
-        if self.algorithm == 'crc32':
-            # Quick-n-dirty crc32 implementation
-            class hash_crc32(object):
-                def update(self,newdata):
-                    self.crc = binascii.crc32(newdata,self.crc)
-                def __init__(self,data=b''):
-                    self.crc = 0
-                    self.update(data)
-                def digest(self):
-                    import struct
-                    return struct.pack('>L',self.crc)
-            hash_fn = hash_crc32
-        else:
-            hash_fn = getattr(hashlib,self.algorithm)
-
-        h = hash_fn()
-        for i in self.inputs:
-            h.update(i)
-
-        # Ugly way of determining if we need to hash things twice.
-        if self.algorithm[0:3] == 'sha':
-            return hash_fn(h.digest()).digest()
-        else:
-            return h.digest()
-
-
-# Timestamps are interpreted as microseconds since the epoch, mainly so
-# javascript can represent timestamps exactly with it's 2^53 bits available for
-# ints.
-def time_to_timestamp(t):
-    return int(t * 1000000)
-
-def time_from_timestamp(t):
-    return t / 1000000.0
-
-@register_Op
-class Verify(Op):
-    op_name = 'Verify'
-    digested_attributes = ('signature',)
-    serialized_attributes = ('signature',)
-
-    def __init__(self,
-            inputs=(),
-            signature = notary.Signature(),
-            **kwargs):
-
-        if len(inputs) != 1:
-            raise ValueError('Verify operations must have exactly one input, got %d' % len(inputs))
-
-        self.signature = signature
-
-        super(Verify,self).__init__(inputs=inputs,**kwargs)
-
-
-    def calculate_digest(self):
-        return serialization.binary_serialize(self.signature)
-
-    def verify(self):
-        raise TypeError("Can't verify; unknown notary method %s" % self.notary_method)
-
 
 class DigestDependents(set):
     """The set of dependents for a digest
@@ -520,7 +299,7 @@ class Dag(set):
         """Find a path from start to dest
 
         start - digest, can be outside the dag, provided an operation in the
-                dag has the digest as one of its inputs. 
+                dag has the digest as one of its inputs.
 
         dest  - Either a digest or a Notary
 

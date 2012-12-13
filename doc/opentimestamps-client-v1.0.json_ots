@@ -1,0 +1,143 @@
+[
+    {
+        "Hash": {
+            "inputs": [
+                "13249541def3c688e28a32da9a6f39e2c68442db"
+            ],
+            "algorithm": "sha256d",
+            "digest": "49bdaf64146928c7ba30e5a28704e0762a37d53236438b4cd1d831f0568b8535"
+        }
+    },
+    {
+        "Hash": {
+            "inputs": [
+                "0100000001c8e3550aef7b7a3fe32cb0678ef2480e08ab39c8f5c9a547d5229adb8586671f00000000910047304402203d5264a7e2e5d3296ed1c5b34165cab5049ccf48fd6203a3c34fea9ffd13b4b7022063959735b4641977866bbd453b9191ee16c79e622106762aaffecac8b8d2319b0147512103cee6a0243e768476ac641ef307d575a6ee8f80b15396093a72a1e496e6d581172102",
+                "49bdaf64146928c7ba30e5a28704e0762a37d53236438b4cd1d831f0568b8535",
+                "52aeffffffff01a0bb0d00000000001976a91472a5edf78b64c21e6ca2436f113c6426547b149188ac00000000"
+            ],
+            "algorithm": "sha256d",
+            "digest": "acf33febba1646c714d77d873c6c89ca8a766fa44e82b214f3ef4102ac8269cf"
+        }
+    },
+    {
+        "Hash": {
+            "inputs": [
+                "560521b9cd1907a8dd274375f5ed8488010c49d6fa63fb72dc8bd2ce48974531",
+                "acf33febba1646c714d77d873c6c89ca8a766fa44e82b214f3ef4102ac8269cf"
+            ],
+            "algorithm": "sha256d",
+            "digest": "c96fa3e7ae4fddf73de0ef3a2e558b68258c3c1e229629b7df22e604ecfe43ec"
+        }
+    },
+    {
+        "Hash": {
+            "inputs": [
+                "c96fa3e7ae4fddf73de0ef3a2e558b68258c3c1e229629b7df22e604ecfe43ec",
+                "6b40a67c51d3d1603f264578f1affb51074741333afc0a7f7e9e10c2b49a66b7"
+            ],
+            "algorithm": "sha256d",
+            "digest": "16d3fc95b86bee78c93181601653c8db08fd847ed8f08b94be4d00a7d1328a7e"
+        }
+    },
+    {
+        "Hash": {
+            "inputs": [
+                "2d8e9caba1058982e636921f916d7166522f6cd8ed3fb125f8a13d778f1ccc8c",
+                "16d3fc95b86bee78c93181601653c8db08fd847ed8f08b94be4d00a7d1328a7e"
+            ],
+            "algorithm": "sha256d",
+            "digest": "2f463f6a86c545e67913811b184aa2ba0dbcb72b91868af98bacdfbab63cb42b"
+        }
+    },
+    {
+        "Hash": {
+            "inputs": [
+                "70600683948ee177eb569b24144a3fa29d26c306d2b8006359c79306709f57d1",
+                "2f463f6a86c545e67913811b184aa2ba0dbcb72b91868af98bacdfbab63cb42b"
+            ],
+            "algorithm": "sha256d",
+            "digest": "e930c16778787671733cdd19b3e66f9a52b869eb294a35bde379478046b105a8"
+        }
+    },
+    {
+        "Hash": {
+            "inputs": [
+                "e930c16778787671733cdd19b3e66f9a52b869eb294a35bde379478046b105a8",
+                "81e8f0f383534950d5f67c00bff30a42989f1c026262954a4d8d35849d74c5cd"
+            ],
+            "algorithm": "sha256d",
+            "digest": "ebc18a5c3a27d89d79bc0b853e71cca95e68f1289210a8de4e57ac7bbd13e645"
+        }
+    },
+    {
+        "Hash": {
+            "inputs": [
+                "ebc18a5c3a27d89d79bc0b853e71cca95e68f1289210a8de4e57ac7bbd13e645",
+                "0cd548be524fe5d8b69fe2a9bdeeedace9d6e3402cadc3b28fbc6e97d808c878"
+            ],
+            "algorithm": "sha256d",
+            "digest": "a4470ffad35d9d358e7f8650121f7e42498c2b542d76d6e05ce69c821e12e737"
+        }
+    },
+    {
+        "Hash": {
+            "inputs": [
+                "a4470ffad35d9d358e7f8650121f7e42498c2b542d76d6e05ce69c821e12e737",
+                "a4470ffad35d9d358e7f8650121f7e42498c2b542d76d6e05ce69c821e12e737"
+            ],
+            "algorithm": "sha256d",
+            "digest": "a78b278efeed04c48ddf1953d6fa9bd7425eff093e2784b14204ec899634115a"
+        }
+    },
+    {
+        "Hash": {
+            "inputs": [
+                "a78b278efeed04c48ddf1953d6fa9bd7425eff093e2784b14204ec899634115a",
+                "a78b278efeed04c48ddf1953d6fa9bd7425eff093e2784b14204ec899634115a"
+            ],
+            "algorithm": "sha256d",
+            "digest": "372ef799d62d607bcc604097eb280bd004aa9ece0a9489f46f5f3fc7ad82fe96"
+        }
+    },
+    {
+        "Hash": {
+            "inputs": [
+                "372ef799d62d607bcc604097eb280bd004aa9ece0a9489f46f5f3fc7ad82fe96",
+                "372ef799d62d607bcc604097eb280bd004aa9ece0a9489f46f5f3fc7ad82fe96"
+            ],
+            "algorithm": "sha256d",
+            "digest": "be35d31674c7950b97049e4aa9870248958b09fb00fa5a9d5d9ea9ae5799bc42"
+        }
+    },
+    {
+        "Hash": {
+            "inputs": [
+                "1c6ebea5449f14946c50f759fd68edb155436686d1a931efb2b9738fc6b0b718",
+                "be35d31674c7950b97049e4aa9870248958b09fb00fa5a9d5d9ea9ae5799bc42"
+            ],
+            "algorithm": "sha256d",
+            "digest": "4b7cd1551c43bb02d8465d5f167fd21bcaaf90720bc442439e1a633694618786"
+        }
+    },
+    {
+        "Verify": {
+            "identity": "mainnet",
+            "inputs": [
+                "020000004f43106852f5fc9264bab0a797350640d7c3ed6eb6c7ac774701000000000000",
+                "4b7cd1551c43bb02d8465d5f167fd21bcaaf90720bc442439e1a633694618786",
+                "c19cc450eae0041acee1e535"
+            ],
+            "method": "bitcoin",
+            "digest": "020000004f43106852f5fc9264bab0a797350640d7c3ed6eb6c7ac7747010000000000004b7cd1551c43bb02d8465d5f167fd21bcaaf90720bc442439e1a633694618786c19cc450eae0041acee1e535"
+        }
+    },
+    {
+        "Hash": {
+            "inputs": [
+                "020000004f43106852f5fc9264bab0a797350640d7c3ed6eb6c7ac7747010000000000004b7cd1551c43bb02d8465d5f167fd21bcaaf90720bc442439e1a633694618786c19cc450eae0041acee1e535"
+            ],
+            "algorithm": "sha256d",
+            "digest": "42a86f63c23f6453f8d9427fb98e892faac2cfb247702f73f101000000000000"
+        }
+    }
+]
