@@ -78,12 +78,12 @@ class TestDigestOp(unittest.TestCase):
         r = make_op_round_trip_tester(self)
 
         d = Digest(digest=b'\xff\x00')
-        r(d,{'Digest': {'inputs': [], 'digest': 'ff00'}})
+        r(d,{'Digest': {'input': '', 'digest': 'ff00'}})
 
 class TestHashOp(unittest.TestCase):
     def test_hash_algorithm_support(self):
         def t(algo,expected,d=(b'',)):
-            h = Hash(inputs=d,algorithm=algo)
+            h = Hash(*d,algorithm=algo)
             self.assertEqual(h.digest,expected)
 
         t('sha256d',b']\xf6\xe0\xe2v\x13Y\xd3\n\x82u\x05\x8e)\x9f\xcc\x03\x81SEE\xf5\\\xf4>A\x98?]L\x94V')
@@ -97,9 +97,9 @@ class TestHashOp(unittest.TestCase):
 
         a = Digest(digest=b'a')
         b = Digest(digest=b'b')
-        h1 = Hash(inputs=(a,b))
+        h1 = Hash(a,b)
         r(h1,{'Hash':
-                {'inputs':['61', '62'],
+                {'input':'6162',
                  'algorithm':'sha256d',
                  'digest':'a1ff8f1856b5e24e32e3882edd4a021f48f28a8b21854b77fdef25a97601aace'}})
 

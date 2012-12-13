@@ -35,14 +35,14 @@ import functools
 class Op:
     """Base class for operations
 
-    inputs   - List of digests this operation depends on.
-    digest   - Output of this operation.
+    input   - Input bytes this operation works on.
+    digest  - Output of this operation.
 
     """
 
     @property
-    def inputs(self):
-        return self._inputs
+    def input(self):
+        return self._input
 
     _digest = None
     @property
@@ -51,16 +51,21 @@ class Op:
             self._digest = self.calculate_digest()
         return self._digest
 
-    def __init__(self,inputs=(),digest=None,**kwargs):
-        new_inputs = []
+    def __init__(self,*inputs,input=None,digest=None,**kwargs):
+        if inputs and input:
+            raise TypeError('Input must be specified as either positional arguments, or using input kwarg, not both')
+        elif input and not inputs:
+            inputs = (input,)
+
+        input = []
         for i in inputs:
             if isinstance(i,bytes):
-                new_inputs.append(i)
+                input.append(i)
             elif isinstance(i,Op):
-                new_inputs.append(i.digest)
+                input.append(i.digest)
             else:
-                raise TypeError('Op inputs must be bytes or Op instances')
-        self._inputs = tuple(new_inputs)
+                raise TypeError('Op input must be bytes or Op instances')
+        self._input = b''.join(input)
 
     def __repr__(self):
         return '%s(<%s>)' % (self.__class__.__name__,_hexlify(self.digest[0:8]))
@@ -81,7 +86,7 @@ class Op:
         return hash(self.digest)
 
     def to_primitives(self):
-        d = dict(inputs=[_hexlify(i) for i in self.inputs],
+        d = dict(input=_hexlify(self.input),
                  digest=_hexlify(self.digest))
         return {self.__class__.__name__:d}
 
@@ -96,7 +101,7 @@ class Op:
 
     @classmethod
     def _from_primitives(cls,**kwargs):
-        kwargs['inputs'] = [_unhexlify(i) for i in kwargs['inputs']]
+        kwargs['input'] = _unhexlify(kwargs['input'])
 
         if 'digest' in kwargs:
             kwargs['digest'] = _unhexlify(kwargs['digest'])
@@ -109,9 +114,9 @@ class Digest(Op):
     def algorithm(self):
         return self._algorithm
 
-    def __init__(self,digest=None,**kwargs):
+    def __init__(self,*inputs,digest=None,**kwargs):
         self._digest = digest
-        super().__init__(**kwargs)
+        super().__init__(*inputs,**kwargs)
 
     def to_primitives(self):
         r = super().to_primitives()
@@ -124,13 +129,13 @@ class Hash(Op):
     def algorithm(self):
         return self._algorithm
 
-    def __init__(self,algorithm='sha256d',**kwargs):
+    def __init__(self,*inputs,algorithm='sha256d',**kwargs):
         self._algorithm = algorithm
         assert algorithm in opentimestamps.crypto.hash_functions_by_name
-        super().__init__(**kwargs)
+        super().__init__(*inputs,**kwargs)
 
     def calculate_digest(self):
-        return opentimestamps.crypto.hash_functions_by_name[self.algorithm](b''.join(self.inputs))
+        return opentimestamps.crypto.hash_functions_by_name[self.algorithm](self.input)
 
     def to_primitives(self):
         r = super().to_primitives()
@@ -158,7 +163,7 @@ class Verify(Op):
         super().__init__(**kwargs)
 
     def calculate_digest(self):
-        return b''.join(self.inputs)
+        return self.input
 
     def to_primitives(self):
         r = super().to_primitives()
