@@ -34,6 +34,7 @@ class Op(bytes):
     """Base class for operations
 
     input - Input bytes this operation works on.
+    parents - Byte sequences we have designated as this operations parents.
 
     """
 
@@ -45,7 +46,7 @@ class Op(bytes):
     def _calculate_digest_from_input(cls, input, **kwargs):
         return input
 
-    def __new__(cls, *inputs, digest=None, **kwargs):
+    def __new__(cls, *inputs, parents=None, digest=None, **kwargs):
         input = b''.join(inputs)
         self = bytes.__new__(cls, cls._calculate_digest_from_input(input, digest=digest, **kwargs))
 
@@ -53,15 +54,37 @@ class Op(bytes):
             assert self == digest
 
         self._input = input
+
+        if parents is None:
+            parents = inputs
+
+        normed_parents = set()
+        for p in parents:
+            if not isinstance(p,bytes):
+                (start,length) = p
+                assert length > 0
+                normed_parents.add(self.input[start:start+length])
+            else:
+                normed_parents.add(p)
+        self.parents = normed_parents
+
         return self
+
 
     def __repr__(self):
         return '%s(<%s>)' % (self.__class__.__name__,_hexlify(self[0:8]))
 
     def to_primitives(self):
+        parents = []
+        for p in self.parents:
+            parents.append((self.input.find(p),len(p)))
+
         d = dict(input=_hexlify(self.input),
+                 parents=parents,
                  digest=_hexlify(self))
+
         return {self.__class__.__name__:d}
+
 
     @staticmethod
     def from_primitives(primitive):
