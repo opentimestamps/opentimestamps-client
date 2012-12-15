@@ -19,8 +19,7 @@ import binascii
 import collections
 import copy
 
-from .hashfunc import hash_functions_by_name
-from . import notary
+from .op import Hash,Digest
 
 class DigestDependents(set):
     """The set of dependents for a digest
@@ -125,12 +124,12 @@ class DependentsMap(dict):
 
     def _add_op(self,op):
         """Add the dependencies of an op"""
-        for parent_digest in op.inputs:
+        for parent_digest in op.parents:
             self._add_dependency(op,parent_digest)
 
     def _remove_op(self,op):
         """Remove the dependencies of an op"""
-        for parent_digest in op.inputs:
+        for parent_digest in op.parents:
             self._remove_dependency(op,parent_digest)
 
 
@@ -156,7 +155,6 @@ class Dag(set):
     Queries by raw bytes are not coerced; use Digest(bytes) instead.
 
     dependents    - A DependentsMap
-    verifications - The set of all Verify operations in the dag.
 
     The Dag class itself stores operations in memory.
 
@@ -171,7 +169,6 @@ class Dag(set):
         # same.
         self._ops_by_op = {}
 
-        self.verifications = set()
         super(Dag,self).clear()
 
 
@@ -188,13 +185,6 @@ class Dag(set):
         for i in iterable:
             self.add(i)
 
-    def _remove_verification(self,new_verify_op):
-        """Called for each Verify operation removed
-
-        This is called before anything else happens.
-        """
-        self.verifications.remove(new_verify_op)
-
     def pop(self,op):
         """Remove an operation from the dag
 
@@ -203,8 +193,6 @@ class Dag(set):
         if op not in self:
             raise KeyError
 
-        if isinstance(op,Verify):
-            self._add_verification(op)
         self._ops_by_op.pop(op)
         super(Dag,self).remove(op)
         self.dependents._remove_op(op)
@@ -218,14 +206,6 @@ class Dag(set):
             pass
 
 
-    def _add_verification(self,new_verify_op):
-        """Called for each new Verify operation added
-
-        This is called just before add() returns; the op will be in the dag.
-        """
-        self.verifications.add(new_verify_op)
-
-
     def _add_unconditionally(self,new_op):
         """Low-level add implementation
 
@@ -234,9 +214,6 @@ class Dag(set):
         """
         self._ops_by_op[new_op] = new_op
         super(Dag,self).add(new_op)
-
-        if isinstance(new_op,Verify):
-            self._add_verification(new_op)
 
 
     def add_unconditionally(self,new_op):
@@ -261,7 +238,7 @@ class Dag(set):
         includes an operation with the same digest, and that operation already
         has as much, or more, information on how the digest was calculated.
 
-        Basically Digest-not-in-dag < Digest-in-dag < Hash/Verify/etc
+        Basically Digest-not-in-dag < Digest-in-dag < Hash
 
         Operations other than Digests always replace Digest operations in the
         Dag.
@@ -299,7 +276,7 @@ class Dag(set):
         """Find a path from start to dest
 
         start - digest, can be outside the dag, provided an operation in the
-                dag has the digest as one of its inputs.
+                dag has the digest as one of its parents.
 
         dest  - Either a digest or a Notary
 
@@ -409,8 +386,8 @@ def build_merkle_tree(parents,algorithm=None,_accumulator=None):
 
         h = None
         if algorithm is not None:
-            h = Hash(inputs=(p1,p2),algorithm=algorithm)
+            h = Hash(p1,p2,algorithm=algorithm)
         else:
-            h = Hash(inputs=(p1,p2)) # let it use the default
+            h = Hash(p1,p2) # let it use the default
 
         accumulator.append(h)

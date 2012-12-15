@@ -142,33 +142,3 @@ class Hash(Op):
         r = super().to_primitives()
         r['Hash']['algorithm'] = self.algorithm
         return r
-
-
-@register_op
-class Verify(Op):
-    @property
-    def method(self):
-        return self._method
-
-    @property
-    def identity(self):
-        return self._identity
-
-    def __init__(self,method=None,identity=None,**kwargs):
-        assert isinstance(method,str)
-        self._method = method
-
-        assert isinstance(identity,str)
-        self._identity = identity
-
-        super().__init__(**kwargs)
-
-    def to_primitives(self):
-        r = super().to_primitives()
-        r['Verify']['method'] = self.method
-        r['Verify']['identity'] = self.identity
-        return r
-
-    @classmethod
-    def _from_primitives(cls,**kwargs):
-        return super().from_primitives(kwargs)
