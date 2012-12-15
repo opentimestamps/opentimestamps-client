@@ -30,13 +30,10 @@ def register_op(cls):
     op_classes_by_name[cls.__name__] = cls
     return cls
 
-import functools
-@functools.total_ordering
-class Op:
+class Op(bytes):
     """Base class for operations
 
-    input   - Input bytes this operation works on.
-    digest  - Output of this operation.
+    input - Input bytes this operation works on.
 
     """
 
@@ -44,50 +41,26 @@ class Op:
     def input(self):
         return self._input
 
-    _digest = None
-    @property
-    def digest(self):
-        if self._digest is None:
-            self._digest = self.calculate_digest()
-        return self._digest
+    @classmethod
+    def _calculate_digest_from_input(cls, input, **kwargs):
+        return input
 
-    def __init__(self,*inputs,input=None,digest=None,**kwargs):
-        if inputs and input:
-            raise TypeError('Input must be specified as either positional arguments, or using input kwarg, not both')
-        elif input and not inputs:
-            inputs = (input,)
+    def __new__(cls, *inputs, digest=None, **kwargs):
+        input = b''.join(inputs)
+        self = bytes.__new__(cls, cls._calculate_digest_from_input(input, digest=digest, **kwargs))
 
-        input = []
-        for i in inputs:
-            if isinstance(i,bytes):
-                input.append(i)
-            elif isinstance(i,Op):
-                input.append(i.digest)
-            else:
-                raise TypeError('Op input must be bytes or Op instances')
-        self._input = b''.join(input)
+        if digest is not None:
+            assert self == digest
+
+        self._input = input
+        return self
 
     def __repr__(self):
-        return '%s(<%s>)' % (self.__class__.__name__,_hexlify(self.digest[0:8]))
-
-    def __eq__(self,other):
-        if not isinstance(other,Op):
-            return False
-        else:
-            return self.digest == other.digest
-
-    def __lt__(self,other):
-        if not isinstance(other,Op):
-            return NotImplemented
-        else:
-            return self.digest < other.digest
-
-    def __hash__(self):
-        return hash(self.digest)
+        return '%s(<%s>)' % (self.__class__.__name__,_hexlify(self[0:8]))
 
     def to_primitives(self):
         d = dict(input=_hexlify(self.input),
-                 digest=_hexlify(self.digest))
+                 digest=_hexlify(self))
         return {self.__class__.__name__:d}
 
     @staticmethod
@@ -101,27 +74,26 @@ class Op:
 
     @classmethod
     def _from_primitives(cls,**kwargs):
-        kwargs['input'] = _unhexlify(kwargs['input'])
+        input = _unhexlify(kwargs.pop('input'))
 
         if 'digest' in kwargs:
             kwargs['digest'] = _unhexlify(kwargs['digest'])
 
-        return cls(**kwargs)
+        return cls(input,**kwargs)
 
 @register_op
 class Digest(Op):
-    @property
-    def algorithm(self):
-        return self._algorithm
+    """Operation that simply produces a specific digest
 
-    def __init__(self,*inputs,digest=None,**kwargs):
-        self._digest = digest
-        super().__init__(*inputs,**kwargs)
-
-    def to_primitives(self):
-        r = super().to_primitives()
-        r['Digest']['digest'] = _hexlify(self.digest)
-        return r
+    Think of this as a place-holder for an operation. Included to be able to
+    assign metadata to digests when we don't have further information about
+    them yet.
+    """
+    @classmethod
+    def _calculate_digest_from_input(cls, input, digest=None, **kwargs):
+        assert digest
+        assert input == b''
+        return digest
 
 @register_op
 class Hash(Op):
@@ -129,13 +101,15 @@ class Hash(Op):
     def algorithm(self):
         return self._algorithm
 
-    def __init__(self,*inputs,algorithm='sha256d',**kwargs):
-        self._algorithm = algorithm
+    def __new__(cls, *inputs, algorithm='sha256d', **kwargs):
         assert algorithm in opentimestamps.crypto.hash_functions_by_name
-        super().__init__(*inputs,**kwargs)
+        self = super().__new__(cls, *inputs, algorithm=algorithm, **kwargs)
+        self._algorithm = algorithm
+        return self
 
-    def calculate_digest(self):
-        return opentimestamps.crypto.hash_functions_by_name[self.algorithm](self.input)
+    @classmethod
+    def _calculate_digest_from_input(cls, input, algorithm='sha256d', **kwargs):
+        return opentimestamps.crypto.hash_functions_by_name[algorithm](input)
 
     def to_primitives(self):
         r = super().to_primitives()
@@ -161,9 +135,6 @@ class Verify(Op):
         self._identity = identity
 
         super().__init__(**kwargs)
-
-    def calculate_digest(self):
-        return self.input
 
     def to_primitives(self):
         r = super().to_primitives()

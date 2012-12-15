@@ -49,19 +49,21 @@ def make_binary_round_trip_tester(self):
 
 class TestOp(unittest.TestCase):
     def test_equality(self):
-        a1 = Digest(digest=b'')
-        a2 = Digest(digest=b'')
+        a1 = Digest(digest=b'a')
+        a2 = Digest(digest=b'a')
         b = Digest(digest=b'b')
 
         self.assertNotEqual(a1,object())
 
         self.assertEqual(a1,a2)
+        self.assertEqual(a1,b'a')
+        self.assertEqual(b,b'b')
         self.assertNotEqual(a1,b)
         self.assertNotEqual(a2,b)
 
     def test___hash__(self):
-        a1 = Digest(digest=b'')
-        a2 = Digest(digest=b'')
+        a1 = Digest(digest=b'a')
+        a2 = Digest(digest=b'a')
         b = Digest(digest=b'b')
 
         s = (a1,b)
@@ -84,7 +86,7 @@ class TestHashOp(unittest.TestCase):
     def test_hash_algorithm_support(self):
         def t(algo,expected,d=(b'',)):
             h = Hash(*d,algorithm=algo)
-            self.assertEqual(h.digest,expected)
+            self.assertEqual(h,expected)
 
         t('sha256d',b']\xf6\xe0\xe2v\x13Y\xd3\n\x82u\x05\x8e)\x9f\xcc\x03\x81SEE\xf5\\\xf4>A\x98?]L\x94V')
         t('sha512d',b'\x82m\xf0hE}\xf5\xdd\x19[Cz\xb7\xe7s\x9f\xf7]&r\x18?\x02\xbb\x8e\x10\x89\xfa\xbc\xf9{\xd9\xdc\x80\x11\x0c\xf4-\xbc|\xffA\xc7\x8e\xcbh\xd8\xbax\xab\xe6\xb5\x17\x8d\xea9\x84\xdf\x8cUT\x1b\xf9I')
@@ -95,9 +97,7 @@ class TestHashOp(unittest.TestCase):
     def test_json_serialization(self):
         r = make_op_round_trip_tester(self)
 
-        a = Digest(digest=b'a')
-        b = Digest(digest=b'b')
-        h1 = Hash(a,b)
+        h1 = Hash(b'a',b'b')
         r(h1,{'Hash':
                 {'input':'6162',
                  'algorithm':'sha256d',
