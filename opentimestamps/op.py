@@ -114,9 +114,13 @@ class Digest(Op):
     """
     @classmethod
     def _calculate_digest_from_input(cls, input, digest=None, **kwargs):
-        assert digest
-        assert input == b''
+        if not digest:
+            raise ValueError('digest must be given and not empty')
+        if input != b'':
+            raise ValueError('Digest operations have no inputs')
+
         return digest
+
 
 @register_op
 class Hash(Op):
