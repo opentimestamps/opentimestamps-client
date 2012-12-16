@@ -13,7 +13,7 @@ import gnupg
 import io
 import re
 
-from binascii import hexlify
+import opentimestamps._internal
 
 notary_methods_by_name = {}
 
@@ -114,9 +114,7 @@ class Signature:
         """
         return frozenset()
 
-    @property
-    def method(self):
-        raise NotImplementedError
+    method = None
 
     @property
     def identity(self):
@@ -149,5 +147,15 @@ class Signature:
 
     def to_primitives(self):
         d = dict(identity=self.identity,
-                 digest=self.digest)
+                 digest=opentimestamps._internal.hexlify(self.digest))
         return {self.method:d}
+
+    @classmethod
+    def from_primitives(cls, primitives):
+        assert len(primitives.keys()) == 1
+        method = tuple(primitives.keys())[0]
+        primitives = primitives[method]
+        identity = primitives['identity']
+        digest = opentimestamps._internal.unhexlify(primitives['digest'])
+
+        return signature_classes_by_method[method](method=method, identity=identity, digest=digest)

@@ -74,9 +74,7 @@ class TestSignature(Signature):
     def __init__(self, method='test', **kwargs):
         super().__init__(method=method, **kwargs)
 
-    @property
-    def method(self):
-        return 'test'
+    method = 'test'
 
     @property
     def timestamp(self):

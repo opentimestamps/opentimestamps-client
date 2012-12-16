@@ -72,9 +72,7 @@ class PGPSignatureVerificationError(SignatureVerificationError):
 class PGPSignature(Signature):
     """PGP Signature"""
 
-    @property
-    def method(self):
-        return 'pgp'
+    method = 'pgp'
 
     expected_notary_class = PGPNotary
     def __init__(self, method='pgp', **kwargs):

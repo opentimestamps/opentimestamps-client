@@ -15,6 +15,7 @@ import struct
 from opentimestamps.notary import Signature,SignatureVerificationError
 from opentimestamps.crypto import sha256d
 from opentimestamps.dag import Hash
+from opentimestamps.notary import register_signature_class
 
 from opentimestamps._internal import hexlify,unhexlify
 
@@ -33,6 +34,7 @@ def serialize_block_header(block):
 # Assuming network adjusted time is correct, thus it + 2 hours is safe.
 BITCOIN_TIMESTAMP_OFFSET = 2*60*60
 
+@register_signature_class
 class BitcoinSignature(Signature):
     """Bitcoin signature
 
@@ -47,9 +49,7 @@ class BitcoinSignature(Signature):
 
     FIXME: does getblock ever return orphans?
     """
-    @property
-    def method(self):
-        return 'bitcoin'
+    method = 'bitcoin'
 
     @property
     def timestamp(self):
