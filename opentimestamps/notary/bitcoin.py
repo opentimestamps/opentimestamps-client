@@ -9,8 +9,6 @@
 # modified, propagated, or distributed except according to the terms contained
 # in the LICENSE file.
 
-from binascii import hexlify,unhexlify
-
 import jsonrpc
 import struct
 
@@ -18,17 +16,22 @@ from opentimestamps.notary import Signature,SignatureVerificationError
 from opentimestamps.crypto import sha256d
 from opentimestamps.dag import Hash
 
+from opentimestamps._internal import hexlify,unhexlify
+
 bitcoin_header_format = struct.Struct("<i 32s 32s I 4s I")
 
 def serialize_block_header(block):
     """Serialize a block header from the RPC interface"""
     return bitcoin_header_format.pack(
         block['version'],
-        unhexlify(block['previousblockhash'].encode('utf8'))[::-1],
-        unhexlify(block['merkleroot'].encode('utf8'))[::-1],
+        unhexlify(block['previousblockhash'])[::-1],
+        unhexlify(block['merkleroot'])[::-1],
         block['time'],
-        unhexlify(block['bits'].encode('utf8'))[::-1],
+        unhexlify(block['bits'])[::-1],
         block['nonce'])
+
+# Assuming network adjusted time is correct, thus it + 2 hours is safe.
+BITCOIN_TIMESTAMP_OFFSET = 2*60*60
 
 class BitcoinSignature(Signature):
     """Bitcoin signature
@@ -44,27 +47,36 @@ class BitcoinSignature(Signature):
 
     FIXME: does getblock ever return orphans?
     """
-    method = 'bitcoin'
+    @property
+    def method(self):
+        return 'bitcoin'
 
     @property
     def timestamp(self):
-        # Assuming network adjusted time is correct, thus it + 2 hours is safe.
-        return bitcoin_header_format.unpack(self.digest)[3] + 2*60*60
+        return bitcoin_header_format.unpack(self.digest)[3] + BITCOIN_TIMESTAMP_OFFSET
 
-    def validate(self,context=None):
+    def __init__(self, method='bitcoin', **kwargs):
+        super().__init__(method=method, **kwargs)
+
+    def validate(self, context=None):
         assert context is not None
 
         block_hash = sha256d(self.digest)
 
-        rpc_url = context.bitcoin_rpc_url[self.identity]
-        proxy = jsonrpc.ServiceProxy(rpc_url)
+        try:
+            proxy = context.bitcoin_proxy[self.identity]
+        except KeyError:
+            rpc_url = context.bitcoin_rpc_url[self.identity]
+            proxy = jsonrpc.ServiceProxy(rpc_url)
+            context.bitcoin_proxy[self.identity] = proxy
 
         try:
-            block = proxy.getblock(hexlify(block_hash[::-1]).decode('utf8'))
+            block = proxy.getblock(hexlify(block_hash[::-1]))
         except jsonrpc.JSONRPCException as err:
-            import pdb; pdb.set_trace()
+            # import pdb; pdb.set_trace()
+            raise err
 
-        if serialize_block(block) != self.digest:
+        if serialize_block_header(block) != self.digest:
             raise SignatureVerificationError('block not equal to serialized_block')
 
         return True
