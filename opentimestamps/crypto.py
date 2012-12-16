@@ -87,6 +87,13 @@ class crc32(HashAlgorithm):
         return hasher
 
 @register_hash_algorithm
+class sha1(HashAlgorithm):
+    name = 'sha1'
+    digest_size = 20
+    doubled = False
+    _hashlib_func = hashlib.sha1
+
+@register_hash_algorithm
 class sha256(HashAlgorithm):
     name = 'sha256'
     digest_size = 32
