@@ -9,12 +9,20 @@
 # modified, propagated, or distributed except according to the terms contained
 # in the LICENSE file.
 
+import struct
+import time
+
+from opentimestamps.dag import Digest
+from opentimestamps.notary import *
+
+test_notary_struct = struct.Struct('>Q')
+
 @register_notary_method
 class TestNotary(Notary):
     """Test notary
 
     Either always validates, or never validates, depending on the identity
-    given. 
+    given.
     """
 
     method_name = 'test'
@@ -22,16 +30,12 @@ class TestNotary(Notary):
     method_name_regex = '^%s$' % method_name
     method_name_re = re.compile(method_name_regex)
 
-    compatible_versions = (1,)
-
     # pass or fail, followed by disambiguation
     canonical_identity_regex = '^(pass|fail)[a-z0-9\-\_]*$'
-    canonical_identity_re = re.compile(canonical_identity_regex) 
+    canonical_identity_re = re.compile(canonical_identity_regex)
 
     identity_regex = '^([a-z0-9\-\_]*|\*)$'
     identity_re = re.compile(identity_regex)
-
-    serialized_attributes = ('_trusted_crypto',)
 
     @property
     def trusted_crypto(self):
@@ -39,7 +43,7 @@ class TestNotary(Notary):
 
     def __init__(self,method='test',trusted_crypto=(),**kwargs):
         self._trusted_crypto = trusted_crypto
-        super(TestNotary,self).__init__(method=method,**kwargs)
+        super().__init__(method=method,**kwargs)
 
     def canonicalize_identity(self):
         # FIXME: before this, we should be checking if the identity is a search
@@ -52,20 +56,32 @@ class TestNotary(Notary):
                 self.identity = '-' + self.identity
             self.identity = 'fail' + self.identity
 
-        super(TestNotary,self).canonicalize_identity()
+        super().canonicalize_identity()
 
-    def sign(self,digest,timestamp):
-        super(TestNotary,self).sign(digest,timestamp)
-        return TestSignature(expected_digest=digest,timestamp=timestamp,notary=self)
+    def sign(self,digest,timestamp=None):
+        if timestamp is None:
+            timestamp = time.time()
+
+        self.canonicalize_identity()
+
+        digest = Digest(test_notary_struct.pack(timestamp * 1000000), digest, parents=(digest,))
+        sig = TestSignature(digest=digest, method=self.method, identity=self.identity)
+        return ((digest,),sig)
+
 
 @register_signature_class
 class TestSignature(Signature):
-    expected_notary_class = TestNotary
     def __init__(self,**kwargs):
-        super(TestSignature,self).__init__(**kwargs)
+        super().__init__(**kwargs)
+
+    @property
+    def method(self):
+        return 'test'
+
+    @property
+    def timestamp(self):
+        return test_notary_struct.unpack(self.digest)[0] / 1000000
 
     def verify(self,digest):
-        if digest != self.expected_digest:
-            raise SignatureVerificationError
-        elif self.notary.identity.startswith('fail'):
+        if self.identity.startswith('fail') or self.digest != digest:
             raise SignatureVerificationError

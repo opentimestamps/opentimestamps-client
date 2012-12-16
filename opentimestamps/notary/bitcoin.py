@@ -16,7 +16,7 @@ import struct
 
 from opentimestamps.notary import Signature,SignatureVerificationError
 from opentimestamps.crypto import sha256d
-from opentimestamps.op import *
+from opentimestamps.dag import Hash
 
 bitcoin_header_format = struct.Struct("<i 32s 32s I 4s I")
 

@@ -12,8 +12,13 @@
 import gnupg
 import io
 import re
+import struct
+import time
 
 from binascii import hexlify
+
+from opentimestamps.dag import Digest
+from opentimestamps.notary import *
 
 def _setup_gpg(context):
     return gnupg.GPG(gnupghome=getattr(context,'gpg_home_dir',None))
@@ -27,83 +32,81 @@ class PGPNotary(Notary):
     method_name_regex = '^%s$' % method_name
     method_name_re = re.compile(method_name_regex)
 
-    compatible_versions = (1,)
-
     canonical_identity_regex = '^[a-f0-9]{40}$' # a fingerprint and nothing else
     canonical_identity_re = re.compile(canonical_identity_regex)
 
-    def __init__(self,method='pgp',version=1,**kwargs):
-        super(PGPNotary,self).__init__(method=method,version=version,**kwargs)
+    def __init__(self,method='pgp',**kwargs):
+        super().__init__(method=method,**kwargs)
 
 
     def canonicalize_identity(self):
         self.identity = self.identity.lower().replace(' ','')
         # FIXME: basically we should ask GPG to resolve the identity string
-        super(PGPNotary,self).canonicalize_identity()
+        super().canonicalize_identity()
 
 
-    def make_verification_message(self,digest,otstime):
-        str_id = self.identity.encode('utf8')
-        str_digest = str(hexlify(digest),'utf8')
-        str_time = '%d' % otstime
-        return bytes(
-""""The owner of the PGP key with fingerprint %s certifies that the digest %s existed on, or before, %s microseconds after Jan 1st 1970 00:00 UTC. (the Unix epoch)""" % (str_id,str_digest,str_time),'utf8')
-
-
-    def sign(self,digest,timestamp,context=None):
-        super(PGPNotary,self).sign(digest,timestamp)
+    def sign(self, digest, timestamp=None, context=None):
+        if timestamp is None:
+            timestamp = time.time()
+        timestamp = timestamp * 1000000
 
         gpg = _setup_gpg(context)
+        self.canonicalize_identity()
 
-        msg = self.make_verification_message(digest,timestamp)
-        sig = gpg.sign(msg,detach=True,clearsign=False,binary=True,keyid=self.identity)
+        sig = gpg.sign(digest, detach=True, clearsign=False, binary=True, keyid=self.identity)
 
-        if sig:
-            return PGPSignature(notary=self,timestamp=timestamp,sig=sig.data)
+        if sig.data:
+            digest_op = Digest(struct.pack('>QQ', timestamp, len(sig.data)), sig.data, digest, parents=(digest,))
+            return ((digest_op,),PGPSignature(digest=digest_op, identity=self.identity))
         else:
-            # FIXME: need to get better error messages for this; python-gnupg
-            # doesn't seem to throw an exception.
-            raise SignatureError('PGP signing failed')
+            raise SignatureError('PGP signing failed: {}'.format(sig.stderr))
 
 
 class PGPSignatureVerificationError(SignatureVerificationError):
     def __init__(self,gpg_error):
         msg = str(gpg_error)
-        super(PGPSignatureVerificationError,self).__init__(msg)
+        super().__init__(msg)
         self.gpg_error = gpg_error
 
 @register_signature_class
 class PGPSignature(Signature):
-    """PGP Signature
+    """PGP Signature"""
 
-    
-
-    """
-
-    serialized_attributes = ('sig',)
+    @property
+    def method(self):
+        return 'pgp'
 
     expected_notary_class = PGPNotary
-    def __init__(self,**kwargs):
-        super(PGPSignature,self).__init__(**kwargs)
+    def __init__(self, method='pgp', **kwargs):
+        super().__init__(method=method, **kwargs)
 
     @property
     def trusted_crypto(self):
         return frozenset() # FIXME: implement this!
 
-    def verify(self,digest,context=None):
-        import tempfile
+    @property
+    def timestamp(self):
+        return struct.unpack('>Q', self.digest[0:8])[0] / 1000000
 
-        msg = self.notary.make_verification_message(digest,self.timestamp)
+    def verify(self, context=None):
+        # FIXME: do we need to check that the identities match?
+
+        import tempfile
 
         gpg = _setup_gpg(context)
 
         # Yuck, since this is a detached sig, we have to actually put the
         # message into a file for python3-gnupg to verify against.
         with tempfile.NamedTemporaryFile(mode='wb+') as msg_file:
-            msg_file.write(msg)
+            sig_len = struct.unpack('>QQ', self.digest[0:16])[1]
+
+            sig = self.digest[16:16+sig_len]
+            signed_digest = self.digest[16+sig_len:]
+
+            msg_file.write(signed_digest)
             msg_file.flush()
 
-            verified = gpg.verify_file(io.BytesIO(self.sig),msg_file.name)
+            verified = gpg.verify_file(io.BytesIO(sig), msg_file.name)
 
             if not verified.valid:
                 raise PGPSignatureVerificationError(verified)

@@ -78,31 +78,14 @@ class Notary:
             raise ValueError("Invalid notary identity '%s' for method %s" % (identity,cls.method_name))
 
 
-    def __init__(self,method='_null',version=1,identity='',**kwargs):
-        self.__dict__.update(kwargs)
+    def __init__(self,method='_null',identity='',context=None,**kwargs):
+        self.context = context
 
         self.method = str(method)
         self.validate_method_name(self.method)
 
-        # FIXME: what do we do when a newer version is on the network? we
-        # probably should do the full version check not here, but at notary
-        # verification time or something. Also add a NotaryVersionException or
-        # some-such.
-        self.version = version
-        self.validate_method_version(self.version)
-
         self.identity = str(identity)
         self.validate_method_identity(self.identity)
-
-        # Locking now lets serialization/deserialization work, yet still allows
-        # you to create a notary with a non-canonical name and have the
-        # instance do the canonicalization.
-        try:
-            self.validate_canonical_identity(self.identity)
-        except ValueError:
-            pass
-        else:
-            self.lock()
 
     def canonicalize_identity(self):
         self.validate_canonical_identity(self.identity)
