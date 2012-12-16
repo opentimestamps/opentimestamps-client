@@ -51,7 +51,7 @@ class TestOp(unittest.TestCase):
         a2 = Digest(b'a')
         b = Digest(b'b')
 
-        s = (a1,b)
+        s = set((a1,b))
 
         self.assertIn(b,s)
         self.assertIn(a1,s)
