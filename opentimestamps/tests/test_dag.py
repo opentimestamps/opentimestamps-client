@@ -193,6 +193,10 @@ class TestDag(unittest.TestCase):
         self.assertIn(h2,dag.dependents[d1])
         self.assertIn(h2,dag.dependents[h_in_dag])
 
+    def test_op_removal(self):
+        # FIXME
+        pass
+
 
     def test_path(self):
         n = 100

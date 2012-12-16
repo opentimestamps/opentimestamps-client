@@ -114,7 +114,7 @@ class Digest(Op):
     for the Digest to have no parents.
     """
     def __new__(cls, *inputs, parents=(), **kwargs):
-        return super().__new__(cls,*inputs, parents=parents, **kwargs)
+        return super().__new__(cls, *inputs, parents=parents, **kwargs)
 
     @classmethod
     def _calculate_digest_from_input(cls, input, **kwargs):
@@ -193,7 +193,7 @@ class DigestDependents(set):
         self._raise_readonly_error()
     def intersection_update(self,other):
         self._raise_readonly_error()
-    def pop(self,other):
+    def pop(self):
         self._raise_readonly_error()
     def remove(self,other):
         self._raise_readonly_error()
@@ -205,6 +205,10 @@ class DigestDependents(set):
     def _add(self,dependent):
         """Ignore write restrictions and add a dependent to the set anyway"""
         super(DigestDependents,self).add(dependent)
+
+    def _remove(self,dependent):
+        """Ignore write restrictions and remove a dependent from the set anyway"""
+        super().remove(dependent)
 
 
 class DependentsMap(dict):
@@ -269,9 +273,10 @@ class DependentsMap(dict):
             digest_dependents = super(DependentsMap,self).__getitem__(digest)
         except KeyError:
             return
-        digest_dependents.pop(child_op)
         if not digest_dependents:
-            super(DependentsMap,self).pop(digest)
+            super().pop(digest)
+        else:
+            digest_dependents._remove(child_op)
 
     def _add_op(self,op):
         """Add the dependencies of an op"""
@@ -336,7 +341,10 @@ class Dag(set):
         for i in iterable:
             self.add(i)
 
-    def pop(self,op):
+    def pop(self):
+        raise NotImplementedError # FIXME
+
+    def remove(self,op):
         """Remove an operation from the dag
 
         Raises a KeyError is the operation is not a part of the dag.
@@ -345,14 +353,14 @@ class Dag(set):
             raise KeyError
 
         self._ops_by_op.pop(op)
-        super(Dag,self).remove(op)
+        super().remove(op)
         self.dependents._remove_op(op)
 
 
     def discard(self,op):
         """Same as set.discard()"""
         try:
-            self.pop(op)
+            self.remove(op)
         except KeyError:
             pass
 
