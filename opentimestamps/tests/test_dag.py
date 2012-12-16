@@ -32,26 +32,11 @@ def make_op_round_trip_tester(self):
         self.assertEqual(value,value2)
     return r
 
-def make_binary_round_trip_tester(self):
-    def r(value,expected_representation=None,new_value=None):
-        # serialize to binary representation
-        actual_representation = binary_serialize(value)
-
-        if expected_representation is not None:
-            self.assertEqual(actual_representation,expected_representation)
-
-        # deserialize that and check if it's what we expect
-        value2 = binary_deserialize(actual_representation)
-        if new_value is not None:
-            value = new_value
-        self.assertEqual(value,value2)
-    return r
-
 class TestOp(unittest.TestCase):
     def test_equality(self):
-        a1 = Digest(digest=b'a')
-        a2 = Digest(digest=b'a')
-        b = Digest(digest=b'b')
+        a1 = Digest(b'a')
+        a2 = Digest(b'a')
+        b = Digest(b'b')
 
         self.assertNotEqual(a1,object())
 
@@ -62,9 +47,9 @@ class TestOp(unittest.TestCase):
         self.assertNotEqual(a2,b)
 
     def test___hash__(self):
-        a1 = Digest(digest=b'a')
-        a2 = Digest(digest=b'a')
-        b = Digest(digest=b'b')
+        a1 = Digest(b'a')
+        a2 = Digest(b'a')
+        b = Digest(b'b')
 
         s = (a1,b)
 
@@ -79,8 +64,8 @@ class TestDigestOp(unittest.TestCase):
     def test_json_serialization(self):
         r = make_op_round_trip_tester(self)
 
-        d = Digest(digest=b'\xff\x00')
-        r(d,{'Digest': {'input': '', 'digest': 'ff00', 'parents': []}})
+        d = Digest(b'\xff\x00')
+        r(d,{'Digest': {'input': 'ff00', 'digest': 'ff00', 'parents': []}})
 
 class TestHashOp(unittest.TestCase):
     def test_hash_algorithm_support(self):
@@ -118,14 +103,14 @@ class TestDag(unittest.TestCase):
 
         self.assertFalse(b'' in dag)
         self.assertFalse(b'd' in dag)
-        self.assertFalse(Digest(digest=b'd') in dag)
+        self.assertFalse(Digest(b'd') in dag)
 
-        d = dag.add(Digest(digest=b'd'))
+        d = dag.add(Digest(b'd'))
 
         self.assertTrue(b'd' in dag)
         self.assertTrue(d in dag)
 
-        d2 = Digest(digest=b'd')
+        d2 = Digest(b'd')
         self.assertTrue(d2 in dag)
 
         self.assertFalse(b'' in dag)
@@ -139,13 +124,13 @@ class TestDag(unittest.TestCase):
         with self.assertRaises(KeyError):
             dag[b'']
         with self.assertRaises(KeyError):
-            dag[Digest(digest=b'd')]
+            dag[Digest(b'd')]
 
-        d = dag.add(Digest(digest=b'd'))
+        d = dag.add(Digest(b'd'))
 
         self.assertIs(dag[d],d)
 
-        d2 = Digest(digest=b'd')
+        d2 = Digest(b'd')
         self.assertIs(dag[d2],d)
 
 
@@ -155,7 +140,7 @@ class TestDag(unittest.TestCase):
         self.assertTrue(len(tuple(dag)) == 0)
 
         # Basic insertion
-        d1a = Digest(digest=b'd1')
+        d1a = Digest(b'd1')
         d1 = dag.add(d1a)
         self.assertEqual(dag[d1a],d1)
 
@@ -166,7 +151,7 @@ class TestDag(unittest.TestCase):
         self.assertEqual(len(dag.dependents[d1]),0)
 
         # inserted a digest identical to h1
-        d2 = dag.add(Digest(digest=h_not_in_dag))
+        d2 = dag.add(Digest(h_not_in_dag))
         self.assertEqual(dag[d2],d2)
 
         # recreate as a more interesting object
@@ -223,7 +208,7 @@ class Test_build_merkle_tree(unittest.TestCase):
     def test(self):
         def t(n,algorithm=None):
             dag = Dag()
-            parents = [Digest(digest=bytes(str(i),'utf8')) for i in range(0,n)]
+            parents = [Digest(bytes(str(i),'utf8')) for i in range(0,n)]
 
             tree = build_merkle_tree(parents,algorithm=algorithm)
 
@@ -260,7 +245,7 @@ class Test_build_merkle_tree(unittest.TestCase):
         with self.assertRaises(ValueError):
             build_merkle_tree(())
 
-        d = Digest(digest=b'd')
+        d = Digest(b'd')
         self.assertSequenceEqual(build_merkle_tree((d,)),(d,))
 
         for i in (3,4,5,10,21,64,513):

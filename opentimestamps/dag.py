@@ -45,7 +45,7 @@ class Op(bytes):
 
     @classmethod
     def _calculate_digest_from_input(cls, input, **kwargs):
-        return input
+        raise NotImplementedError
 
     def __new__(cls, *inputs, parents=None, digest=None, **kwargs):
         input = b''.join(inputs)
@@ -107,20 +107,18 @@ class Op(bytes):
 
 @register_op
 class Digest(Op):
-    """Operation that simply produces a specific digest
+    """Create a Digest
 
-    Think of this as a place-holder for an operation. Included to be able to
-    assign metadata to digests when we don't have further information about
-    them yet.
+    The Digest is created by concatenating one or more other digests together.
+    parents can be specified, however unlike a Hash operation the default is
+    for the Digest to have no parents.
     """
-    @classmethod
-    def _calculate_digest_from_input(cls, input, digest=None, **kwargs):
-        if not digest:
-            raise ValueError('digest must be given and not empty')
-        if input != b'':
-            raise ValueError('Digest operations have no inputs')
+    def __new__(cls, *inputs, parents=(), **kwargs):
+        return super().__new__(cls,*inputs, parents=parents, **kwargs)
 
-        return digest
+    @classmethod
+    def _calculate_digest_from_input(cls, input, **kwargs):
+        return input
 
 
 @register_op
@@ -374,26 +372,36 @@ class Dag(set):
             return new_op
 
         # Decide who has the better operation
-        if isinstance(new_op,Digest):
-            # Callee has a plain Digest, we have something else. If it's not a
-            # Digest, what we have is better because it has more information.
-            # If it's just a Digest, what we have is still better to promote
-            # object re-use.
+        if isinstance(new_op, Hash) and isinstance(existing_op, Hash):
+            assert new_op == existing_op
+            assert new_op.algorithm == existing_op.algorithm
+
+            # Both parties have a Hash, however the new_op may have
+            # information about new parent slices. FIXME: implement
+            existing_op.parents.update(new_op.parents)
             return existing_op
 
-        elif isinstance(existing_op,Digest):
-            # We have a Digest, callee has something more interesting. Use
-            # callee's new object instead of ours.
+        elif isinstance(new_op, Hash):
+            # We don't have a Hash, but the callee does. Their Op provides more
+            # information than our op, so replace ours with theirs. We
+            # shouldn't have any parents; if we do that implies there is more
+            # than one way to calculate this digest.
+            assert not existing_op.parents
             self.add_unconditionally(new_op)
             return new_op
 
+        elif isinstance(existing_op, Hash):
+            # We have a Hash, they don't. We win.
+            return existing_op
+
         elif existing_op == new_op:
-            # Both parties have an equivalent non-Digest object.
+            # Both parties have an equivalent non-Digest object. Merge parents.
+            existing_op.parents.update(new_op.parents)
             return existing_op
 
         else:
             # This shouldn't happen even if a hash function is broken because
-            # Op's are compared by their .digest
+            # Op's are compared by their digest
             assert False
 
     def path(self,start,dest,chain=None):
