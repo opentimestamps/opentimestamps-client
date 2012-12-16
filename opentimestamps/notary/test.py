@@ -71,8 +71,8 @@ class TestNotary(Notary):
 
 @register_signature_class
 class TestSignature(Signature):
-    def __init__(self,**kwargs):
-        super().__init__(**kwargs)
+    def __init__(self, method='test', **kwargs):
+        super().__init__(method=method, **kwargs)
 
     @property
     def method(self):
