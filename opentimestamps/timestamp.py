@@ -14,7 +14,8 @@ import io
 import opentimestamps.crypto
 
 from opentimestamps._internal import hexlify,unhexlify
-from opentimestamps.dag import Dag,Hash,XOR
+from opentimestamps.dag import Op,Dag,Hash,XOR
+from opentimestamps.notary import Signature
 
 class TimestampError(Exception):
     pass
@@ -86,3 +87,10 @@ class Timestamp:
                  ops = [op.to_primitives() for op in self.dag],
                  signatures = [sig.to_primitives() for sig in self.signatures])
         return d
+
+    @classmethod
+    def from_primitives(cls,primitives):
+        digests = {algo:unhexlify(digest) for (algo,digest) in primitives['digests'].items()}
+        ops = [Op.from_primitives(op) for op in primitives['ops']]
+        signatures = [Signature.from_primitives(sig) for sig in primitives['signatures']]
+        return Timestamp(ops=ops, signatures=signatures, digests=digests)
