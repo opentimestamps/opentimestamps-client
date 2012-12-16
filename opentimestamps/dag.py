@@ -122,6 +122,35 @@ class Digest(Op):
 
 
 @register_op
+class XOR(Op):
+    """XOR digests
+
+    Useful for nonces and similar because multiple applications of XOR in a
+    chain can be combined. The input is split in half, and the digest is
+    produced by XORing the left half with the right half.
+    """
+    def __new__(cls, *inputs, parents=None, **kwargs):
+        assert parents is not None
+        return super().__new__(cls, *inputs, parents=parents, **kwargs)
+
+    @classmethod
+    def _calculate_digest_from_input(cls, input, **kwargs):
+        if len(input) % 2:
+            raise ValueError('Input to XOR operation must be of even length')
+        if not len(input):
+            raise ValueError('Input to XOR operation must be at least 2 bytes long')
+
+        left  = input[0:len(input)//2]
+        right = input[len(input)//2:]
+        assert left + right == input
+
+        r = b''
+        for (left_char,right_char) in zip(left,right):
+            r += bytes([left_char ^ right_char])
+        return r
+
+
+@register_op
 class Hash(Op):
     @property
     def algorithm(self):
