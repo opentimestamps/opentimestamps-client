@@ -11,12 +11,20 @@
 
 """Internal use only"""
 
+import binascii
 import os
 import shutil
 import struct
 import sys
 import tempfile
 import uuid
+
+# hexlify and unhexlify with unicode output
+def hexlify(b):
+    return binascii.hexlify(b).decode('utf8')
+def unhexlify(h):
+    return binascii.unhexlify(h.encode('utf8'))
+
 
 class BinaryHeader(object):
     """Mix-in to deal with binary headers"""
