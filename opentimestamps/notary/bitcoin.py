@@ -9,7 +9,7 @@
 # modified, propagated, or distributed except according to the terms contained
 # in the LICENSE file.
 
-import jsonrpc
+import opentimestamps._bitcoinrpc as btcrpc
 import struct
 
 from opentimestamps.notary import Signature,SignatureVerificationError
@@ -51,7 +51,7 @@ def setup_rpc_proxy(identity, context):
         else:
             rpc_url = context.config[section]['rpc_url']
 
-        proxy = jsonrpc.ServiceProxy(rpc_url)
+        proxy = btcrpc.ServiceProxy(rpc_url)
         context.bitcoin_proxy[identity] = proxy
 
     return context.bitcoin_proxy[identity]
@@ -102,7 +102,7 @@ class BitcoinSignature(Signature):
 
         try:
             block = proxy.getblock(hexlify(block_hash[::-1]))
-        except jsonrpc.JSONRPCException as err:
+        except btcrpc.JSONRPCException as err:
             # import pdb; pdb.set_trace()
             raise err
 
@@ -141,7 +141,7 @@ def calc_p2sh_proof_address(digest,pubkey,proxy):
         digest_pubkey = '02' + hexlify(inserted_digest)
         try:
             p2sh = proxy.createmultisig(1, [pubkey, digest_pubkey])
-        except jsonrpc.JSONRPCException as ex:
+        except btcrpc.JSONRPCException as ex:
             nonce += 1
             inserted_digest = sha256d(digest + chr(nonce))
     print(nonce)
@@ -201,7 +201,7 @@ def find_digest_in_block(digest,block_hash,proxy):
         tx_hash = unhexlify(tx_hash.encode("utf8"))
         try:
             raw_tx = unhexlify(proxy.getrawtransaction(hexlify(tx_hash).decode("utf8")).encode("utf8"))
-        except jsonrpc.JSONRPCException as err:
+        except btcrpc.JSONRPCException as err:
             if err.error['code'] == -5:
                 continue
             else:
@@ -267,7 +267,7 @@ def find_digest_in_block(digest,block_hash,proxy):
     return path
 
 if None:
-    proxy = jsonrpc.ServiceProxy("http://pete:CYiDf0OQZD@127.0.0.1:8332")
+    proxy = btcrpc.ServiceProxy("http://pete:CYiDf0OQZD@127.0.0.1:8332")
 
     digest = sha256d(unhexlify('13249541def3c688e28a32da9a6f39e2c68442db'))
     change_addr = 'miDvz1MnDquvMnSfQ8rwTDVbdckfdCCpTn'
