@@ -9,8 +9,20 @@
 # modified, propagated, or distributed except according to the terms contained
 # in the LICENSE file.
 
-class Context(object):
+import configparser
+
+default_conf = {'bitcoin':{'use_bitcoin_conf': '~/.bitcoin/bitcoin.conf',
+                           'rpc_url': ''},
+                'bitcoin-testnet':{'use_bitcoin_conf': '~/.bitcoin/bitcoin.conf',
+                                   'rpc_url': ''}}
+
+class Context:
     """Store of the context the client is working with.
 
     The main thing this provides is access to what was defined in the config file.
     """
+
+    def __init__(self,config_file):
+        self.config = configparser.ConfigParser()
+        self.config.read_dict(default_conf)
+        self.config.read(config_file)

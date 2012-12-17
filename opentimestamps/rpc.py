@@ -15,8 +15,6 @@ import urllib.error
 import urllib.request
 from urllib.parse import quote_plus,unquote_plus,urlencode
 
-from .serialization import json_serialize,json_deserialize
-
 class OtsServer:
     """Interface to an OpenTimestamps Server"""
 

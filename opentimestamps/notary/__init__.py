@@ -143,7 +143,7 @@ class Signature:
 
         Returns True on success, False on failure.
         """
-        raise SignatureVerificationError
+        raise NotImplementedError
 
     def to_primitives(self):
         d = dict(identity=self.identity,
@@ -159,3 +159,7 @@ class Signature:
         digest = opentimestamps._internal.unhexlify(primitives['digest'])
 
         return signature_classes_by_method[method](method=method, identity=identity, digest=digest)
+
+import opentimestamps.notary.test
+import opentimestamps.notary.pgp
+import opentimestamps.notary.bitcoin

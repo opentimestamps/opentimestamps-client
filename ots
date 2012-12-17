@@ -27,7 +27,9 @@ from opentimestamps.dag import *
 from opentimestamps.io import *
 from opentimestamps.notary import *
 from opentimestamps.rpc import *
-from opentimestamps.serialization import *
+
+import opentimestamps.client
+context = None
 
 parser = argparse.ArgumentParser(description="OpenTimestamps client.")
 
@@ -165,56 +167,39 @@ def complete_command(args):
 def jsondump_command(args):
     with FileManager(args.timestamp,'-') as fm:
         timestamp_file = TimestampFile(in_fd=fm.in_fd,out_fd=None)
-        timestamp_file.read()
 
-        print(json.dumps(json_serialize(timestamp_file.options),indent=4))
-        print(json.dumps(json_serialize(tuple(timestamp_file.dag)),indent=4))
+        print(json.dumps(timestamp_file.to_primitives(), indent=4))
 
 
 def verify_command(args):
-    if args.timestamp is None:
-        if args.file is not '-':
-            args.timestamp = args.file + '.ots'
-        else:
-            parser.error("Must specify timestamp filename if input is stdin")
-
-    with FileManager(args.file,'-') as fm_file,\
+    data_filename = args.data
+    if args.data is None:
+        data_filename = '-'
+    with FileManager(data_filename,'-') as fm_data,\
          FileManager(args.timestamp,'-') as fm_timestamp:
 
-        digests = {}
-        file_digest = hashlib.sha256()
-        file_digest.update(fm_file.in_fd.read())
-        file_digest = file_digest.digest()
-        digests['sha256'] = file_digest
+        data_fd = None
+        if args.data is not None:
+            data_fd = fm_data.in_fd
+        timestamp = TimestampFile(data_fd=data_fd, in_fd=fm_timestamp.in_fd, out_fd=None)
 
-        timestamp_file = TimestampFile(digests=digests,in_fd=fm_timestamp.in_fd,out_fd=None)
-        timestamp_file.read()
+        if args.data is not None:
+            timestamp.verify_data()
+            print('Data in {} matches timestamp'.format(args.data))
 
-        successful_verification = False
-        for v in timestamp_file.dag.verifications:
-            path = timestamp_file.dag.path(file_digest,v)
+        timestamp.verify_consistency()
 
-            if path is not None:
-                try:
-                    v.signature.verify(v.inputs[0])
-                except SignatureVerificationError as err:
-                    logging.error('BAD signature from %s:%s, got err %r' % \
-                                      (v.signature.notary.method,
-                                       v.signature.notary.identity,
-                                       err))
-                    continue
-
-                successful_verification = True
-                timestamp = datetime.datetime.fromtimestamp(v.signature.timestamp / 1000000)
-                logging.info('GOOD signature from %s:%s with timestamp %s' % \
-                                 (v.signature.notary.method,
-                                  v.signature.notary.identity,
-                                  timestamp.isoformat(' ')))
-
-        if not timestamp_file.dag.verifications:
-            logging.error('No signatures found!')
-        elif not successful_verification:
-            logging.warn('No successful verifications!')
+        for sig in timestamp.signatures:
+            try:
+                sig.verify(context=context)
+            except SignatureVerificationError:
+                # FIXME: need more detail here...
+                pass
+            else:
+                # FIXME: need better time formatting
+                print('GOOD signature from {}:{} with timestamp {}'.format(
+                    sig.method, sig.identity,
+                    datetime.datetime.fromtimestamp(sig.timestamp)))
 
 
 def getsourcecode_command(args):
@@ -282,13 +267,13 @@ parser_jsondump.add_argument("timestamp",action="store",
 
 # ----- verify -----
 parser_verify = subparsers.add_parser('verify',#aliases=['v'], aliases not supported in 2.7!
-        help="Verify a file's timestamp")
+        help="Verify a timestamp")
 parser_verify.set_defaults(cmd_func=verify_command)
 
-parser_verify.add_argument("file",action="store",
-        help="File to verify (or - for standard input)")
-parser_verify.add_argument("timestamp",action="store",nargs='?',
-        help="Optionally specify filename of timestamp. Required if input is standard input.")
+parser_verify.add_argument("timestamp",action="store",
+        help="Filename of timestamp")
+parser_verify.add_argument("data",action="store",nargs='?',
+        help="Optional data to verify (or - for standard input)")
 
 # ----- getsourcecode -----
 parser_getsourcecode = subparsers.add_parser('getsourcecode',
@@ -307,5 +292,7 @@ elif args.verbosity == -1:
     logging.root.setLevel(logging.WARNING)
 elif args.verbosity < -1:
     logging.root.setLevel(logging.ERROR)
+
+context = opentimestamps.client.Context(args.config)
 
 args.cmd_func(args)

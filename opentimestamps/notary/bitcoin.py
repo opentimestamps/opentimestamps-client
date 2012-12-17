@@ -21,6 +21,41 @@ from opentimestamps._internal import hexlify,unhexlify
 
 bitcoin_header_format = struct.Struct("<i 32s 32s I 4s I")
 
+def setup_rpc_proxy(identity, context):
+    if not hasattr(context,'bitcoin_proxy'):
+        context.bitcoin_proxy = {}
+
+    if not identity in context.bitcoin_proxy:
+        section = 'bitcoin'
+        if identity == 'testnet':
+            section = 'bitcoin-testnet'
+
+        rpc_url = None
+        if context.config[section]['use_bitcoin_conf']:
+            bitcoin_conf = {'rpcport':'8332',
+                            'rpcconnect':'localhost'}
+
+            import os
+            conf_path = os.path.expanduser(context.config[section]['use_bitcoin_conf'])
+            for line in open(conf_path,'r'):
+                (key,value) = line.split('=')
+                key = key.strip()
+                value = value.strip()
+                bitcoin_conf[key] = value
+
+            rpc_url = 'http://{}:{}@{}:{}'.format(\
+                    bitcoin_conf['rpcuser'],
+                    bitcoin_conf['rpcpassword'],
+                    bitcoin_conf['rpcconnect'],
+                    bitcoin_conf['rpcport'])
+        else:
+            rpc_url = context.config[section]['rpc_url']
+
+        proxy = jsonrpc.ServiceProxy(rpc_url)
+        context.bitcoin_proxy[identity] = proxy
+
+    return context.bitcoin_proxy[identity]
+
 def serialize_block_header(block):
     """Serialize a block header from the RPC interface"""
     return bitcoin_header_format.pack(
@@ -58,17 +93,12 @@ class BitcoinSignature(Signature):
     def __init__(self, method='bitcoin', **kwargs):
         super().__init__(method=method, **kwargs)
 
-    def validate(self, context=None):
+    def verify(self, context=None):
         assert context is not None
 
         block_hash = sha256d(self.digest)
 
-        try:
-            proxy = context.bitcoin_proxy[self.identity]
-        except KeyError:
-            rpc_url = context.bitcoin_rpc_url[self.identity]
-            proxy = jsonrpc.ServiceProxy(rpc_url)
-            context.bitcoin_proxy[self.identity] = proxy
+        proxy = setup_rpc_proxy(self.identity, context)
 
         try:
             block = proxy.getblock(hexlify(block_hash[::-1]))
