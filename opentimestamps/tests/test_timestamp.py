@@ -13,6 +13,7 @@ import unittest
 import io
 import json
 
+from opentimestamps._internal import hexlify,unhexlify
 from opentimestamps.dag import Hash
 from opentimestamps.timestamp import Timestamp,TimestampVerificationError
 from opentimestamps.notary.test import TestSignature
@@ -94,7 +95,7 @@ b'\xbax\xcf\x8c\xdc\xe8Q\xf5\xce0\xa3\xdc\xf1\xf0\xfc\rp\xd6\x9c\x9f\xa7\xbe\x87
         data_digest = bytes(Hash(b'',algorithm='sha256'))
 
         test_sig = TestSignature(identity='pass', digest=b'invalid')
-        ts.signatures.append(test_sig)
+        ts.signatures.add(test_sig)
 
         with self.assertRaises(TimestampVerificationError):
             ts.verify_consistency()
@@ -102,18 +103,18 @@ b'\xbax\xcf\x8c\xdc\xe8Q\xf5\xce0\xa3\xdc\xf1\xf0\xfc\rp\xd6\x9c\x9f\xa7\xbe\x87
 
         # Add signature signing one of the data digests directly
         test_sig = TestSignature(identity='pass', digest=data_digest)
-        ts.signatures.append(test_sig)
+        ts.signatures.add(test_sig)
         ts.verify_consistency()
 
         # Add some ops this time
         nonce_op = Hash(data_digest,b'\xff' * 32,parents=(data_digest,))
         ts.dag.add(nonce_op)
-        ts.signatures.append(TestSignature(identity='pass', digest=nonce_op))
+        ts.signatures.add(TestSignature(identity='pass', digest=nonce_op))
         ts.verify_consistency()
 
         hash_op = Hash(bytes(nonce_op),b'green eggs and ham')
         ts.dag.add(hash_op)
-        ts.signatures.append(TestSignature(identity='pass', digest=hash_op))
+        ts.signatures.add(TestSignature(identity='pass', digest=hash_op))
         ts.verify_consistency()
 
         # Break the chain
@@ -135,8 +136,8 @@ b'\xbax\xcf\x8c\xdc\xe8Q\xf5\xce0\xa3\xdc\xf1\xf0\xfc\rp\xd6\x9c\x9f\xa7\xbe\x87
                      digests = dict(sha256='e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'),
                      ops = []))
 
-        ts.signatures.append(TestSignature(identity='pass', digest=data_digest))
+        ts.signatures.add(TestSignature(identity='pass', digest=data_digest))
         self.assertEqual(ts.to_primitives(),
-                dict(signatures = [{'test':{'digest':data_digest,'identity':'pass'}}],
+                dict(signatures = [{'test':{'digest':hexlify(data_digest),'identity':'pass'}}],
                      digests = dict(sha256='e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'),
                      ops = []))

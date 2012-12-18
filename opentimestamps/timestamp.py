@@ -30,7 +30,7 @@ class Timestamp:
         if digests is None:
             digests = {}
         self.digests = digests
-        self.signatures = list(signatures)
+        self.signatures = set(signatures)
         self.context = context
 
     def add_algorithms(self, *algorithms):
