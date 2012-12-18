@@ -93,4 +93,4 @@ class Timestamp:
         digests = {algo:unhexlify(digest) for (algo,digest) in primitives['digests'].items()}
         ops = [Op.from_primitives(op) for op in primitives['ops']]
         signatures = [Signature.from_primitives(sig) for sig in primitives['signatures']]
-        return Timestamp(ops=ops, signatures=signatures, digests=digests, data_fd=data_fd)
+        return cls(ops=ops, signatures=signatures, digests=digests, data_fd=data_fd)
