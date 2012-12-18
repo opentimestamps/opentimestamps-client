@@ -378,6 +378,10 @@ class Dag(set):
         Operations other than Digests always replace Digest operations in the
         Dag.
         """
+        # Coerce to an Op
+        if not isinstance(new_op, Op):
+            new_op = Digest(new_op)
+
         try:
             existing_op = self[new_op]
         except KeyError:
