@@ -490,7 +490,7 @@ class Dag(set):
         return all_children
 
 
-def build_merkle_tree(parents,algorithm=None,_accumulator=None):
+def build_merkle_tree(parents, algorithm=None, _accumulator=None):
     """Build a merkle tree
 
     parents   - iterable of all the parents you want in the tree.
@@ -511,6 +511,11 @@ def build_merkle_tree(parents,algorithm=None,_accumulator=None):
     while True:
         try:
             p1 = next(parents)
+
+            # Make sure parent is in fact an Op. Not really sure if this is the
+            # right place for this...
+            if not isinstance(p1,Op):
+                p1 = Digest(p1)
         except StopIteration:
             # Even number of items, possibly zero.
             if len(accumulator) == 0 and _accumulator is None:
@@ -524,6 +529,8 @@ def build_merkle_tree(parents,algorithm=None,_accumulator=None):
 
         try:
             p2 = next(parents)
+            if not isinstance(p2,Op):
+                p2 = Digest(p2)
         except StopIteration:
             # We must have an odd number of elements at this level, or there
             # was only one parent.
