@@ -10,6 +10,7 @@
 # in the LICENSE file.
 
 import configparser
+import os
 
 default_conf = {'bitcoin':{'use_bitcoin_conf': '~/.bitcoin/bitcoin.conf',
                            'rpc_url': ''},
@@ -22,7 +23,8 @@ class Context:
     The main thing this provides is access to what was defined in the config file.
     """
 
-    def __init__(self,config_file):
+    def __init__(self, config_file=None):
         self.config = configparser.ConfigParser()
         self.config.read_dict(default_conf)
-        self.config.read(config_file)
+        if config_file is not None:
+            self.config.read((os.path.expanduser(config_file),))
