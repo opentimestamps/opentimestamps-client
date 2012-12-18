@@ -13,7 +13,7 @@ import unittest
 import io
 import json
 
-from opentimestamps.dag import Hash,XOR
+from opentimestamps.dag import Hash
 from opentimestamps.timestamp import Timestamp,TimestampVerificationError
 from opentimestamps.notary.test import TestSignature
 
@@ -106,7 +106,7 @@ b'\xbax\xcf\x8c\xdc\xe8Q\xf5\xce0\xa3\xdc\xf1\xf0\xfc\rp\xd6\x9c\x9f\xa7\xbe\x87
         ts.verify_consistency()
 
         # Add some ops this time
-        nonce_op = XOR(data_digest,b'\xff' * 32,parents=(data_digest,))
+        nonce_op = Hash(data_digest,b'\xff' * 32,parents=(data_digest,))
         ts.dag.add(nonce_op)
         ts.signatures.append(TestSignature(identity='pass', digest=nonce_op))
         ts.verify_consistency()

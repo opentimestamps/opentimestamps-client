@@ -14,7 +14,7 @@ import io
 import opentimestamps.crypto
 
 from opentimestamps._internal import hexlify,unhexlify
-from opentimestamps.dag import Op,Dag,Hash,XOR
+from opentimestamps.dag import Op,Dag,Hash
 from opentimestamps.notary import Signature
 
 class TimestampError(Exception):

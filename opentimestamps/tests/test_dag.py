@@ -68,31 +68,6 @@ class TestDigestOp(unittest.TestCase):
         r(d,{'Digest': {'input': 'ff00', 'digest': 'ff00', 'parents': []}})
 
 
-class TestXOROp(unittest.TestCase):
-    def test(self):
-        # XOR requires at least one parent to be specified, so make our own
-        # function to deal with that.
-        def xor(input,*args,**kwargs):
-            return XOR(input,*args,parents=((input,)))
-
-        with self.assertRaises(ValueError):
-            xor(b'')
-        with self.assertRaises(ValueError):
-            xor(b'1')
-        with self.assertRaises(ValueError):
-            xor(b'123')
-
-        self.assertEqual(xor(b'\x00\x00'),b'\x00')
-        self.assertEqual(xor(b'\x00\xff'),b'\xff')
-        self.assertEqual(xor(b'\xff\xff'),b'\x00')
-        self.assertEqual(xor(b'abcdefgh'),b'\x04\x04\x04\x0c')
-
-    def test_json_serialization(self):
-        r = make_op_round_trip_tester(self)
-
-        d = XOR(b'\xff',b'\x00',parents=((b'\xff',)))
-        r(d,{'XOR': {'input': 'ff00', 'digest': 'ff', 'parents': [(0,1)]}})
-
 
 class TestHashOp(unittest.TestCase):
     def test_hash_algorithm_support(self):
