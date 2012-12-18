@@ -44,6 +44,6 @@ class TestBitcoinNotary(unittest.TestCase):
         sig = BitcoinSignature(digest=digest, identity='mainnet')
 
         self.assertEqual(sig.timestamp, 1355062465 + BITCOIN_TIMESTAMP_OFFSET)
-        self.assertTrue(sig.validate(context=context))
+        self.assertTrue(sig.verify(context=context))
 
         # FIXME: need tests for validation failure scenarios
