@@ -198,8 +198,8 @@ parser.add_argument("-v","--verbose",action="count",default=0,
                              help="Be more verbose. Both -v and -q may be used multiple times.")
 parser.add_argument("-c","--config",action="store",default="~/.opentimestamps/config",
         help="Location of config file. Defaults to: ~/.opentimestamps/config")
-parser.add_argument("-s","--server",action="store",default="http://localhost:2302",
-                             help="Specify the server.")
+parser.add_argument("-s","--server",action="store",default="http://pool.opentimestamps.org",
+        help="Specify the server. Defaults to: http://pool.opentimestamps.org")
 
 subparsers = parser.add_subparsers(title='Subcommands',
                                    description='All operations are done through subcommands:')
