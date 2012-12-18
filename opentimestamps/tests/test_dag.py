@@ -65,7 +65,7 @@ class TestDigestOp(unittest.TestCase):
         r = make_op_round_trip_tester(self)
 
         d = Digest(b'\xff\x00')
-        r(d,{'Digest': {'input': 'ff00', 'digest': 'ff00', 'parents': []}})
+        r(d,{'Digest': {'input': 'ff00', 'digest': 'ff00', 'parents': [], 'metadata': {}}})
 
 
 
@@ -89,6 +89,7 @@ class TestHashOp(unittest.TestCase):
                 {'input':'6162',
                  'parents': [(0,1), (1,1)],
                  'algorithm':'sha256d',
+                 'metadata': {},
                  'digest':'a1ff8f1856b5e24e32e3882edd4a021f48f28a8b21854b77fdef25a97601aace'}})
 
 

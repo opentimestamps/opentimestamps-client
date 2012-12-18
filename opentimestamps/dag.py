@@ -47,7 +47,7 @@ class Op(bytes):
     def _calculate_digest_from_input(cls, input, **kwargs):
         raise NotImplementedError
 
-    def __new__(cls, *inputs, parents=None, digest=None, **kwargs):
+    def __new__(cls, *inputs, parents=None, digest=None, metadata={}, **kwargs):
         input = b''.join(inputs)
         self = bytes.__new__(cls, cls._calculate_digest_from_input(input, digest=digest, **kwargs))
 
@@ -69,8 +69,9 @@ class Op(bytes):
                 normed_parents.add(p)
         self.parents = normed_parents
 
-        return self
+        self.metadata = dict(metadata)
 
+        return self
 
     def __repr__(self):
         return '%s(<%s>)' % (self.__class__.__name__,hexlify(self[0:8]))
@@ -82,6 +83,7 @@ class Op(bytes):
 
         d = dict(input=hexlify(self.input),
                  parents=parents,
+                 metadata=self.metadata,
                  digest=hexlify(self))
 
         return {self.__class__.__name__:d}
@@ -380,14 +382,17 @@ class Dag(set):
             return new_op
 
         # Decide who has the better operation
+        r = None
+        merge_src = None
         if isinstance(new_op, Hash) and isinstance(existing_op, Hash):
             assert new_op == existing_op
             assert new_op.algorithm == existing_op.algorithm
 
             # Both parties have a Hash, however the new_op may have
-            # information about new parent slices. FIXME: implement
+            # information about new parent slices.
             existing_op.parents.update(new_op.parents)
-            return existing_op
+            merge_src = new_op
+            r = existing_op
 
         elif isinstance(new_op, Hash):
             # We don't have a Hash, but the callee does. Their Op provides more
@@ -396,21 +401,28 @@ class Dag(set):
             # than one way to calculate this digest.
             assert not existing_op.parents
             self.add_unconditionally(new_op)
-            return new_op
+            merge_src = existing_op
+            r = new_op
 
         elif isinstance(existing_op, Hash):
             # We have a Hash, they don't. We win.
-            return existing_op
+            merge_src = new_op
+            r = existing_op
 
         elif existing_op == new_op:
             # Both parties have an equivalent non-Digest object. Merge parents.
             existing_op.parents.update(new_op.parents)
-            return existing_op
+            merge_src = new_op
+            r = existing_op
 
         else:
             # This shouldn't happen even if a hash function is broken because
             # Op's are compared by their digest
             assert False
+
+        r.metadata.update(merge_src.metadata)
+        return r
+
 
     def path(self,start,dest,chain=None):
         """Find a path from start to dest
