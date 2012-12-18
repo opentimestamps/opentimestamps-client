@@ -138,6 +138,15 @@ class Signature:
         self._digest = digest
         assert isinstance(digest,bytes)
 
+    def __eq__(self, other):
+        if not isinstance(other, Signature):
+            return NotImplemented
+        else:
+            return self.method == other.method and self.identity == other.identity and self.digest == other.digest
+
+    def __hash__(self):
+        return hash((self.method, self.identity, self.digest))
+
     def verify(self,context=None):
         """Verify that the signature is correct
 
