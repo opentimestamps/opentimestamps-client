@@ -76,6 +76,9 @@ class Op(bytes):
     def __repr__(self):
         return '%s(<%s>)' % (self.__class__.__name__,hexlify(self[0:8]))
 
+    def __str__(self):
+        return repr(self)
+
     def to_primitives(self):
         parents = []
         for p in self.parents:
