@@ -31,19 +31,19 @@ class OtsServer:
             name = name[4:]
 
             def get_fn(*args,**kwargs):
-                kwargs = {k: quote_plus(json.dumps(json_serialize(v))) for k,v in kwargs.items()}
+                kwargs = {k: quote_plus(v) for k,v in kwargs.items()}
                 kwargs = urlencode(kwargs)
                 if kwargs:
                     kwargs = '?' + kwargs
 
-                args = [quote_plus(json.dumps(json_serialize(arg))) for arg in args]
+                args = [quote_plus(arg) for arg in args]
                 args = '/'.join(args)
                 if args:
                     args = '/' + args
 
                 try:
                     with urllib.request.urlopen(self.url + '/' + name + args + kwargs) as r:
-                        return json_deserialize(json.loads(str(r.read(),'utf8')))
+                        return json.loads(str(r.read(),'utf8'))
                 except urllib.error.HTTPError as ex:
                     logging.error(str(ex.read(),'utf8'))
                     raise ex
@@ -52,17 +52,16 @@ class OtsServer:
             name = name[5:]
 
             def post_fn(*args,**kwargs):
-                kwargs = {k: json.dumps(json_serialize(v)) for k,v in kwargs.items()}
                 kwargs = bytes(urlencode(kwargs),'utf8')
 
-                args = [quote_plus(json.dumps(json_serialize(arg))) for arg in args]
+                args = [quote_plus(arg) for arg in args]
                 args = '/'.join(args)
                 if args:
                     args = '/' + args
 
                 try:
                     with urllib.request.urlopen(self.url + '/' + name + args,data=kwargs) as r:
-                        return json_deserialize(json.loads(str(r.read(),'utf8')))
+                        return json.loads(str(r.read(),'utf8'))
                 except urllib.error.HTTPError as ex:
                     logging.error(str(ex.read(),'utf8'))
                     raise ex

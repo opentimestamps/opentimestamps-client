@@ -23,6 +23,7 @@ import sys
 import opentimestamps
 
 from opentimestamps._internal import FileManager
+from opentimestamps.crypto import random_bytes
 from opentimestamps.dag import *
 from opentimestamps.io import *
 from opentimestamps.notary import *
@@ -40,74 +41,50 @@ def submit_command(args):
         else:
             parser.error("Must specify timestamp file (or stdout) if input is stdin")
 
-
     # Don't let the user overwrite the input
     if os.path.realpath(args.file) == os.path.realpath(args.timestamp):
         parser.error("timestamp would overwrite file")
 
-    digests = {}
     with FileManager(args.file,'-') as file_fm:
-        # Calculate the digest for our file
-        file_digest = hashlib.sha256()
-        file_digest.update(file_fm.in_fd.read())
-        file_digest = file_digest.digest()
-        digests['sha256'] = file_digest
+        # FIXME: handle extending timestamps, IE, timestamp file already exists
+        # look in v0.1 git history for how
+        assert not os.path.exists(args.timestamp)
 
-        timestamp_file = None
+        with FileManager('-',args.timestamp) as stamp_fm:
+            timestamp = None
 
-        # If we're being asked to output to a file, the file may already exist.
-        # If it's a valid timestamp file, for the file we've been asked to
-        # timestamp, use it.
-        timestamp_file_already_exists = os.path.exists(args.timestamp) and args.timestamp != '-'
-        in_name = '-'
-        if timestamp_file_already_exists:
-            in_name = args.timestamp
-        with FileManager(in_name,args.timestamp) as stamp_fm:
-            timestamp_file = None
+            timestamp = TimestampFile(data_fd=file_fm.in_fd, out_fd=stamp_fm.out_fd)
+            logging.info("Creating a new timestamp file")
 
-            if timestamp_file_already_exists:
-                try:
-                    timestamp_file = TimestampFile(digests=digests,
-                                        in_fd=stamp_fm.in_fd,
-                                        out_fd=stamp_fm.out_fd)
-                except TimestampFile.CorruptTimestampError:
-                    parser.error("output file %s already exists and is not a timestamp; will not overwrite" \
-                            % args.timestamp)
+            timestamp.add_algorithms('sha256d')
 
-                timestamp_file.read()
-                logging.info("Submitting an existing timestamp again")
-            else:
-                timestamp_file = TimestampFile(digests=digests,out_fd=stamp_fm.out_fd)
-                logging.info("Creating a new timestamp file")
-
-            # FIXME: probably should have a --force option, so that submit in
-            # the general case doesn't just submit again.
-            hash_op = None
+            new_ops = []
+            digest = timestamp.digests['sha256d']
             if not args.no_nonce:
-                nonce = os.urandom(hashlib.sha256().digest_size)
-                hash_op = Hash(inputs=(file_digest,nonce))
-            else:
-                hash_op = Digest(digest=file_digest)
+                nonce = random_bytes(32)
+                hash_op = Hash(digest,nonce,parents=(digest,))
+                new_ops.append(hash_op)
+                digest = hash_op
 
             server = OtsServer(args.server)
 
-            new_ops = server.post_digest(op=hash_op)
-            timestamp_file.dag.update(new_ops)
+            reply_ops = server.post_digest(digest=hexlify(digest))
+            reply_ops = [Op.from_primitives(op) for op in reply_ops]
 
-            if hash_op not in timestamp_file.dag:
-                timestamp_file.dag.add(hash_op)
-                new_ops.append(hash_op)
+            new_ops.extend(reply_ops)
+            timestamp.dag.update(new_ops)
 
-            timestamp_file.write()
+            timestamp.write()
 
             stamp_fm.commit()
 
-            if args.verbosity > 0:
-                logging.debug("New ops:\n" +
-                        json.dumps(json_serialize(new_ops),indent=4))
+            logging.debug("New ops:\n" +
+                    json.dumps([op.to_primitives() for op in new_ops],indent=4))
 
 
 def sign_command(args):
+    raise NotImplementedError
+
     server = OtsServer(args.server)
 
     notary = PGPNotary(identity=args.fingerprint)
@@ -131,34 +108,38 @@ def sign_command(args):
 def complete_command(args):
     with FileManager(args.timestamp,args.output) as fm:
         timestamp_file = TimestampFile(in_fd=fm.in_fd,out_fd=fm.out_fd)
-        timestamp_file.read()
 
+        new_sigs = []
         new_ops = []
         old_ops = set(timestamp_file.dag)
+
         server = OtsServer(args.server)
 
-        previous_verifications = set(timestamp_file.dag.verifications)
-        for d in timestamp_file.dag:
-            if args.server in d.metadata:
-                r = server.get_path(op=d,notary_spec=args.notary)
-                if r:
-                    new_ops.extend(r)
+        for op in timestamp_file.dag:
+            if args.server in op.metadata:
+                (ops,sigs) = server.get_path(hexlify(op), args.notary)
+                ops = [Op.from_primitives(op) for op in ops]
+                sigs = [Signature.from_primitives(sig) for sig in sigs]
+                new_sigs.extend(sigs)
+                new_ops.extend(ops)
 
         timestamp_file.dag.update(new_ops)
+        timestamp_file.signatures.update(new_sigs)
 
-        new_verifications = set(timestamp_file.dag.verifications).difference(previous_verifications)
-        if new_verifications:
+        if new_ops or new_sigs:
             timestamp_file.write()
             fm.commit()
 
-            new_ops = timestamp_file.dag.difference(old_ops)
-            logging.debug("Got new ops from server:\n %s",json.dumps(json_serialize(new_ops),indent=4))
+            new_ops = set(new_ops).difference(old_ops)
+            logging.debug("Got new ops from server:\n %s",
+                    json.dumps([op.to_primitives(op) for op in new_ops], indent=4))
 
-            for v in new_verifications:
-                timestamp = datetime.datetime.fromtimestamp(v.signature.timestamp / 1000000)
-                logging.info('New signature from %s:%s with timestamp %s' % \
-                                 (v.signature.notary.method,
-                                  v.signature.notary.identity,
+            new_sigs = set(new_sigs).difference(timestamp_file.signatures)
+            for sig in new_sigs:
+                timestamp = datetime.datetime.fromtimestamp(sig.timestamp)
+                logging.info('New signature from {}:{} with timestamp {}'.format(
+                                  sig.method,
+                                  sig.identity,
                                   timestamp.isoformat(' ')))
         else:
             logging.info('No new signatures found.')
