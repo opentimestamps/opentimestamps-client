@@ -167,6 +167,8 @@ def verify_command(args):
         if args.data is not None:
             timestamp.verify_data()
             print('Data in {} matches timestamp'.format(args.data))
+        else:
+            print('Data NOT checked')
 
         timestamp.verify_consistency()
 
