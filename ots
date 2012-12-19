@@ -206,7 +206,7 @@ parser.add_argument("-s","--server",action="store",default="http://pool.opentime
 subparsers = parser.add_subparsers(title='Subcommands',
                                    description='All operations are done through subcommands:')
 
-# ----- submit -----
+# ----- sign -----
 parser_sign = subparsers.add_parser('sign',#aliases=['s'],
         help='Sign a calendar.')
 parser_sign.set_defaults(cmd_func=sign_command)
