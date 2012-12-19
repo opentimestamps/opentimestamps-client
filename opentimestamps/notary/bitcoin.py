@@ -9,8 +9,10 @@
 # modified, propagated, or distributed except according to the terms contained
 # in the LICENSE file.
 
-import opentimestamps._bitcoinrpc as btcrpc
+import logging
 import struct
+
+import opentimestamps._bitcoinrpc as btcrpc
 
 from opentimestamps.notary import Signature,SignatureVerificationError
 from opentimestamps.crypto import sha256d
@@ -51,6 +53,7 @@ def setup_rpc_proxy(identity, context):
         else:
             rpc_url = context.config[section]['rpc_url']
 
+        logging.debug('Opening bitcoin rpc proxy: {}'.format(rpc_url))
         proxy = btcrpc.ServiceProxy(rpc_url)
         context.bitcoin_proxy[identity] = proxy
 
