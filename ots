@@ -36,14 +36,24 @@ parser = argparse.ArgumentParser(description="OpenTimestamps client.")
 
 def submit_command(args):
     if args.timestamp is None:
-        if args.file is not '-':
+        if args.file is not '-' and not args.digest:
             args.timestamp = args.file + '.ots'
         else:
-            parser.error("Must specify timestamp file (or stdout) if input is stdin")
+            parser.error("Must specify timestamp file (or stdout) if input is stdin or raw digest")
 
-    # Don't let the user overwrite the input
-    if os.path.realpath(args.file) == os.path.realpath(args.timestamp):
-        parser.error("timestamp would overwrite file")
+    if args.digest:
+        import binascii
+        try:
+            digest = unhexlify(args.file)
+        except binascii.Error as err:
+            parser.error("Digest must be specified in hex notation: {}".format(str(err)))
+
+        args.file = '-'
+
+    else:
+        # Don't let the user overwrite the input
+        if os.path.realpath(args.file) == os.path.realpath(args.timestamp):
+            parser.error("timestamp would overwrite file")
 
     with FileManager(args.file,'-') as file_fm:
         # FIXME: handle extending timestamps, IE, timestamp file already exists
@@ -56,10 +66,13 @@ def submit_command(args):
             timestamp = TimestampFile(data_fd=file_fm.in_fd, out_fd=stamp_fm.out_fd)
             logging.info("Creating a new timestamp file")
 
-            timestamp.add_algorithms('sha256d')
+            if args.digest:
+                timestamp.digests['none'] = digest
+            else:
+                timestamp.add_algorithms('sha256d')
+                digest = timestamp.digests['sha256d']
 
             new_ops = []
-            digest = timestamp.digests['sha256d']
             if not args.no_nonce:
                 nonce = random_bytes(32)
                 hash_op = Hash(digest,nonce,parents=(digest,))
@@ -132,7 +145,7 @@ def complete_command(args):
 
             new_ops = set(new_ops).difference(old_ops)
             logging.debug("Got new ops from server:\n %s",
-                    json.dumps([op.to_primitives(op) for op in new_ops], indent=4))
+                    json.dumps([Op.to_primitives(op) for op in new_ops], indent=4))
 
             new_sigs = set(new_sigs).difference(timestamp_file.signatures)
             for sig in new_sigs:
@@ -220,6 +233,8 @@ parser_submit.set_defaults(cmd_func=submit_command)
 parser_submit.add_argument("--no-nonce",action="store_true",default=False,
         help="Don't use a nonce in the hash calculation. Note: this means that"\
         " the server knows what data you have submitted.")
+parser_submit.add_argument("-d", "--digest", action="store_true", default=False,
+        help="Submit a raw digest instead of hashing a file.")
 parser_submit.add_argument("file",action="store",
         help="The file to timestamp. (or - for standard input)")
 parser_submit.add_argument("timestamp",action="store",nargs='?',
