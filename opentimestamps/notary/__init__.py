@@ -9,7 +9,6 @@
 # modified, propagated, or distributed except according to the terms contained
 # in the LICENSE file.
 
-import gnupg
 import io
 import re
 
