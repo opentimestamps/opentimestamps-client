@@ -234,7 +234,7 @@ parser_submit.add_argument("--no-nonce",action="store_true",default=False,
         help="Don't use a nonce in the hash calculation. Note: this means that"\
         " the server knows what data you have submitted.")
 parser_submit.add_argument("-d", "--digest", action="store_true", default=False,
-        help="Submit a raw digest instead of hashing a file.")
+        help="Interpret file as a raw hex digest of hashing a file to generate the digest.")
 parser_submit.add_argument("file",action="store",
         help="The file to timestamp. (or - for standard input)")
 parser_submit.add_argument("timestamp",action="store",nargs='?',
