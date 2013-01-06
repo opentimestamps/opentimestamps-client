@@ -241,7 +241,7 @@ class TestDag(unittest.TestCase):
         for i in range(1,n):
             chain.append(Hash(chain[i - 1]))
 
-        r(chain[0],chain[0],[chain[0]])
+        r(chain[0],chain[0],[])
         r(chain[0],chain[1],None)
 
 
@@ -276,7 +276,6 @@ class Test_build_merkle_tree(unittest.TestCase):
             for d in tree:
                 path = tuple(dag.path(d,tree[-1]))
                 self.assertFalse(path is None)
-                self.assertTrue(len(path) > 0)
                 max_path = max(max_path,len(path))
 
             # Parents have paths to the tree child

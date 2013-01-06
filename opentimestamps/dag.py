@@ -454,51 +454,38 @@ class Dag(set):
         return r
 
 
-    def path(self,start,dest,chain=None):
+    def path(self, start, dest, chain=None):
         """Find a path from start to dest
 
         start - digest, can be outside the dag, provided an operation in the
                 dag has the digest as one of its parents.
 
-        dest  - Either a digest or a Notary
+        dest  - digest, must be in the dag.
 
-        The returned path includes the destination, and every operation needed
-        to recalculate the destination. Note that if the destination matches
-        the starting point, path() will always return exactly the destination;
-        what is in the dag is irrelevant.
+        The returned path includes every additional operation needed to
+        recalculate the destination. Note that if the destination matches the
+        starting point, path() will return an empty list.
 
         Returns None if the path can not be found.
         """
-        def op_matches_target(op,target):
-            if op == target:
-                return True
-            try:
-                return op.signature.notary == target
-            except AttributeError:
-                return False
-
-
-        # Handle the stupid case of the callee calling with start == dest
-        if chain is None and op_matches_target(start,dest):
-            return (dest,)
-
-        if op_matches_target(start,dest):
+        if start == dest:
             # Path found!
             #
-            # Turn the chain back into a linked list
+            # Turn the chain back into a normal list
             r = []
             while chain is not None:
                 r.append(chain[1])
                 chain = chain[0]
-            return reversed(r)
+            return r[::-1]
 
         for dependent in self.dependents[start]:
             assert dependent in self
-            p = self.path(dependent,dest,chain=(chain,dependent))
+            p = self.path(dependent, dest, chain=(chain, dependent))
             if p is not None:
                 return p
 
         return None
+
 
     def children(self,parents,all_children=None):
         """Find all children of a set of parents"""
