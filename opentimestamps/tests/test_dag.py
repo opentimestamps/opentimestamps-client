@@ -1,4 +1,4 @@
-# Copyright (C) 2012 Peter Todd <pete@petertodd.org>
+# Copyright (C) 2012-2013 Peter Todd <pete@petertodd.org>
 #
 # This file is part of the OpenTimestamps Client.
 #
@@ -59,6 +59,31 @@ class TestOp(unittest.TestCase):
 
         a2.foo = 'bar'
         self.assertIn(a2,s)
+
+    def test_parents_can_be_empty(self):
+        Digest(b'foo', parents=())
+        Digest(b'foo', parents=[])
+
+    def test_parents_must_be_valid(self):
+        with self.assertRaises(ValueError):
+            Digest(b'foo', parents=((-1,1),))
+        with self.assertRaises(ValueError):
+            Digest(b'foo', parents=((0,0),))
+        Digest(b'foo', parents=((0,3),))
+        Digest(b'foo', parents=((2,1),))
+        with self.assertRaises(ValueError):
+            Digest(b'foo', parents=((0,4),))
+        with self.assertRaises(ValueError):
+            Digest(b'foo', parents=((0,5),))
+        with self.assertRaises(ValueError):
+            Digest(b'foo', parents=((3,1),))
+        with self.assertRaises(ValueError):
+            Digest(b'foo', parents=((4,1),))
+        with self.assertRaises(ValueError):
+            Digest(b'foo', parents=(b'bar',))
+        with self.assertRaises(ValueError):
+            Digest(b'foo', parents=(b'',))
+
 
 class TestDigestOp(unittest.TestCase):
     def test_json_serialization(self):

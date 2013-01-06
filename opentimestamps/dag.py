@@ -1,4 +1,4 @@
-# Copyright (C) 2012 Peter Todd <pete@petertodd.org>
+# Copyright (C) 2012-2013 Peter Todd <pete@petertodd.org>
 #
 # This file is part of the OpenTimestamps Client.
 #
@@ -57,21 +57,31 @@ class Op(bytes):
         self._input = input
 
         if parents is None:
-            parents = inputs
+            parents = []
+            for p in inputs:
+                if p != b'':
+                    parents.append(p)
 
         normed_parents = set()
         for p in parents:
-            if not isinstance(p,bytes):
+            if not isinstance(p, bytes):
                 (start,length) = p
-                assert length > 0
-                normed_parents.add(self.input[start:start+length])
+                if length <= 0 or start < 0 or start >= len(self._input) or start+length > len(self._input):
+                    raise ValueError("Invalid parents definition %r" % (p,))
+                p = self.input[start:start+length]
             else:
-                normed_parents.add(p)
+                if not len(p) > 0:
+                    raise ValueError("Invalid parent: empty string")
+                if p not in self._input:
+                    raise ValueError("Invalid parent: not in op input")
+            normed_parents.add(p)
+
         self.parents = normed_parents
 
         self.metadata = dict(metadata)
 
         return self
+
 
     def __repr__(self):
         return '%s(<%s>)' % (self.__class__.__name__,hexlify(self[0:8]))
