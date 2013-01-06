@@ -158,6 +158,19 @@ class Hash(Op):
         return r
 
 
+def valid_path(start, path):
+    """Determine if a path is valid.
+
+    Tests that start is in path[0]'s parents, path[1] in path[2]'s parents etc.
+    """
+    for op in path:
+        if start not in op.parents:
+            return False
+        assert start in op.input
+        start = op
+    return True
+
+
 class DigestDependents(set):
     """The set of dependents for a digest
 
@@ -498,6 +511,7 @@ class Dag(set):
             self.children(not_yet_visited,all_children)
 
         return all_children
+
 
 
 def build_merkle_tree(parents, algorithm=None, _accumulator=None):
