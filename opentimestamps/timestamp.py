@@ -1,4 +1,4 @@
-# Copyright (C) 2012 Peter Todd <pete@petertodd.org>
+# Copyright (C) 2012-2013 Peter Todd <pete@petertodd.org>
 #
 # This file is part of the OpenTimestamps Client.
 #
@@ -82,15 +82,37 @@ class Timestamp:
             if not sig.digest in digest_children:
                 raise TimestampVerificationError('No path to signature {}'.format(sig))
 
-    def to_primitives(self):
-        d = dict(digests = {algo:hexlify(digest) for (algo,digest) in self.digests.items()},
-                 ops = [op.to_primitives() for op in self.dag],
-                 signatures = [sig.to_primitives() for sig in self.signatures])
-        return d
+    def to_primitives(self, include_op_digests=False, compress=True, op_sorter=sorted):
+        # The timestamp is compressed by keeping track of calculated digests
+        # and referring to them by stack position rather than in their
+        # totality.
+        digest_stack = {} # digest:absolute position
+
+        # Digests go on the stack first. Note how they are sorted!
+        for digest in sorted(self.digests.values()):
+            if compress:
+                digest_stack[digest] = len(digest_stack.keys())
+
+        prim_ops = []
+        for op in op_sorter(self.dag):
+            prim_op = op.to_primitives(digest_stack=digest_stack, include_digest=include_op_digests)
+            prim_ops.append(prim_op)
+
+            if compress:
+                digest_stack[op] = len(digest_stack.keys())
+
+        prim_sigs = [prim_sig.to_primitives(digest_stack=digest_stack) for prim_sig in self.signatures]
+
+        digests = {algo:hexlify(digest) for (algo,digest) in self.digests.items()}
+        return {'ops':prim_ops, 'signatures':prim_sigs, 'digests':digests}
 
     @classmethod
     def from_primitives(cls, primitives, data_fd=None):
+        digest_stack = []
+
         digests = {algo:unhexlify(digest) for (algo,digest) in primitives['digests'].items()}
-        ops = [Op.from_primitives(op) for op in primitives['ops']]
-        signatures = [Signature.from_primitives(sig) for sig in primitives['signatures']]
+        digest_stack.extend(sorted(digests.values()))
+
+        ops = [Op.from_primitives(op, digest_stack=digest_stack) for op in primitives['ops']]
+        signatures = [Signature.from_primitives(sig, digest_stack=digest_stack) for sig in primitives['signatures']]
         return cls(ops=ops, signatures=signatures, digests=digests, data_fd=data_fd)

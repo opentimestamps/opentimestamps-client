@@ -84,13 +84,41 @@ class TestOp(unittest.TestCase):
         with self.assertRaises(ValueError):
             Digest(b'foo', parents=(b'',))
 
+    def test_compression(self):
+        def t(stack, op, expected_prims):
+            from_stack = [digest for digest, idx in sorted(stack.items(), key=lambda p: p[1])]
+
+            actual_prims = op.to_primitives(digest_stack=stack, include_digest=False)
+            round_trip_op = Op.from_primitives(actual_prims, digest_stack=from_stack)
+
+            actual_prims['Hash'].pop('metadata')  # not important
+            actual_prims['Hash'].pop('algorithm') # ditto
+            self.assertEqual(expected_prims, actual_prims)
+
+            self.assertEqual(op, round_trip_op)
+            self.assertEqual(op.parents, round_trip_op.parents)
+
+
+        t({}, Hash(b'a', parents=()), {'Hash':{'input': ['61'], 'parents': []}})
+        t({b'a':0}, Hash(b'a', parents=()), {'Hash':{'input': ['61'], 'parents': []}})
+
+        t({b'a':0}, Hash(b'a', parents=(b'a',)), {'Hash':{'input': [1], 'parents': [(0, 1)]}})
+        t({b'a':0}, Hash(b'a', b'a', parents=(b'a',)), {'Hash':{'input': [1, 1], 'parents': [(0, 1)]}})
+        t({b'a':0}, Hash(b'a', b'foo', b'a', parents=(b'a',)),
+                {'Hash':{'input': [1, '666f6f', 1], 'parents': [(0, 1)]}})
+
+        t({b'a':0}, Hash(b'a', b'foo', b'a', parents=(b'a', b'fooa')),
+                {'Hash':{'input': [1, '666f6f', 1], 'parents': [(0, 1), (1, 4)]}})
+        t({b'a':0, b'fooa':1}, Hash(b'a', b'foo', b'a', parents=(b'a', b'fooa')),
+                {'Hash':{'input': [2, 1], 'parents': [(0, 1), (1, 4)]}})
+
 
 class TestDigestOp(unittest.TestCase):
     def test_json_serialization(self):
         r = make_op_round_trip_tester(self)
 
         d = Digest(b'\xff\x00')
-        r(d,{'Digest': {'input': 'ff00', 'digest': 'ff00', 'parents': [], 'metadata': {}}})
+        r(d,{'Digest': {'input': ['ff00'], 'digest': 'ff00', 'parents': [], 'metadata': {}}})
 
 
 
@@ -111,7 +139,7 @@ class TestHashOp(unittest.TestCase):
 
         h1 = Hash(b'a',b'b')
         r(h1,{'Hash':
-                {'input':'6162',
+                {'input':['6162'],
                  'parents': [(0,1), (1,1)],
                  'algorithm':'sha256d',
                  'metadata': {},

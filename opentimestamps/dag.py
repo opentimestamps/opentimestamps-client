@@ -89,36 +89,108 @@ class Op(bytes):
     def __str__(self):
         return repr(self)
 
-    def to_primitives(self):
+    def to_primitives(self, digest_stack={}, include_digest=True):
         parents = []
         for p in self.parents:
             parents.append((self.input.find(p),len(p)))
 
-        d = dict(input=hexlify(self.input),
+        # Greedily compress the input, finding parents in the digest stack,
+        # largest parent first. This simple algorithm probably has pathological
+        # failures if the digests are overlapping or something, but for this
+        # application such cases are frankly contrived.
+        #
+        # FIXME: probably a O(n^2) DoS attack lurking here though... should be
+        # using a deque for the input among other optimizations
+        input = [self.input]
+        for p in reversed(sorted(self.parents, key=lambda p: len(p))):
+            if p not in digest_stack:
+                continue
+
+            rel_idx = len(digest_stack.keys()) - digest_stack[p]
+            assert rel_idx > 0
+
+            new_input = []
+            while input:
+                input_part = input[0]
+                input = input[1:]
+
+                if isinstance(input_part, int):
+                    new_input.append(input_part)
+                    continue
+
+                i = input_part.find(p)
+                if i >= 0: # p in input_part
+                    if i > 0:
+                        # the part before the match
+                        new_input.append(input_part[0:i])
+
+                    # the match
+                    new_input.append(rel_idx)
+
+                    # the part after goes back on the input
+                    if i + len(p) < len(input_part):
+                        input = [input_part[i + len(p):]] + input
+
+                else:
+                    # no match
+                    new_input.append(input_part)
+
+            input = new_input
+
+
+        # convert partial strings to hex
+        for i,d in enumerate(input):
+            if not isinstance(d, int):
+                input[i] = hexlify(d)
+
+        d = dict(input=input,
                  parents=parents,
-                 metadata=self.metadata,
-                 digest=hexlify(self))
+                 metadata=self.metadata)
+
+        if include_digest:
+            d['digest'] = hexlify(self)
 
         return {self.__class__.__name__:d}
 
 
+    # FIXME: should change this so that **kwargs is passed explicitly to keep the namespace clean
+
     @staticmethod
-    def from_primitives(primitive):
+    def from_primitives(primitive, digest_stack=[]):
         assert len(primitive.keys()) == 1
         cls_name = tuple(primitive.keys())[0]
         kwargs = primitive[cls_name]
 
         cls = op_classes_by_name[cls_name]
-        return cls._from_primitives(**kwargs)
+        return cls._from_primitives(digest_stack=digest_stack, **kwargs)
 
     @classmethod
-    def _from_primitives(cls,**kwargs):
-        input = unhexlify(kwargs.pop('input'))
+    def _from_primitives(cls, digest_stack=[], **kwargs):
+        # Decompress the input
+        compressed_input = kwargs.pop('input')
+
+        # Handle older timestamps created prior to compression.
+        if isinstance(compressed_input, str):
+            compressed_input = [compressed_input]
+
+        input = b''
+        for input_part in compressed_input:
+            if isinstance(input_part, int):
+                try:
+                    input += digest_stack[-input_part]
+                except IndexError:
+                    raise ValueError("Corrupt digest stack: digest idx %d but length %d" % (input_part, len(digest_stack)))
+            else:
+                input += unhexlify(input_part)
+
 
         if 'digest' in kwargs:
             kwargs['digest'] = unhexlify(kwargs['digest'])
 
-        return cls(input,**kwargs)
+        self = cls(input, **kwargs)
+        digest_stack.append(self)
+        return self
+
 
 @register_op
 class Digest(Op):
@@ -152,8 +224,8 @@ class Hash(Op):
     def _calculate_digest_from_input(cls, input, algorithm='sha256d', **kwargs):
         return opentimestamps.crypto.hash_functions_by_name[algorithm](input)
 
-    def to_primitives(self):
-        r = super().to_primitives()
+    def to_primitives(self, **kwargs):
+        r = super().to_primitives(**kwargs)
         r['Hash']['algorithm'] = self.algorithm
         return r
 

@@ -1,4 +1,4 @@
-# Copyright (C) 2012 Peter Todd <pete@petertodd.org>
+# Copyright (C) 2012-2013 Peter Todd <pete@petertodd.org>
 #
 # This file is part of the OpenTimestamps Client.
 #
@@ -153,18 +153,23 @@ class Signature:
         """
         raise NotImplementedError
 
-    def to_primitives(self):
-        d = dict(identity=self.identity,
-                 digest=opentimestamps._internal.hexlify(self.digest))
+    def to_primitives(self, digest_stack={}):
+        digest = digest_stack.get(self.digest, opentimestamps._internal.hexlify(self.digest))
+        d = dict(identity=self.identity, digest=digest)
         return {self.method:d}
 
     @classmethod
-    def from_primitives(cls, primitives):
+    def from_primitives(cls, primitives, digest_stack=[]):
         assert len(primitives.keys()) == 1
         method = tuple(primitives.keys())[0]
         primitives = primitives[method]
         identity = primitives['identity']
-        digest = opentimestamps._internal.unhexlify(primitives['digest'])
+
+        digest = primitives['digest']
+        if isinstance(digest, int):
+            digest = digest_stack[digest]
+        else:
+            digest = opentimestamps._internal.unhexlify(digest)
 
         return signature_classes_by_method[method](method=method, identity=identity, digest=digest)
 
