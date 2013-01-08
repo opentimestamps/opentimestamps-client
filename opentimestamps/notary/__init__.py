@@ -154,7 +154,11 @@ class Signature:
         raise NotImplementedError
 
     def to_primitives(self, digest_stack={}):
-        digest = digest_stack.get(self.digest, opentimestamps._internal.hexlify(self.digest))
+        try:
+            digest = digest_stack.get(self.digest)
+            digest = len(digest_stack.keys()) - digest
+        except KeyError:
+            digest = opentimestamps._internal.hexlify(self.digest)
         d = dict(identity=self.identity, digest=digest)
         return {self.method:d}
 
@@ -167,7 +171,7 @@ class Signature:
 
         digest = primitives['digest']
         if isinstance(digest, int):
-            digest = digest_stack[digest]
+            digest = digest_stack[-digest]
         else:
             digest = opentimestamps._internal.unhexlify(digest)
 
