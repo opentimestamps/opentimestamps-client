@@ -92,8 +92,7 @@ class TestOp(unittest.TestCase):
             round_trip_op = Op.from_primitives(actual_prims, digest_stack=from_stack)
 
             op_type = list(actual_prims.keys())[0]
-            actual_prims[op_type].pop('metadata')  # not important
-            actual_prims[op_type].pop('algorithm', False) # ditto
+            actual_prims[op_type].pop('algorithm', False) # not important
             self.assertEqual(expected_prims, actual_prims)
 
             self.assertEqual(op, round_trip_op)
@@ -123,7 +122,7 @@ class TestDigestOp(unittest.TestCase):
         r = make_op_round_trip_tester(self)
 
         d = Digest(b'\xff\x00')
-        r(d,{'Digest': {'input': ['ff00'], 'digest': 'ff00', 'parents': [], 'metadata': {}}})
+        r(d,{'Digest': {'input': ['ff00'], 'digest': 'ff00', 'parents': []}})
 
 
 
@@ -147,7 +146,6 @@ class TestHashOp(unittest.TestCase):
                 {'input':['6162'],
                  'parents': [(0,1), (1,1)],
                  'algorithm':'sha256d',
-                 'metadata': {},
                  'digest':'a1ff8f1856b5e24e32e3882edd4a021f48f28a8b21854b77fdef25a97601aace'}})
 
 

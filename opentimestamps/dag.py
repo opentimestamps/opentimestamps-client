@@ -152,8 +152,10 @@ class Op(bytes):
                 input[i] = hexlify(d)
 
         d = dict(input=input,
-                 parents=parents,
-                 metadata=self.metadata)
+                 parents=parents)
+
+        if self.metadata:
+            d['metadata'] = self.metadata
 
         if include_digest:
             d['digest'] = hexlify(self)

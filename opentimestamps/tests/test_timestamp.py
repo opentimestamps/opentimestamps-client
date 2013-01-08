@@ -149,7 +149,6 @@ b'\xbax\xcf\x8c\xdc\xe8Q\xf5\xce0\xa3\xdc\xf1\xf0\xfc\rp\xd6\x9c\x9f\xa7\xbe\x87
                      digests = dict(sha256='e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'),
                      ops = [{'Hash': {'algorithm': 'sha256',
                                       'input': [1],
-                                      'metadata': {},
                                       'parents': [(0, 32)]}}]))
 
         self.maxDiff = None
@@ -159,10 +158,8 @@ b'\xbax\xcf\x8c\xdc\xe8Q\xf5\xce0\xa3\xdc\xf1\xf0\xfc\rp\xd6\x9c\x9f\xa7\xbe\x87
                      digests = dict(sha256='e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'),
                      ops = [{'Hash': {'algorithm': 'sha256',
                                       'input': [1, 1, '666f6f626172'],
-                                      'metadata': {},
                                       'parents': [(0, 32), (64, 6)]}},
                             {'Hash': {'algorithm': 'sha256',
                                       'input': [2],
-                                      'metadata': {},
                                       'parents': [(0, 32)]}}]))
 
