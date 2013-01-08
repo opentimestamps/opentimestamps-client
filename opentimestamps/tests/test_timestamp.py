@@ -138,14 +138,14 @@ b'\xbax\xcf\x8c\xdc\xe8Q\xf5\xce0\xa3\xdc\xf1\xf0\xfc\rp\xd6\x9c\x9f\xa7\xbe\x87
 
         ts.signatures.add(TestSignature(identity='pass', digest=data_digest))
         self.assertEqual(ts.to_primitives(),
-                dict(signatures = [{'test':{'digest':0, 'identity':'pass'}}],
+                dict(signatures = [{'test':{'digest':1, 'identity':'pass'}}],
                      digests = dict(sha256='e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'),
                      ops = []))
 
 
         ts.dag.add(Hash(ts.digests['sha256'], algorithm='sha256'))
         self.assertEqual(ts.to_primitives(),
-                dict(signatures = [{'test':{'digest':0, 'identity':'pass'}}],
+                dict(signatures = [{'test':{'digest':2, 'identity':'pass'}}],
                      digests = dict(sha256='e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'),
                      ops = [{'Hash': {'algorithm': 'sha256',
                                       'input': [1],
@@ -155,14 +155,14 @@ b'\xbax\xcf\x8c\xdc\xe8Q\xf5\xce0\xa3\xdc\xf1\xf0\xfc\rp\xd6\x9c\x9f\xa7\xbe\x87
         self.maxDiff = None
         ts.dag.add(Hash(ts.digests['sha256'], ts.digests['sha256'], b'foobar', algorithm='sha256'))
         self.assertEqual(ts.to_primitives(),
-                dict(signatures = [{'test':{'digest':0, 'identity':'pass'}}],
+                dict(signatures = [{'test':{'digest':3, 'identity':'pass'}}],
                      digests = dict(sha256='e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'),
                      ops = [{'Hash': {'algorithm': 'sha256',
-                                      'input': [1],
+                                      'input': [1, 1, '666f6f626172'],
                                       'metadata': {},
-                                      'parents': [(0, 32)]}},
+                                      'parents': [(0, 32), (64, 6)]}},
                             {'Hash': {'algorithm': 'sha256',
-                                      'input': [2, 2, '666f6f626172'],
+                                      'input': [2],
                                       'metadata': {},
-                                      'parents': [(0, 32), (64, 6)]}}]))
+                                      'parents': [(0, 32)]}}]))
 

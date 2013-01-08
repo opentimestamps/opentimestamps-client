@@ -91,8 +91,9 @@ class TestOp(unittest.TestCase):
             actual_prims = op.to_primitives(digest_stack=stack, include_digest=False)
             round_trip_op = Op.from_primitives(actual_prims, digest_stack=from_stack)
 
-            actual_prims['Hash'].pop('metadata')  # not important
-            actual_prims['Hash'].pop('algorithm') # ditto
+            op_type = list(actual_prims.keys())[0]
+            actual_prims[op_type].pop('metadata')  # not important
+            actual_prims[op_type].pop('algorithm', False) # ditto
             self.assertEqual(expected_prims, actual_prims)
 
             self.assertEqual(op, round_trip_op)
@@ -100,7 +101,6 @@ class TestOp(unittest.TestCase):
 
 
         t({}, Hash(b'a', parents=()), {'Hash':{'input': ['61'], 'parents': []}})
-        t({b'a':0}, Hash(b'a', parents=()), {'Hash':{'input': ['61'], 'parents': []}})
 
         t({b'a':0}, Hash(b'a', parents=(b'a',)), {'Hash':{'input': [1], 'parents': [(0, 1)]}})
         t({b'a':0}, Hash(b'a', b'a', parents=(b'a',)), {'Hash':{'input': [1, 1], 'parents': [(0, 1)]}})
@@ -111,6 +111,11 @@ class TestOp(unittest.TestCase):
                 {'Hash':{'input': [1, '666f6f', 1], 'parents': [(0, 1), (1, 4)]}})
         t({b'a':0, b'fooa':1}, Hash(b'a', b'foo', b'a', parents=(b'a', b'fooa')),
                 {'Hash':{'input': [2, 1], 'parents': [(0, 1), (1, 4)]}})
+
+        # Check that if the input itself is in the stack, it's compressed even
+        # if it's not in the "parents" list.
+        t({b'a':0}, Digest(b'a'), {'Digest':{'input': [1], 'parents': []}})
+        t({b'a':0}, Hash(b'a', parents=()), {'Hash':{'input': [1], 'parents': []}})
 
 
 class TestDigestOp(unittest.TestCase):
@@ -250,6 +255,84 @@ class TestDag(unittest.TestCase):
         # FIXME
         pass
 
+
+    def test_roots(self):
+        dag = Dag()
+        self.assertEqual(dag.roots(), set())
+
+        d1 = Digest(b'd1')
+        dag.add(d1)
+        self.assertEqual(dag.roots(), set((d1,)))
+
+        d2 = Digest(b'd2')
+        dag.add(d2)
+        self.assertEqual(dag.roots(), set((d1,d2)))
+
+        # not a root
+        h12 = Hash(d1, d2)
+        dag.add(h12)
+        self.assertEqual(dag.roots(), set((d1,d2)))
+
+        # h3 is root as it depends on a digest outside of the dag
+        d3 = Digest(b'd3')
+        h3 = Hash(d3)
+        dag.add(h3)
+        self.assertEqual(dag.roots(), set((d1,d2,h3)))
+
+        # no longer a root
+        dag.add(d3)
+        self.assertEqual(dag.roots(), set((d1,d2,d3)))
+
+    def test_tsort(self):
+        import random
+        def create_random_dag(num_roots, num_deps, max_parents):
+            dag = Dag()
+
+            dag.update([Digest(bytes(str(i), 'utf8')) for i in range(num_roots)])
+
+            for i in range(num_deps):
+                deps = []
+                for j in range(random.randint(1, max(max_parents, len(dag)))):
+                    deps.append(random.choice(list(dag)))
+                dag.add(Hash(*deps))
+
+            return dag
+
+
+        def check_topo_sort(l):
+            seen = set()
+            for n in l:
+                if n.parents.difference(seen):
+                    return False
+                seen.add(n)
+            return True
+
+        # check that our check function actually works
+        l = []
+        l.append(Digest(b'eggs'))
+        l.append(Digest(b'ham'))
+        l.append(Hash(l[0]))
+        l.append(Hash(l[0], l[1]))
+
+        self.assertTrue(check_topo_sort(l))
+        self.assertFalse(check_topo_sort(reversed(l)))
+
+        dag = create_random_dag(100, 100, 100)
+        sort = dag.tsort()
+
+        self.assertTrue(dag == set(sort))
+
+        self.assertTrue(check_topo_sort(sort))
+        self.assertFalse(check_topo_sort(reversed(sort)))
+
+        # test that tsort is deterministic
+        sort2 = Dag(dag).tsort()
+        self.assertTrue(sort == sort2)
+
+
+    def test_children(self):
+        # FIXME
+        pass
 
     def test_path(self):
         n = 100

@@ -82,19 +82,21 @@ class Timestamp:
             if not sig.digest in digest_children:
                 raise TimestampVerificationError('No path to signature {}'.format(sig))
 
-    def to_primitives(self, include_op_digests=False, compress=True, op_sorter=sorted):
+    def to_primitives(self, include_op_digests=False, compress=True):
         # The timestamp is compressed by keeping track of calculated digests
         # and referring to them by stack position rather than in their
         # totality.
         digest_stack = {} # digest:absolute position
 
-        # Digests go on the stack first. Note how they are sorted!
+        # Digests go on the stack first. Note how they are sorted! This is
+        # important as otherwise we can't determine the right order to add them
+        # to the stack at the other end.
         for digest in sorted(self.digests.values()):
             if compress:
                 digest_stack[digest] = len(digest_stack.keys())
 
         prim_ops = []
-        for op in op_sorter(self.dag):
+        for op in self.dag.tsort():
             prim_op = op.to_primitives(digest_stack=digest_stack, include_digest=include_op_digests)
             prim_ops.append(prim_op)
 

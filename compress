@@ -1,0 +1,21 @@
+#!/usr/bin/python3
+# Copyright (C) 2013 Peter Todd <pete@petertodd.org>
+#
+# This file is part of the OpenTimestamps Client.
+#
+# It is subject to the license terms in the LICENSE file found in the top-level
+# directory of this distribution and at http://opentimestamps.org
+#
+# No part of the OpenTimestamps Client, including this file, may be copied,
+# modified, propagated, or distributed except according to the terms contained
+# in the LICENSE file.
+
+import sys
+
+from opentimestamps._internal import FileManager
+from opentimestamps.io import TimestampFile
+
+with FileManager(sys.argv[1], sys.argv[2]) as fm:
+    timestamp_file = TimestampFile(in_fd=fm.in_fd,out_fd=fm.out_fd)
+    timestamp_file.write()
+    fm.commit()

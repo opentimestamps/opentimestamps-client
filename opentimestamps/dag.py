@@ -94,48 +94,56 @@ class Op(bytes):
         for p in self.parents:
             parents.append((self.input.find(p),len(p)))
 
-        # Greedily compress the input, finding parents in the digest stack,
-        # largest parent first. This simple algorithm probably has pathological
-        # failures if the digests are overlapping or something, but for this
-        # application such cases are frankly contrived.
-        #
-        # FIXME: probably a O(n^2) DoS attack lurking here though... should be
-        # using a deque for the input among other optimizations
-        input = [self.input]
-        for p in reversed(sorted(self.parents, key=lambda p: len(p))):
-            if p not in digest_stack:
-                continue
-
-            rel_idx = len(digest_stack.keys()) - digest_stack[p]
-            assert rel_idx > 0
-
-            new_input = []
-            while input:
-                input_part = input[0]
-                input = input[1:]
-
-                if isinstance(input_part, int):
-                    new_input.append(input_part)
+        # Compress the input, replacing parts of it with references to prior
+        # digests in the stack.
+        if self.input in digest_stack:
+            # Special case, input itself is in the stack. This by-passes the
+            # "in parents" restriction; useful when a timestamped digest ends
+            # up in the dag itself as a Digest
+            input = [len(digest_stack.keys()) - digest_stack[self.input]]
+        else:
+            # Greedily compress the input, finding parents in the digest stack,
+            # largest parent first. This simple algorithm probably has pathological
+            # failures if the digests are overlapping or something, but for this
+            # application such cases are frankly contrived.
+            #
+            # FIXME: probably a O(n^2) DoS attack lurking here though... should be
+            # using a deque for the input among other optimizations
+            input = [self.input]
+            for p in reversed(sorted(self.parents, key=lambda p: len(p))):
+                if p not in digest_stack:
                     continue
 
-                i = input_part.find(p)
-                if i >= 0: # p in input_part
-                    if i > 0:
-                        # the part before the match
-                        new_input.append(input_part[0:i])
+                rel_idx = len(digest_stack.keys()) - digest_stack[p]
+                assert rel_idx > 0
 
-                    # the match
-                    new_input.append(rel_idx)
+                new_input = []
+                while input:
+                    input_part = input[0]
+                    input = input[1:]
 
-                    # the part after goes back on the input
-                    if i + len(p) < len(input_part):
-                        input = [input_part[i + len(p):]] + input
+                    if isinstance(input_part, int):
+                        new_input.append(input_part)
+                        continue
 
-                else:
-                    # no match
-                    new_input.append(input_part)
+                    i = input_part.find(p)
+                    if i >= 0: # p in input_part
+                        if i > 0:
+                            # the part before the match
+                            new_input.append(input_part[0:i])
 
-            input = new_input
+                        # the match
+                        new_input.append(rel_idx)
+
+                        # the part after goes back on the input
+                        if i + len(p) < len(input_part):
+                            input = [input_part[i + len(p):]] + input
+
+                    else:
+                        # no match
+                        new_input.append(input_part)
+
+                input = new_input
 
 
         # convert partial strings to hex
@@ -571,6 +579,42 @@ class Dag(set):
 
         return all_children
 
+    def roots(self):
+        """Return the set of all roots of the dag
+
+        That is all the ops in the dag that do not depend on other ops in the dag.
+        """
+        roots = set()
+        for op in self:
+            if not op.parents.intersection(self):
+                roots.add(op)
+        return roots
+
+
+    def tsort(self):
+        """Return a topologically sorted list of the dag ops
+
+        The ops are sorted such that if a in b.parents, a will always come
+        before b
+
+        The resulting sort order is deterministic.
+        """
+        l = []
+        visited = set()
+
+        def visit(n):
+            if n not in visited:
+                visited.add(n)
+
+                for m in sorted(self.dependents[n]):
+                    visit(m)
+                l.append(n)
+
+        for n in sorted(self.roots()):
+            visit(n)
+
+        assert self == set(l)
+        return l[::-1]
 
 
 def build_merkle_tree(parents, algorithm=None, _accumulator=None):

@@ -1,4 +1,4 @@
-# Copyright (C) 2012 Peter Todd <pete@petertodd.org>
+# Copyright (C) 2012-2013 Peter Todd <pete@petertodd.org>
 #
 # This file is part of the OpenTimestamps Client.
 #
@@ -41,6 +41,6 @@ class TimestampFile(opentimestamps.timestamp.Timestamp):
         else:
             self.out_fd = None
 
-    def write(self):
-        json.dump(self.to_primitives(), self.out_fd, indent=4)
+    def write(self, **kwargs):
+        json.dump(self.to_primitives(**kwargs), self.out_fd, indent=4)
         self.out_fd.flush()
