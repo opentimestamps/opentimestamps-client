@@ -137,6 +137,9 @@ class Signature:
         self._digest = digest
         assert isinstance(digest,bytes)
 
+    def __repr__(self):
+        return '%s(%r,%r,%r)' % (self.__class__.__name__, self.method, self.identity, self.digest)
+
     def __eq__(self, other):
         if not isinstance(other, Signature):
             return NotImplemented
