@@ -82,7 +82,7 @@ def stamp_command(args):
         # make an output
         addr = P2PKHBitcoinAddress.from_bytes(addr_hash)
 
-        txid = args.proxy.sendtoaddress(addr, 600)
+        txid = args.proxy.sendtoaddress(addr, 6000)
         logging.debug('Paid addr %s with txid %s' % (addr, b2lx(txid)))
 
         # very primitive!
