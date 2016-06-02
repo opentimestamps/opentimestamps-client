@@ -11,19 +11,18 @@
 # LICENSE file.
 
 import argparse
-import bitcoin.rpc
 import datetime
-import hashlib
 import json
 import logging
 import os
 import os.path
 
-from opentimestamps.core import *
-from opentimestamps.blockchain import *
-
+import bitcoin.rpc
 from bitcoin.core import *
 from bitcoin.wallet import *
+
+from opentimestamps.blockchain import *
+from opentimestamps.core import *
 
 
 def sha256_fd(fd):
