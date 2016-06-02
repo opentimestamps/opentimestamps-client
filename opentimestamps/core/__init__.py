@@ -36,6 +36,9 @@ class PathOp:
         elif optype == 'ripemd160':
             return PathOp_RIPEMD160(prefix, suffix)
 
+        elif optype == 'reverse':
+            return PathOp_REVERSE(prefix, suffix)
+
         else:
             raise Exception('unknown path op %s' % optype)
 
@@ -61,6 +64,17 @@ class PathOp_RIPEMD160(PathOp):
         msg = self.prefix + msg + self.suffix
         return hashlib.new('ripemd160', msg).digest()
 
+class PathOp_REVERSE(PathOp):
+    OP_NAME = 'reverse'
+
+    def __init__(self, prefix, suffix):
+        self.prefix = prefix
+        self.suffix = suffix
+
+    def __call__(self, msg):
+        msg = self.prefix + msg + self.suffix
+
+        return msg[::-1]
 
 class Path(tuple):
     def __call__(self, msg):
