@@ -25,11 +25,12 @@ from opentimestamps.blockchain import *
 from bitcoin.core import *
 from bitcoin.wallet import *
 
+
 def sha256_fd(fd):
     hash_state = hashlib.sha256()
     chunk = True
     while chunk != b'':
-        chunk = fd.read(2**20)
+        chunk = fd.read(2 ** 20)
         hash_state.update(chunk)
 
     return hash_state.digest()
@@ -37,33 +38,34 @@ def sha256_fd(fd):
 
 parser = argparse.ArgumentParser(description="OpenTimestamps client.")
 
-parser.add_argument("-q","--quiet",action="count",default=0,
-                             help="Be more quiet.")
-parser.add_argument("-v","--verbose",action="count",default=0,
-                             help="Be more verbose. Both -v and -q may be used multiple times.")
+parser.add_argument("-q", "--quiet", action="count", default=0,
+                    help="Be more quiet.")
+parser.add_argument("-v", "--verbose", action="count", default=0,
+                    help="Be more verbose. Both -v and -q may be used multiple times.")
 
 subparsers = parser.add_subparsers(title='Subcommands',
                                    description='All operations are done through subcommands:')
 
 # ----- stamp -----
 parser_stamp = subparsers.add_parser('stamp', aliases=['s'],
-        help='Timestamp a file')
+                                     help='Timestamp a file')
 parser_stamp.add_argument('--no-nonce', dest='use_nonce', action='store_false', default=True,
-                help='Do not use a nonce in the hash calculation. WARNING: may cause privacy loss!')
+                          help='Do not use a nonce in the hash calculation. WARNING: may cause privacy loss!')
 parser_stamp.add_argument('file', metavar='FILE', type=argparse.FileType('rb'),
-        help='Filename')
+                          help='Filename')
 
 # ----- complete -----
 parser_complete = subparsers.add_parser('complete', aliases=['c'],
-        help='Complete one or more pending (Bitcoin) timestamps.')
+                                        help='Complete one or more pending (Bitcoin) timestamps.')
 parser_complete.add_argument('file', metavar='FILE', type=argparse.FileType('r'),
-        help='Filename')
+                             help='Filename')
 
 # ----- verify -----
 parser_verify = subparsers.add_parser('verify', aliases=['v'],
-        help="Verify a timestamps")
+                                      help="Verify a timestamps")
 parser_verify.add_argument('file', metavar='FILE', type=argparse.FileType('r'),
-        help='Filename')
+                           help='Filename')
+
 
 def stamp_command(args):
     # Compute digests for all files
@@ -86,12 +88,14 @@ def stamp_command(args):
         logging.debug('Paid addr %s with txid %s' % (addr, b2lx(txid)))
 
         # very primitive!
-        pending_timestamp = {'txid':b2lx(txid),
-                             'nonce':b2x(nonce),
-                             'addr':str(addr)}
+        pending_timestamp = {'txid': b2lx(txid),
+                             'nonce': b2x(nonce),
+                             'addr': str(addr)}
         json.dump(pending_timestamp, timestamp_fd, indent=2)
 
+
 parser_stamp.set_defaults(cmd_func=stamp_command)
+
 
 def complete_command(args):
     if not args.file.name.endswith('.ots.pending'):
@@ -102,10 +106,10 @@ def complete_command(args):
     nonce = x(pending_timestamp['nonce'])
     addr = CBitcoinAddress(pending_timestamp['addr'])
 
-    path0 = [PathOp_SHA256(b'',b'')]
+    path0 = [PathOp_SHA256(b'', b'')]
     if nonce:
-        path0.append(PathOp_SHA256(nonce,b''))
-    path0.append(PathOp_RIPEMD160(b'',b''))
+        path0.append(PathOp_SHA256(nonce, b''))
+    path0.append(PathOp_RIPEMD160(b'', b''))
 
     r = args.proxy.getrawtransaction(txid, True)
 
@@ -127,7 +131,9 @@ def complete_command(args):
     with open(timestamp_file_path, 'x') as timestamp_fd:
         json.dump(stamp.to_json(), timestamp_fd, indent=2)
 
+
 parser_complete.set_defaults(cmd_func=complete_command)
+
 
 def verify_command(args):
     if not args.file.name.endswith('.ots'):
@@ -153,6 +159,7 @@ def verify_command(args):
 
     logging.info('Success! %s was created on or before %s' %
                  (timestamped_file_path, timestamp.isoformat(' ')))
+
 
 parser_verify.set_defaults(cmd_func=verify_command)
 
