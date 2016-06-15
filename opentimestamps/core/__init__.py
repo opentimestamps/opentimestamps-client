@@ -12,7 +12,8 @@
 import hashlib
 import struct
 
-from bitcoin.core import x,b2x
+from bitcoin.core import x, b2x
+
 
 class PathOp:
     def __init__(self, *args):
@@ -36,8 +37,12 @@ class PathOp:
         elif optype == 'ripemd160':
             return PathOp_RIPEMD160(prefix, suffix)
 
+        elif optype == 'reverse':
+            return PathOp_REVERSE(prefix, suffix)
+
         else:
             raise Exception('unknown path op %s' % optype)
+
 
 class PathOp_SHA256(PathOp):
     OP_NAME = 'sha256'
@@ -49,6 +54,7 @@ class PathOp_SHA256(PathOp):
     def __call__(self, msg):
         msg = self.prefix + msg + self.suffix
         return hashlib.sha256(msg).digest()
+
 
 class PathOp_RIPEMD160(PathOp):
     OP_NAME = 'ripemd160'
@@ -62,12 +68,24 @@ class PathOp_RIPEMD160(PathOp):
         return hashlib.new('ripemd160', msg).digest()
 
 
+class PathOp_REVERSE(PathOp):
+    OP_NAME = 'reverse'
+
+    def __init__(self, prefix, suffix):
+        self.prefix = prefix
+        self.suffix = suffix
+
+    def __call__(self, msg):
+        msg = self.prefix + msg + self.suffix
+
+        return msg[::-1]
+
+
 class Path(tuple):
     def __call__(self, msg):
         for op in self:
             msg = op(msg)
         return msg
-
 
 
 class NotarySignature:
@@ -100,8 +118,8 @@ class BlockHeaderSig(NotarySignature):
     @classmethod
     def from_CBlockHeader(self, blkhdr, chain='bitcoin-mainnet'):
         serialized_hdr = blkhdr.serialize()
-        return BlockHeaderSig(chain, serialized_hdr[0:4+32],
-                                     serialized_hdr[4+32+32:])
+        return BlockHeaderSig(chain, serialized_hdr[0:4 + 32],
+                              serialized_hdr[4 + 32 + 32:])
 
     def verify(self, digest, block_index):
         msg = self.prefix + digest + self.suffix

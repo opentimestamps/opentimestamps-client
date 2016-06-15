@@ -12,17 +12,19 @@
 from bitcoin.core import Hash
 from opentimestamps.core import PathOp_SHA256, Path
 
+
 def path_from_msg_to_txid(msg, tx):
     serialized = tx.serialize()
 
     i = serialized.find(msg)
 
-    assert(i >= 0)
+    assert (i >= 0)
 
     prefix = serialized[:i]
-    suffix = serialized[i+len(msg):]
+    suffix = serialized[i + len(msg):]
 
-    return Path([PathOp_SHA256(prefix, suffix), PathOp_SHA256(b'',b'')])
+    return Path([PathOp_SHA256(prefix, suffix), PathOp_SHA256(b'', b'')])
+
 
 def path_from_txid_to_merkleroot(txid, blk):
     merkle_tree = [tx.GetHash() for tx in blk.vtx]
@@ -36,23 +38,23 @@ def path_from_txid_to_merkleroot(txid, blk):
     while size > 1:
         new_path_top = None
         for i in range(0, size, 2):
-            i2 = min(i+1, size-1)
-            merkle_tree.append(Hash(merkle_tree[j+i] + merkle_tree[j+i2]))
+            i2 = min(i + 1, size - 1)
+            merkle_tree.append(Hash(merkle_tree[j + i] + merkle_tree[j + i2]))
 
             if new_path_top is None:
-                if merkle_tree[j+i] == path_top:
-                    path.append(PathOp_SHA256(b'', merkle_tree[j+i2]))
+                if merkle_tree[j + i] == path_top:
+                    path.append(PathOp_SHA256(b'', merkle_tree[j + i2]))
                     path.append(PathOp_SHA256(b'', b''))
                     new_path_top = merkle_tree[-1]
 
-                    assert(Path(path)(txid) == new_path_top)
+                    assert (Path(path)(txid) == new_path_top)
 
-                elif merkle_tree[j+i2] == path_top:
-                    path.append(PathOp_SHA256(merkle_tree[j+i], b''))
+                elif merkle_tree[j + i2] == path_top:
+                    path.append(PathOp_SHA256(merkle_tree[j + i], b''))
                     path.append(PathOp_SHA256(b'', b''))
                     new_path_top = merkle_tree[-1]
 
-                    assert(Path(path)(txid) == new_path_top)
+                    assert (Path(path)(txid) == new_path_top)
 
         assert new_path_top is not None
         path_top = new_path_top
