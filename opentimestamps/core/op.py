@@ -54,6 +54,9 @@ class BytesCommitment(Op):
     def msg(self):
         return self.result
 
+    def __repr__(self):
+        return 'BytesCommitment(%r)' % self.result
+
     def __init__(self, msg):
         self.result = msg
         self.next_op = None
