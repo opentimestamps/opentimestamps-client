@@ -4,7 +4,7 @@ python-opentimestamps
 Requirements
 ------------
 
-python-bitcoinlib v0.4.0
+python-bitcoinlib v0.6.0
 
 
 Unit tests
