@@ -34,10 +34,10 @@ class Op:
         else:
             raise AttributeError("Result can't be modified once set")
 
-    def __init__(self, prev_op, result):
-        if prev_op.next_op is not None:
-            raise ValueError("Previous operation already has next operation set")
-        prev_op.next_op = self
+    def __bytes__(self):
+        return self.result
+
+    def __init__(self, result):
         self.__result = result
         self.next_op = None
 
@@ -59,25 +59,19 @@ class BytesCommitment(Op):
         self.next_op = None
 
 class OpAppend(Op):
-    def __init__(self, prev_op, suffix):
-        if isinstance(suffix, Op):
-            suffix = suffix.result
-
-        result = prev_op.result + suffix
-        super().__init__(prev_op, result)
+    def __init__(self, msg, suffix):
+        result = bytes(msg) + bytes(suffix)
+        super().__init__(result)
 
 class OpPrepend(Op):
-    def __init__(self, prefix, prev_op):
-        if isinstance(prefix, Op):
-            prefix = prefix.result
-
-        result = prefix + prev_op.result
-        super().__init__(prev_op, result)
+    def __init__(self, prefix, msg):
+        result = bytes(prefix) + bytes(msg)
+        super().__init__(result)
 
 
 class OpReverse(Op):
-    def __init__(self, prev_op):
-        super().__init__(prev_op, prev_op.result[::-1])
+    def __init__(self, msg):
+        super().__init__(bytes(msg)[::-1])
 
 
 class CryptOp(Op):
@@ -87,10 +81,10 @@ class CryptOp(Op):
     their message.
     """
 
-    def __init__(self, prev_op):
-        hasher = hashlib.new(self.HASHLIB_NAME, prev_op.result)
+    def __init__(self, msg):
+        hasher = hashlib.new(self.HASHLIB_NAME, bytes(msg))
         result = hasher.digest()
-        super().__init__(prev_op, result)
+        super().__init__(result)
 
     @classmethod
     def from_fd(cls, fd):
@@ -104,7 +98,7 @@ class CryptOp(Op):
 
         result = hasher.digest()
         self = cls.__new__()
-        super(self).__init__(prev_op, result)
+        super(self).__init__(result)
         return self
 
 
