@@ -17,23 +17,13 @@ import logging
 import os
 import os.path
 
-import bitcoin.rpc
-from bitcoin.core import *
-from bitcoin.wallet import *
+from binascii import hexlify
 
-from opentimestamps.blockchain import *
-from opentimestamps.core import *
-
-
-def sha256_fd(fd):
-    hash_state = hashlib.sha256()
-    chunk = True
-    while chunk != b'':
-        chunk = fd.read(2 ** 20)
-        hash_state.update(chunk)
-
-    return hash_state.digest()
-
+from opentimestamps.core.op import *
+from opentimestamps.op import *
+from opentimestamps.core.notary import *
+from opentimestamps.core.timestamp import *
+from opentimestamps.core.serialize import *
 
 parser = argparse.ArgumentParser(description="OpenTimestamps client.")
 
@@ -47,125 +37,100 @@ subparsers = parser.add_subparsers(title='Subcommands',
 
 # ----- stamp -----
 parser_stamp = subparsers.add_parser('stamp', aliases=['s'],
-                                     help='Timestamp a file')
+                                     help='Timestamp files')
 parser_stamp.add_argument('--no-nonce', dest='use_nonce', action='store_false', default=True,
                           help='Do not use a nonce in the hash calculation. WARNING: may cause privacy loss!')
-parser_stamp.add_argument('file', metavar='FILE', type=argparse.FileType('rb'),
+parser_stamp.add_argument('files', metavar='FILE', type=argparse.FileType('rb'),
+                          nargs='+',
                           help='Filename')
 
-# ----- complete -----
-parser_complete = subparsers.add_parser('complete', aliases=['c'],
-                                        help='Complete one or more pending (Bitcoin) timestamps.')
-parser_complete.add_argument('file', metavar='FILE', type=argparse.FileType('r'),
-                             help='Filename')
+# ----- upgrade -----
+parser_upgrade = subparsers.add_parser('upgrade', aliases=['u'],
+                                        help='Upgrade existing timestamps to better proof')
+parser_upgrade.add_argument('files', metavar='FILE', type=argparse.FileType('r'),
+                            nargs='+',
+                            help='Filename')
 
 # ----- verify -----
 parser_verify = subparsers.add_parser('verify', aliases=['v'],
-                                      help="Verify a timestamps")
+                                      help="Verify a timestamp")
 parser_verify.add_argument('file', metavar='FILE', type=argparse.FileType('r'),
                            help='Filename')
 
+# ----- info -----
+parser_info = subparsers.add_parser('info', aliases=['u'],
+                                        help='Show information on a timestamp')
+parser_info.add_argument('file', metavar='FILE', type=argparse.FileType('rb'),
+                            help='Filename')
 
 def stamp_command(args):
-    # Compute digests for all files
-    file_digest = sha256_fd(args.file)
-    logging.debug('Hashed %s -> %s' % (args.file.name, b2x(file_digest)))
+    # Create initial commitment ops for all files
+    file_op_paths = []
+    for fd in args.files:
+        # FIXME: handle file IO errors
+        op = OpSHA256.from_fd(fd)
+        file_op_paths.append(op)
 
-    nonce = b''
-    if args.use_nonce:
-        nonce = os.urandom(32)
-        file_digest = hashlib.sha256(nonce + file_digest).digest()
+    # Remember that the files - and their timestamps - might get separated
+    # later, so if we didn't use a nonce for every file, the timestamp
+    # would leak information on the digests of adjacent files.
+    merkle_roots = [cat_sha256(file_op_path, os.urandom(16)) if args.use_nonce else file_op_path for file_op_path in file_op_paths]
 
-    timestamp_file_path = args.file.name + '.ots.pending'
-    with open(timestamp_file_path, 'x') as timestamp_fd:
-        addr_hash = hashlib.new('ripemd160', file_digest).digest()
+    tip = make_merkle_tree(merkle_roots)
 
-        # make an output
-        addr = P2PKHBitcoinAddress.from_bytes(addr_hash)
+    time_attestation = PendingAttestation(b'https://btc.calendar.opentimestamps.org')
 
-        txid = args.proxy.sendtoaddress(addr, 6000)
-        logging.debug('Paid addr %s with txid %s' % (addr, b2lx(txid)))
+    for (in_file, file_op_path) in zip(args.files, file_op_paths):
+        timestamp_file_path = in_file.name + '.ots'
+        with open(timestamp_file_path, 'xb') as timestamp_fd:
+            timestamp = Timestamp(file_op_path, time_attestation)
+            detached_timestamp = DetachedTimestampFile(timestamp)
 
-        # very primitive!
-        pending_timestamp = {'txid': b2lx(txid),
-                             'nonce': b2x(nonce),
-                             'addr': str(addr)}
-        json.dump(pending_timestamp, timestamp_fd, indent=2)
+            #import pdb; pdb.set_trace()
 
+            ctx = StreamSerializationContext(timestamp_fd)
+            detached_timestamp.serialize(ctx)
 
 parser_stamp.set_defaults(cmd_func=stamp_command)
 
 
-def complete_command(args):
-    if not args.file.name.endswith('.ots.pending'):
-        parser.exit('Pending timestamp file does not end in .ots.pending')
+def upgrade_command(args):
+    pass
 
-    pending_timestamp = json.load(args.file)
-    txid = lx(pending_timestamp['txid'])
-    nonce = x(pending_timestamp['nonce'])
-    addr = CBitcoinAddress(pending_timestamp['addr'])
-
-    path0 = [PathOp_SHA256(b'', b'')]
-    if nonce:
-        path0.append(PathOp_SHA256(nonce, b''))
-    path0.append(PathOp_RIPEMD160(b'', b''))
-
-    r = args.proxy.getrawtransaction(txid, True)
-
-    if r['blockhash'] is None:
-        parser.exit('Transaction %s not yet confirmed' % b2lx(txid))
-
-    blk = args.proxy.getblock(r['blockhash'])
-
-    path1 = path_from_msg_to_txid(addr.to_bytes(), r['tx'])
-    path2 = path_from_txid_to_merkleroot(txid, blk)
-
-    path = Path(list(path0) + list(path1) + list(path2))
-
-    sig = BlockHeaderSig.from_CBlockHeader(blk.get_header())
-
-    stamp = Timestamp(path, sig)
-
-    timestamp_file_path = args.file.name[:-8]
-    with open(timestamp_file_path, 'x') as timestamp_fd:
-        json.dump(stamp.to_json(), timestamp_fd, indent=2)
-
-
-parser_complete.set_defaults(cmd_func=complete_command)
+parser_upgrade.set_defaults(cmd_func=upgrade_command)
 
 
 def verify_command(args):
-    if not args.file.name.endswith('.ots'):
-        parser.exit('Timestamp file does not end in .ots')
-
-    stamp = Timestamp.from_json(json.load(args.file))
-
-    # check that the first thing we get is the hash as expected, hack!
-    assert isinstance(stamp.path[0], PathOp_SHA256)
-    assert stamp.path[0].prefix == stamp.path[0].suffix == b''
-    stamp.path = Path(stamp.path[1:])
-
-    timestamped_file_path = args.file.name[:-4]
-    digest = None
-    with open(timestamped_file_path, 'rb') as timestamped_fd:
-        digest = sha256_fd(timestamped_fd)
-    logging.debug('Hashed %s -> %s' % (timestamped_file_path, b2x(digest)))
-
-    block_index_proxy = BlockIndexProxy(args.proxy)
-    nTime = stamp.verify(digest, block_index_proxy)
-
-    timestamp = datetime.datetime.fromtimestamp(nTime)
-
-    logging.info('Success! %s was created on or before %s' %
-                 (timestamped_file_path, timestamp.isoformat(' ')))
-
+    pass
 
 parser_verify.set_defaults(cmd_func=verify_command)
+
+def info_command(args):
+    ctx = StreamDeserializationContext(args.file)
+    detached_timestamp = DetachedTimestampFile.deserialize(ctx)
+
+    print("File %s hash: %s" % (detached_timestamp.timestamp.path.HASHLIB_NAME, hexlify(detached_timestamp.timestamp.path.result).decode('utf8')))
+
+    print("Path ops:")
+
+    op = detached_timestamp.timestamp.path
+    while op is not None:
+        print('    ' + str(op))
+
+        if args.verbosity > 0:
+            print('-> %s' % hexlify(op.result).decode('utf8'))
+
+        op = op.next_op
+
+    print(detached_timestamp.timestamp.attestation)
+
+
+parser_info.set_defaults(cmd_func=info_command)
 
 args = parser.parse_args()
 args.parser = parser
 
-args.proxy = bitcoin.rpc.Proxy()
+#args.proxy = bitcoin.rpc.Proxy()
 
 args.verbosity = args.verbose - args.quiet
 
