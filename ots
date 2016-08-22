@@ -13,10 +13,8 @@
 import argparse
 import binascii
 import datetime
-import json
 import logging
 import os
-import os.path
 import sys
 import time
 
