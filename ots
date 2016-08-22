@@ -11,17 +11,19 @@
 # LICENSE file.
 
 import argparse
+import binascii
 import datetime
 import json
 import logging
 import os
 import os.path
+import sys
 import time
 
 import bitcoin
 import bitcoin.rpc
 
-from bitcoin.core import b2lx, lx, CTxOut, CTransaction
+from bitcoin.core import b2x, b2lx, lx, CTxOut, CTransaction
 from bitcoin.core.script import CScript, OP_RETURN
 
 from binascii import hexlify
@@ -84,8 +86,17 @@ parser_upgrade.add_argument('files', metavar='FILE', type=argparse.FileType('r')
 # ----- verify -----
 parser_verify = subparsers.add_parser('verify', aliases=['v'],
                                       help="Verify a timestamp")
-parser_verify.add_argument('file', metavar='FILE', type=argparse.FileType('r'),
-                           help='Filename')
+
+verify_target_group = parser_verify.add_mutually_exclusive_group()
+verify_target_group.add_argument('-f', metavar='FILE', dest='target_fd', type=argparse.FileType('rb'),
+                                 default=None,
+                                 help='Specify target file explicitly')
+verify_target_group.add_argument('-d', metavar='DIGEST', dest='hex_digest', type=str,
+                                 default=None,
+                                 help='Verify a (hex-encoded) digest rather than a file')
+
+parser_verify.add_argument('timestamp_fd', metavar='TIMESTAMP', type=argparse.FileType('rb'),
+                           help='Timestamp filename')
 
 # ----- info -----
 parser_info = subparsers.add_parser('info', aliases=['u'],
@@ -179,7 +190,77 @@ parser_upgrade.set_defaults(cmd_func=upgrade_command)
 
 
 def verify_command(args):
-    pass
+    ctx = StreamDeserializationContext(args.timestamp_fd)
+    detached_timestamp = DetachedTimestampFile.deserialize(ctx)
+
+    if args.hex_digest is not None:
+        try:
+            digest = binascii.unhexlify(args.hex_digest.encode('utf8'))
+        except ValueError:
+            parser.error('Digest must be hexidecimal')
+
+        if not digest == detached_timestamp.file_digest:
+            logging.error("Digest provided does not match digest in timestamp, %s (%s)" %
+                          (b2x(detached_timestamp.file_digest), detached_timestamp.file_hash_op_class.TAG_NAME))
+            sys.exit(1)
+
+    else:
+        if args.target_fd is None:
+            # Target not specified, so assume it's the same name as the
+            # timestamp file minus the .ots extension.
+            if not args.timestamp_fd.name.endswith('.ots'):
+                parser.error('Timestamp filename does not end in .ots')
+
+            target_filename = args.timestamp_fd.name[:-4]
+            logging.info("Assuming target filename is %r" % target_filename)
+
+            args.target_fd = open(target_filename, 'rb')
+
+        logging.debug("Hashing file, algorithm %s" % detached_timestamp.file_hash_op_class.TAG_NAME)
+        actual_digest_op = detached_timestamp.file_hash_op_class.from_fd(args.target_fd)
+        logging.debug("Got digest %s" % b2x(actual_digest_op.result))
+
+        if actual_digest_op.result != detached_timestamp.file_digest:
+            logging.debug("Expected digest %s" % b2x(detached_timestamp.file_digest))
+            logging.error("File does not match original!")
+            sys.exit(1)
+
+
+    # File/digest is same as original. Next step is to check that the timestamp
+    # attestation is still valid.
+
+    attested_time = None
+
+    attestation = detached_timestamp.timestamp.attestation
+    if attestation.__class__ == PendingAttestation:
+        raise NotImplementedError
+
+    elif attestation.__class__ == BitcoinBlockHeaderAttestation:
+        proxy = setup_bitcoin(args)
+
+        try:
+            blockhash = proxy.getblockhash(attestation.height)
+        except IndexError:
+            logging.error("Can't find Bitcoin block! Height %d" % attestation.height)
+            sys.exit(1)
+
+        block_header = proxy.getblockheader(blockhash)
+
+        logging.debug("Attestation block hash: %s" % b2lx(blockhash))
+
+        final_commitment = detached_timestamp.timestamp.path.final_commitment()
+
+        try:
+            attested_time = attestation.verify_against_blockheader(final_commitment, block_header)
+        except VerificationError as err:
+            logging.error("Bitcoin verification failed: %s" % str(err))
+            sys.exit(1)
+
+
+        logging.debug("Attested time: %d", attested_time)
+        logging.info("Success! Bitcoin blockchain attests data existed prior to %s" % \
+                        datetime.datetime.fromtimestamp(attested_time).isoformat(' '))
+
 
 parser_verify.set_defaults(cmd_func=verify_command)
 

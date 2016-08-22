@@ -11,6 +11,9 @@
 
 """Timestamp signature verification"""
 
+class VerificationError(Exception):
+    """Attestation verification errors"""
+
 class TimeAttestation:
     """Time-attesting signature"""
 
@@ -71,6 +74,19 @@ class BitcoinBlockHeaderAttestation(TimeAttestation):
 
     def __init__(self, height):
         self.height = height
+
+    def verify_against_blockheader(self, digest, block_header):
+        """Verify attestation against a block header
+
+        Returns the block time on success; raises VerificationError on failure.
+        """
+
+        if len(digest) != 32:
+            raise VerificationError("Expected digest with length 32 bytes; got %d bytes" % len(digest))
+        elif digest != block_header.hashMerkleRoot:
+            raise VerificationError("Digest does not match merkleroot")
+
+        return block_header.nTime
 
     def __repr__(self):
         return 'BitcoinBlockHeaderAttestation(%r)' % self.height

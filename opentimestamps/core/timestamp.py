@@ -38,9 +38,7 @@ class Timestamp:
 class DetachedTimestampFile:
     """A file containing a timestamp for another file
 
-    Basically just a serialized timestamp along with a header containing some
-    magic numbers to identification purposes, and a footer with a checksum of
-    the result of the commitment path.
+    Contains a timestamp, along with a header and the digest of the file.
     """
 
     HEADER_MAGIC = b'\x00OpenTimestamps\x00\x00Proof\x00\xbf\x89\xe2\xe8\x84\xe8\x92\x94\x00'
@@ -49,6 +47,16 @@ class DetachedTimestampFile:
     Designed to be give the user some information in a hexdump, while being
     identified as 'data' by the file utility.
     """
+
+    @property
+    def file_digest(self):
+        """The digest of the file that was timestamped"""
+        return self.timestamp.path.result
+
+    @property
+    def file_hash_op_class(self):
+        """The op class used to hash the original file"""
+        return self.timestamp.path.__class__
 
     def __init__(self, timestamp):
         self.timestamp = timestamp
