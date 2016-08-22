@@ -94,4 +94,14 @@ for fd in args.file_fds:
 
     print(b2lx(hdr.GetHash()), blk_height)
 
+    btc_attestation = BitcoinBlockHeaderAttestation(blk_height)
+
+    new_detached_timestamp = DetachedTimestampFile(Timestamp(new_path, btc_attestation))
+
+    fd.truncate(0)
+    fd.seek(0)
+
+    ctx = StreamSerializationContext(fd)
+    new_detached_timestamp.serialize(ctx)
+
 # vim:syntax=python filetype=python
