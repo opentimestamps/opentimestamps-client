@@ -1,4 +1,4 @@
-# Copyright (C) 2015 The python-opentimestamps developers
+# Copyright (C) 2016 The python-opentimestamps developers
 #
 # This file is part of python-opentimestamps.
 #

@@ -39,6 +39,12 @@ def cat_then_unary_op(op, left, right):
 def cat_sha256(left, right):
     return cat_then_unary_op(OpSHA256, left, right)
 
+def cat_sha256d(left, right):
+    sha256_op1 = cat_sha256(left, right)
+    sha256_op2 = OpSHA256(sha256_op1)
+    sha256_op1.next_op = sha256_op2
+    return sha256_op2
+
 def make_merkle_tree(ops, binop=cat_sha256):
     """Make a merkle tree from an iterable of operations
 
