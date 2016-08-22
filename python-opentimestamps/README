@@ -1,0 +1,14 @@
+python-opentimestamps
+---------------------
+
+Requirements
+------------
+
+python-bitcoinlib v0.6.0
+
+
+Unit tests
+----------
+
+python3 -m unittest discover -v
+
