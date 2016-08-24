@@ -1,0 +1,2 @@
+python-bitcoinlib==0.6.0
+-e git+https://github.com/RCasatta/python-opentimestamps/#egg=opentimestamps
