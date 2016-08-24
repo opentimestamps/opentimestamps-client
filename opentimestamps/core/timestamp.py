@@ -30,8 +30,15 @@ class Timestamp:
         self.attestation.serialize(ctx)
 
     @classmethod
-    def deserialize(cls, ctx, first_result):
-        path = Op.deserialize(ctx, first_result)
+    def deserialize(cls, ctx, first_result=None, prev_op=None):
+        path = None
+        if first_result is not None:
+            path = Op.deserialize_from_result(ctx, first_result)
+        elif prev_op is not None:
+            path = Op.deserialize_extend(ctx, prev_op)
+        else:
+            assert False
+
         attestation = TimeAttestation.deserialize(ctx)
         return Timestamp(path, attestation)
 
