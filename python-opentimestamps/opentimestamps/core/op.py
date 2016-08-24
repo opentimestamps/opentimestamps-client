@@ -77,9 +77,29 @@ class Op:
         return cls(msg)
 
     @classmethod
-    def deserialize(cls, ctx, first_result):
-        # First op in the path is handled specially, and must be a
-        # cryptographic op, as we need to prime it with the first result.
+    def deserialize_extend(cls, ctx, prev_op):
+        """Deserialize, extending a previous op"""
+        while True:
+            tag = ctx.read_bytes(1)
+            if tag == b'\x00':
+                break
+
+            # FIXME: handle unknown tag here
+            subcls = cls.SUBCLS_BY_TAG[tag]
+
+            op = subcls._deserialize_op_payload(ctx, prev_op.result)
+
+            prev_op.next_op = op
+            prev_op = op
+
+    @classmethod
+    def deserialize_from_result(cls, ctx, first_result):
+        """Deserialize from with known first result
+
+        Here, rather than providing the first message, you provide the first
+        result. This is useful for cryptographic operations where the message
+        may be a large file that you don't have.
+        """
         tag = ctx.read_bytes(1)
         subcls = cls.SUBCLS_BY_TAG[tag]
 
@@ -89,18 +109,7 @@ class Op:
         self = subcls.__new__(subcls)
         self.__result = first_result # FIXME: should check result length
 
-        rest = self
-        while True:
-            tag = ctx.read_bytes(1)
-            if tag == b'\x00':
-                break
-
-            # FIXME: handle unknown tag here
-            subcls = cls.SUBCLS_BY_TAG[tag]
-
-            rest.next_op = subcls._deserialize_op_payload(ctx, rest.result)
-            rest = rest.next_op
-
+        self.deserialize_extend(ctx, self)
         return self
 
 class BytesCommitment(Op):
