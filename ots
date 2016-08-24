@@ -19,6 +19,7 @@ import datetime
 import logging
 import os
 import time
+import urllib.request
 
 import bitcoin
 import bitcoin.rpc
@@ -133,7 +134,14 @@ def stamp_command(args):
 
     time_attestation = None
     if args.method == 'calendar':
-        time_attestation = PendingAttestation(args.calendar_uri.encode('utf8'))
+        req = urllib.request.Request(args.calendar_uri + '/commitment',data=bytes(tip_op))
+        with urllib.request.urlopen(req) as resp:
+            assert resp.status == 200
+
+            ctx = StreamDeserializationContext(resp)
+            Op.deserialize_extend(ctx, tip_op)
+
+            time_attestation = TimeAttestation.deserialize(ctx)
 
     elif args.method == 'btc-wallet':
         proxy = setup_bitcoin(args)
