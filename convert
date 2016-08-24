@@ -79,6 +79,9 @@ for fd in args.file_fds:
         elif op_name == 'ripemd160':
             ripemd160_op = OpRIPEMD160(prev_op)
             prev_op.next_op = ripemd160_op
+        elif op_name == 'reverse':
+            reverse_op = OpReverse(prev_op)
+            prev_op.next_op = reverse_op
 
         else:
             assert False
