@@ -28,7 +28,7 @@ class Timestamp:
         return self.__msg
 
     def __init__(self, msg):
-        self.__msg = msg
+        self.__msg = bytes(msg)
         self.ops = []
 
     def __repr__(self):
@@ -53,6 +53,21 @@ class Timestamp:
                 op.serialize(ctx)
             ctx.write_bytes(b'\xfe')
 
+    def verifications(self):
+        """Iterate over the verifications on this timestamp"""
+        for op in self.ops:
+            if isinstance(op, OpVerify):
+                yield op
+            else:
+                yield from op.timestamp.verifications()
+
+    def str_tree(self, indent=0):
+        """Convert to tree (for debugging)"""
+        r = ""
+        for op in self.ops:
+            r += " "*indent + "%s"%str(op) + "\n"
+            r += op.timestamp.str_tree(indent + 4)
+        return r
 
 class Op:
     """Timestamp proof operations
@@ -116,10 +131,12 @@ class TransformOp(Op):
         The new timestamp must over the same message as the old timestamp.
         """
         try:
-            self.__timestamp
+            if self.__timestamp.msg != new_stamp.msg:
+                raise ValueError("Timestamp must be for the same message as before")
         except AttributeError:
-            assert self.__timestamp.msg == new_stamp.msg
-            self.__timestamp = new_stamp
+            # Not yet set
+            pass
+        self.__timestamp = new_stamp
 
     @property
     def result(self):
@@ -197,6 +214,9 @@ class CryptOp(TransformOp):
         hasher = hashlib.new(self.HASHLIB_NAME, bytes(msg))
         result = hasher.digest()
         super().__init__(result)
+
+    def __str__(self):
+        return '%s' % self.TAG_NAME
 
     @classmethod
     def from_fd(cls, fd):

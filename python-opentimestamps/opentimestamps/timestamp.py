@@ -28,7 +28,6 @@ def cat_then_unary_op(unary_op_cls, left, right):
         right = Timestamp(right)
 
     left_append_op = left.add_op(OpAppend, right.msg)
-
     right_prepend_op = right.add_op(OpPrepend, left.msg)
 
     # Left and right should produce the same thing, so we can set the timestamp

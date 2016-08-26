@@ -11,19 +11,19 @@
 
 from bitcoin.core import b2lx
 
-from opentimestamps.core.op import OpAppend, OpPrepend
-from opentimestamps.op import cat_sha256d
+from opentimestamps.core.timestamp import Timestamp,OpAppend, OpPrepend, OpVerify
+from opentimestamps.timestamp import cat_sha256d
 from opentimestamps.core.notary import BitcoinBlockHeaderAttestation
 
-def make_btc_block_merkle_tree(blk_txid_ops):
-    assert len(blk_txid_ops) > 0
+def __make_btc_block_merkle_tree(blk_txids):
+    assert len(blk_txids) > 0
 
-    digests = blk_txid_ops
+    digests = blk_txids
     while len(digests) > 1:
         # The famously broken Satoshi algorithm: if the # of digests at this
         # level is odd, double the last one.
-        if len(digests) % 1:
-            digests.append(digests[-1])
+        if len(digests) % 2:
+            digests.append(digests[-1].msg)
 
         next_level = []
         for i in range(0,len(digests),2):
@@ -34,18 +34,17 @@ def make_btc_block_merkle_tree(blk_txid_ops):
     return digests[0]
 
 
-def make_bitcoin_attestation_from_blockhash(digest_op, blockhash, proxy):
-    blk = proxy.getblock(blockhash)
-
-    # Find the transaction containing digest
+def make_timestamp_from_block(root_timestamp, block, blockheight):
+    """Make a timestamp from a block"""
+    # Find the transaction containing the root digest
     #
     # FIXME: we actually should find the _smallest_ transaction containing
     # digest to ward off trolls...
     commitment_tx = None
     prefix = None
     suffix = None
-    digest = digest_op.result
-    for tx in blk.vtx:
+    digest = root_timestamp.msg
+    for tx in block.vtx:
         serialized_tx = tx.serialize()
 
         try:
@@ -63,29 +62,22 @@ def make_bitcoin_attestation_from_blockhash(digest_op, blockhash, proxy):
         raise ValueError("Couldn't find digest in block")
 
     # Add the commitment ops necessary to go from the digest to the txid op
-    prefix_op = OpPrepend(prefix, digest_op)
-    digest_op.next_op = prefix_op
+    prefix_op = root_timestamp.add_op(OpPrepend, prefix)
+    txid_stamp = cat_sha256d(prefix_op.timestamp, suffix)
 
-    commitment_txid_op = cat_sha256d(prefix_op, suffix)
-
-    assert commitment_tx.GetHash() == commitment_txid_op.result
+    assert commitment_tx.GetHash() == txid_stamp.msg
 
     # Create the txid list, with our commitment txid op in the appropriate
     # place
-    blk_txid_ops = []
-    for tx in blk.vtx:
-        txid = tx.GetHash()
-        if txid != commitment_txid_op.result:
-            blk_txid_ops.append(txid)
+    block_txid_stamps = []
+    for tx in block.vtx:
+        if tx.GetHash() != txid_stamp.msg:
+            block_txid_stamps.append(Timestamp(tx.GetHash()))
         else:
-            blk_txid_ops.append(commitment_txid_op)
+            block_txid_stamps.append(txid_stamp)
 
     # Build the merkle tree
-    merkleroot_op = make_btc_block_merkle_tree(blk_txid_ops)
+    merkleroot_stamp = __make_btc_block_merkle_tree(block_txid_stamps)
 
-    # FIXME: as of v0.6.0 python-bitcoinlib doesn't support the verbose option
-    # for getblock(header), so we have to go a bit low-level to get the block
-    # height.
-    r = proxy._call('getblock', b2lx(blockhash), True)
-
-    return BitcoinBlockHeaderAttestation(r['height'])
+    attestation = BitcoinBlockHeaderAttestation(blockheight)
+    merkleroot_stamp.add_op(OpVerify, attestation)
