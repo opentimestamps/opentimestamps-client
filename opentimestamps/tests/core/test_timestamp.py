@@ -11,6 +11,8 @@
 
 import unittest
 
+from opentimestamps.core.notary import *
+from opentimestamps.core.serialize import *
 from opentimestamps.core.timestamp import *
 
 class Test_Op(unittest.TestCase):
@@ -33,3 +35,19 @@ class Test_Op(unittest.TestCase):
     def test_ripemd160(self):
         op = OpRIPEMD160(b'')
         self.assertEqual(op.timestamp.msg, bytes.fromhex('9c1185a5c5e9fc54612808977ee8f548b2258d31'))
+
+class Test_Timestamp(unittest.TestCase):
+    def test_serialize(self):
+        stamp = Timestamp(b'foo')
+        stamp.add_op(OpVerify, PendingAttestation(b'foobar'))
+
+        expected_serialized = b'\x00' + bytes.fromhex('83dfe30d2ef90c8e' + '07' + '06') + b'foobar'
+
+        ctx = BytesSerializationContext()
+        stamp.serialize(ctx)
+        self.assertEqual(ctx.getbytes(), expected_serialized)
+
+        stamp.add_op(OpVerify, PendingAttestation(b'foobar'))
+        expected_serialized = b'\xff' + (b'\x00' + bytes.fromhex('83dfe30d2ef90c8e' + '07' + '06') + b'foobar') \
+                                      + (b'\x00' + bytes.fromhex('83dfe30d2ef90c8e' + '07' + '06') + b'foobar') + \
+                              b'\xfe'

@@ -40,6 +40,19 @@ class Timestamp:
         self.ops.append(new_op)
         return new_op
 
+    def serialize(self, ctx):
+        if len(self.ops) == 0:
+            raise ValueError("An empty timestamp can't be serialized")
+
+        elif len(self.ops) == 1:
+            self.ops[0].serialize(ctx)
+
+        else:
+            ctx.write_bytes(b'\xff')
+            for op in self.ops:
+                op.serialize(ctx)
+            ctx.write_bytes(b'\xfe')
+
 
 class Op:
     """Timestamp proof operations
@@ -57,12 +70,23 @@ class Op:
     def _register_op(cls, subcls):
         return subcls
 
+    def _serialize_op_payload(self, ctx):
+        pass
+
+    def serialize(self, ctx):
+        ctx.write_bytes(self.TAG)
+        self._serialize_op_payload(ctx)
+
+@Op._register_op
 class OpVerify(Op):
     """Verify attestation
 
     Verifications never have children.
     """
     __slots__ = ['__msg','attestation']
+
+    TAG = b'\x00'
+    TAG_NAME = b'verify'
 
     @property
     def msg(self):
@@ -71,6 +95,9 @@ class OpVerify(Op):
     def __init__(self, msg, attestation):
         self.__msg = msg
         self.attestation = attestation
+
+    def _serialize_op_payload(self, ctx):
+        self.attestation.serialize(ctx)
 
 
 class TransformOp(Op):

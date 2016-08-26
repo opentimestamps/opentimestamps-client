@@ -11,6 +11,8 @@
 
 """Timestamp signature verification"""
 
+import opentimestamps.core.serialize
+
 class VerificationError(Exception):
     """Attestation verification errors"""
 
@@ -22,16 +24,34 @@ class TimeAttestation:
 
     def serialize(self, ctx):
         ctx.write_bytes(self.TAG)
-        self._serialize_payload(ctx)
+
+        payload_ctx = opentimestamps.core.serialize.BytesSerializationContext()
+        self._serialize_payload(payload_ctx)
+
+        ctx.write_varbytes(payload_ctx.getbytes())
+
 
     @classmethod
     def deserialize(cls, ctx):
         tag = ctx.read_bytes(8)
 
-        if tag == PendingAttestation.TAG:
+        if tag == PendingAttestation.OLDTAG:
             return PendingAttestation.deserialize(ctx)
-        elif tag == BitcoinBlockHeaderAttestation.TAG:
+        elif tag == BitcoinBlockHeaderAttestation.OLDTAG:
             return BitcoinBlockHeaderAttestation.deserialize(ctx)
+
+        serialized_attestation = ctx.read_varbytes(8192) # FIXME: what should max length be?
+
+        payload_ctx = opentimestamps.core.serialize.BytesDeserializationContext(serialized_attestation)
+
+        if tag == PendingAttestation.TAG:
+            return PendingAttestation.deserialize(payload_ctx)
+        elif tag == BitcoinBlockHeaderAttestation.TAG:
+            return BitcoinBlockHeaderAttestation.deserialize(payload_ctx)
+
+        # FIXME: need to make sure extra junk at end causes failure...
+
+        assert False
 
 # Note how neither of these signatures actually has the time...
 
@@ -42,7 +62,8 @@ class PendingAttestation(TimeAttestation):
     use to try to find out more information.
     """
 
-    TAG = bytes.fromhex('83dfe30d2ef90c8d')
+    OLDTAG = bytes.fromhex('83dfe30d2ef90c8d')
+    TAG = bytes.fromhex('83dfe30d2ef90c8e')
 
     # FIXME: what characters are allowed in uri's?
     def __init__(self, uri):
@@ -70,7 +91,8 @@ class BitcoinBlockHeaderAttestation(TimeAttestation):
     to fill in pruned details).
     """
 
-    TAG = bytes.fromhex('0588960d73d71900')
+    OLDTAG = bytes.fromhex('0588960d73d71900')
+    TAG = bytes.fromhex('0588960d73d71901')
 
     def __init__(self, height):
         self.height = height
