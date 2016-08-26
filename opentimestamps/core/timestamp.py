@@ -100,11 +100,18 @@ class Timestamp:
 
     def str_tree(self, indent=0):
         """Convert to tree (for debugging)"""
+
         r = ""
-        for op in self.ops:
-            r += " "*indent + "%s"%str(op) + "\n"
-            if isinstance(op, TransformOp):
-                r += op.timestamp.str_tree(indent + 4)
+        if len(self.ops) > 1:
+            for op in self.ops:
+                r += " "*indent + " -> " + "%s"%str(op) + "\n"
+                if isinstance(op, TransformOp):
+                    r += op.timestamp.str_tree(indent+4)
+        else:
+            r += " "*indent + "%s\n" % str(self.ops[0])
+            if isinstance(self.ops[0], TransformOp):
+                r += self.ops[0].timestamp.str_tree(indent)
+
         return r
 
 class Op:
@@ -164,7 +171,7 @@ class OpVerify(Op):
     __slots__ = ['__msg','attestation']
 
     TAG = b'\x00'
-    TAG_NAME = b'verify'
+    TAG_NAME = 'verify'
 
     @property
     def msg(self):
