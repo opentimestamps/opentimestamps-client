@@ -255,7 +255,7 @@ class OpAppend(TransformOp):
     @classmethod
     def _deserialize_transform_op_payload(cls, ctx, initial_msg):
         suffix = ctx.read_varbytes(2**20) # FIXME: what should maximum be here?
-        return OpAppend(msg, suffix)
+        return OpAppend(initial_msg, suffix)
 
 @TransformOp._register_op
 class OpPrepend(TransformOp):
@@ -276,7 +276,7 @@ class OpPrepend(TransformOp):
     @classmethod
     def _deserialize_transform_op_payload(cls, ctx, initial_msg):
         prefix = ctx.read_varbytes(2**20) # FIXME: what should maximum be here?
-        return OpPrepend(prefix, msg)
+        return OpPrepend(initial_msg, prefix)
 
 
 @TransformOp._register_op
