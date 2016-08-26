@@ -255,7 +255,7 @@ class OpAppend(TransformOp):
     @classmethod
     def _deserialize_transform_op_payload(cls, ctx, initial_msg):
         suffix = ctx.read_varbytes(2**20) # FIXME: what should maximum be here?
-        return OpAppend(msg, suffix)
+        return OpAppend(initial_msg, suffix)
 
 @TransformOp._register_op
 class OpPrepend(TransformOp):
@@ -276,7 +276,7 @@ class OpPrepend(TransformOp):
     @classmethod
     def _deserialize_transform_op_payload(cls, ctx, initial_msg):
         prefix = ctx.read_varbytes(2**20) # FIXME: what should maximum be here?
-        return OpPrepend(prefix, msg)
+        return OpPrepend(initial_msg, prefix)
 
 
 @TransformOp._register_op
@@ -396,6 +396,14 @@ class DetachedTimestampFile:
     def from_fd(cls, op_cls, fd):
         timestamp_op = op_cls.from_fd(fd)
         return cls(timestamp_op)
+
+    def hash_fd(self, fd):
+        """Hash a stream with the same hashing algorithm we have
+
+        Returns a new CryptOp, whose result can be checked against
+        self.timestamp_op
+        """
+        return self.timestamp_op.__class__.from_fd(fd)
 
     def serialize(self, ctx):
         ctx.write_bytes(self.HEADER_MAGIC)

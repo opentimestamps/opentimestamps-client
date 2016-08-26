@@ -118,6 +118,12 @@ class Test_DetachedTimestampFile(unittest.TestCase):
         file_stamp = DetachedTimestampFile.from_fd(OpSHA256, io.BytesIO(b''))
         self.assertEqual(file_stamp.file_digest, bytes.fromhex('e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'))
 
+    def test_hash_fd(self):
+        file_stamp = DetachedTimestampFile.from_fd(OpSHA256, io.BytesIO(b''))
+
+        op2 = file_stamp.hash_fd(io.BytesIO(b''))
+        self.assertEqual(file_stamp.timestamp_op, op2)
+
     def test_serialization(self):
         def T(expected_instance, expected_serialized):
             ctx = BytesSerializationContext()
