@@ -397,6 +397,14 @@ class DetachedTimestampFile:
         timestamp_op = op_cls.from_fd(fd)
         return cls(timestamp_op)
 
+    def hash_fd(self, fd):
+        """Hash a stream with the same hashing algorithm we have
+
+        Returns a new CryptOp, whose result can be checked against
+        self.timestamp_op
+        """
+        return self.timestamp_op.__class__.from_fd(fd)
+
     def serialize(self, ctx):
         ctx.write_bytes(self.HEADER_MAGIC)
 
