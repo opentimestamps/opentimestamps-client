@@ -72,6 +72,10 @@ class PendingAttestation(TimeAttestation):
     def __repr__(self):
         return 'PendingAttestation(%r)' % self.uri
 
+    def __eq__(self, other):
+        return (self.__class__ == other.__class__
+                and self.uri == other.uri)
+
     def _serialize_payload(self, ctx):
         ctx.write_varbytes(self.uri)
 
@@ -96,6 +100,10 @@ class BitcoinBlockHeaderAttestation(TimeAttestation):
 
     def __init__(self, height):
         self.height = height
+
+    def __eq__(self, other):
+        return (self.__class__ == other.__class__
+                and self.height == other.height)
 
     def verify_against_blockheader(self, digest, block_header):
         """Verify attestation against a block header

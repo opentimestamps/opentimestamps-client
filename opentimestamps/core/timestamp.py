@@ -14,6 +14,8 @@ import binascii
 
 from opentimestamps.core.notary import TimeAttestation
 
+import opentimestamps.core.serialize
+
 class Timestamp:
     """Proof that one or more attestations commit to a message
 
@@ -31,6 +33,12 @@ class Timestamp:
         self.__msg = bytes(msg)
         self.ops = []
 
+    def __eq__(self, other):
+        if isinstance(other, Timestamp):
+            return self.__msg == other.__msg and self.ops == other.ops
+        else:
+            return False
+
     def __repr__(self):
         return 'Timestamp(<%s>)' % binascii.hexlify(self.__msg).decode('utf8')
 
@@ -44,14 +52,34 @@ class Timestamp:
         if len(self.ops) == 0:
             raise ValueError("An empty timestamp can't be serialized")
 
-        elif len(self.ops) == 1:
-            self.ops[0].serialize(ctx)
-
-        else:
-            ctx.write_bytes(b'\xff')
-            for op in self.ops:
+        elif len(self.ops) > 1:
+            for op in self.ops[0:-1]:
+                ctx.write_bytes(b'\xff')
                 op.serialize(ctx)
-            ctx.write_bytes(b'\xfe')
+
+        # Again, a zero-op timestamp is prohibited by the serialization format!
+        self.ops[-1].serialize(ctx)
+
+    @classmethod
+    def deserialize(cls, ctx, initial_msg):
+        """Deserialize
+
+        Because the serialization format doesn't include the message that the
+        timestamp operates on, you have to provide it so that the correct
+        operation results can be calculated.
+        """
+        self = cls(initial_msg)
+
+        tag = ctx.read_bytes(1)
+        while tag == b'\xff':
+            op = Op.deserialize(ctx, initial_msg)
+            self.ops.append(op)
+            tag = ctx.read_bytes(1)
+
+        op = Op.deserialize_from_tag(ctx, initial_msg, tag)
+        self.ops.append(op)
+
+        return self
 
     def verifications(self):
         """Iterate over the verifications on this timestamp"""
@@ -66,7 +94,8 @@ class Timestamp:
         r = ""
         for op in self.ops:
             r += " "*indent + "%s"%str(op) + "\n"
-            r += op.timestamp.str_tree(indent + 4)
+            if isinstance(op, TransformOp):
+                r += op.timestamp.str_tree(indent + 4)
         return r
 
 class Op:
@@ -81,8 +110,17 @@ class Op:
     def __init__(self, result):
         raise NotImplementedError
 
+    def __eq__(self, other):
+        raise NotImplementedError
+
+    def __str__(self):
+        return '%s' % self.TAG_NAME
+
     @classmethod
     def _register_op(cls, subcls):
+        if cls.SUBCLS_BY_TAG is None:
+            cls.SUBCLS_BY_TAG = {}
+        cls.SUBCLS_BY_TAG[subcls.TAG] = subcls
         return subcls
 
     def _serialize_op_payload(self, ctx):
@@ -91,6 +129,22 @@ class Op:
     def serialize(self, ctx):
         ctx.write_bytes(self.TAG)
         self._serialize_op_payload(ctx)
+
+    @classmethod
+    def _deserialize_op_payload(cls, ctx, initial_msg):
+        return cls(initial_msg)
+
+    @classmethod
+    def deserialize_from_tag(cls, ctx, initial_msg, tag):
+        if not tag in cls.SUBCLS_BY_TAG:
+            raise opentimestamps.core.serialize.DeserializationError("Unknown operation tag 0x%0x" % tag[0])
+
+        return cls.SUBCLS_BY_TAG[tag]._deserialize_op_payload(ctx, initial_msg)
+
+    @classmethod
+    def deserialize(cls, ctx, initial_msg):
+        tag = ctx.read_bytes(1)
+        return cls.deserialize_from_tag(ctx, initial_msg, tag)
 
 @Op._register_op
 class OpVerify(Op):
@@ -111,9 +165,21 @@ class OpVerify(Op):
         self.__msg = msg
         self.attestation = attestation
 
+    def __eq__(self, other):
+        return (self.__class__ == other.__class__
+                and self.__msg == other.__msg
+                and self.attestation == other.attestation)
+
+    def __str__(self):
+        return '%s %s' % (self.TAG_NAME, self.attestation)
+
     def _serialize_op_payload(self, ctx):
         self.attestation.serialize(ctx)
 
+    @classmethod
+    def _deserialize_op_payload(cls, ctx, initial_msg):
+        attestation = TimeAttestation.deserialize(ctx)
+        return cls(initial_msg, attestation)
 
 class TransformOp(Op):
     """Prove that a transformation of a message is timestamped"""
@@ -141,11 +207,29 @@ class TransformOp(Op):
     @property
     def result(self):
         """The result of this operation"""
-        self.__timestamp.msg
+        return self.__timestamp.msg
+
+    def __eq__(self, other):
+        return (self.__class__ == other.__class__
+                and self.__timestamp == other.__timestamp)
 
     def __init__(self, result):
         # FIXME: check length limits on result
         self.__timestamp = Timestamp(result)
+
+    def serialize(self, ctx):
+        super().serialize(ctx)
+        self.__timestamp.serialize(ctx)
+
+    @classmethod
+    def _deserialize_transform_op_payload(cls, ctx, initial_msg):
+        return cls(initial_msg)
+
+    @classmethod
+    def _deserialize_op_payload(cls, ctx, initial_msg):
+        self = cls._deserialize_transform_op_payload(ctx, initial_msg)
+        self.__timestamp = Timestamp.deserialize(ctx, self.result)
+        return self
 
 
 @Op._register_op
@@ -167,7 +251,7 @@ class OpAppend(TransformOp):
         ctx.write_varbytes(self.suffix)
 
     @classmethod
-    def _deserialize_op_payload(cls, ctx, msg):
+    def _deserialize_transform_op_payload(cls, ctx, initial_msg):
         suffix = ctx.read_varbytes(2**20) # FIXME: what should maximum be here?
         return OpAppend(msg, suffix)
 
@@ -188,7 +272,7 @@ class OpPrepend(TransformOp):
         ctx.write_varbytes(self.prefix)
 
     @classmethod
-    def _deserialize_op_payload(cls, ctx, msg):
+    def _deserialize_transform_op_payload(cls, ctx, initial_msg):
         prefix = ctx.read_varbytes(2**20) # FIXME: what should maximum be here?
         return OpPrepend(prefix, msg)
 
@@ -215,8 +299,6 @@ class CryptOp(TransformOp):
         result = hasher.digest()
         super().__init__(result)
 
-    def __str__(self):
-        return '%s' % self.TAG_NAME
 
     @classmethod
     def from_fd(cls, fd):

@@ -48,18 +48,67 @@ class Test_Op(unittest.TestCase):
         with self.assertRaises(ValueError):
             op1.timestamp = Timestamp(b'')
 
+    def test_equality(self):
+        self.assertEqual(OpRIPEMD160(b''), OpRIPEMD160(b''))
+        self.assertEqual(OpReverse(b''), OpReverse(b''))
+
+        self.assertNotEqual(OpRIPEMD160(b''), OpSHA256(b''))
+
+        # Not equal even if results are same
+        self.assertNotEqual(OpAppend(b'', b''), OpPrepend(b'', b''))
+
+        # Not equal if timestamps differ
+        op1 = OpSHA256(b'')
+        op2 = OpSHA256(b'')
+        op2.timestamp.add_op(OpSHA256)
+        self.assertNotEqual(op1, op2)
+
+        # Equal if timestamps same
+        op1.timestamp.add_op(OpSHA256)
+        self.assertEqual(op1, op2)
+
+    def test_result(self):
+        op = OpSHA256(b'')
+        self.assertEqual(op.result, op.timestamp.msg)
+
+
 class Test_Timestamp(unittest.TestCase):
-    def test_serialize(self):
+    def test_serialization(self):
+        def T(expected_instance, expected_serialized):
+            ctx = BytesSerializationContext()
+            expected_instance.serialize(ctx)
+            actual_serialized = ctx.getbytes()
+
+            self.assertEqual(expected_serialized, actual_serialized)
+
+            actual_instance = Timestamp.deserialize(BytesDeserializationContext(expected_serialized), expected_instance.msg)
+            self.assertEqual(expected_instance, actual_instance)
+
+
         stamp = Timestamp(b'foo')
         stamp.add_op(OpVerify, PendingAttestation(b'foobar'))
 
-        expected_serialized = b'\x00' + bytes.fromhex('83dfe30d2ef90c8e' + '07' + '06') + b'foobar'
-
-        ctx = BytesSerializationContext()
-        stamp.serialize(ctx)
-        self.assertEqual(ctx.getbytes(), expected_serialized)
+        T(stamp, b'\x00' + bytes.fromhex('83dfe30d2ef90c8e' + '07' + '06') + b'foobar')
 
         stamp.add_op(OpVerify, PendingAttestation(b'foobar'))
-        expected_serialized = b'\xff' + (b'\x00' + bytes.fromhex('83dfe30d2ef90c8e' + '07' + '06') + b'foobar') \
-                                      + (b'\x00' + bytes.fromhex('83dfe30d2ef90c8e' + '07' + '06') + b'foobar') + \
-                              b'\xfe'
+        T(stamp, b'\xff' + (b'\x00' + bytes.fromhex('83dfe30d2ef90c8e' + '07' + '06') + b'foobar') + \
+                 (b'\x00' + bytes.fromhex('83dfe30d2ef90c8e' + '07' + '06') + b'foobar'))
+
+
+        stamp.add_op(OpVerify, PendingAttestation(b'foobar'))
+        T(stamp, b'\xff' + (b'\x00' + bytes.fromhex('83dfe30d2ef90c8e' + '07' + '06') + b'foobar') + \
+                 b'\xff' + (b'\x00' + bytes.fromhex('83dfe30d2ef90c8e' + '07' + '06') + b'foobar') + \
+                 (b'\x00' + bytes.fromhex('83dfe30d2ef90c8e' + '07' + '06') + b'foobar'))
+
+        sha256_op = stamp.add_op(OpSHA256)
+
+        # Shoudl fail - empty timestamps can't be serialized
+        with self.assertRaises(ValueError):
+            ctx = BytesSerializationContext()
+            stamp.serialize(ctx)
+
+        sha256_op.timestamp.add_op(OpVerify, PendingAttestation(b'deeper'))
+        T(stamp, b'\xff' + (b'\x00' + bytes.fromhex('83dfe30d2ef90c8e' + '07' + '06') + b'foobar') + \
+                 b'\xff' + (b'\x00' + bytes.fromhex('83dfe30d2ef90c8e' + '07' + '06') + b'foobar') + \
+                 b'\xff' + (b'\x00' + bytes.fromhex('83dfe30d2ef90c8e' + '07' + '06') + b'foobar') + \
+                 b'\x08' + (b'\x00' + bytes.fromhex('83dfe30d2ef90c8e' + '07' + '06') + b'deeper'))
