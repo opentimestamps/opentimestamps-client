@@ -112,3 +112,27 @@ class Test_Timestamp(unittest.TestCase):
                  b'\xff' + (b'\x00' + bytes.fromhex('83dfe30d2ef90c8e' + '07' + '06') + b'foobar') + \
                  b'\xff' + (b'\x00' + bytes.fromhex('83dfe30d2ef90c8e' + '07' + '06') + b'foobar') + \
                  b'\x08' + (b'\x00' + bytes.fromhex('83dfe30d2ef90c8e' + '07' + '06') + b'deeper'))
+
+class Test_DetachedTimestampFile(unittest.TestCase):
+    def test_create_from_file(self):
+        file_stamp = DetachedTimestampFile.from_fd(OpSHA256, io.BytesIO(b''))
+        self.assertEqual(file_stamp.file_digest, bytes.fromhex('e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'))
+
+    def test_serialization(self):
+        def T(expected_instance, expected_serialized):
+            ctx = BytesSerializationContext()
+            expected_instance.serialize(ctx)
+            actual_serialized = ctx.getbytes()
+
+            self.assertEqual(expected_serialized, actual_serialized)
+
+            actual_instance = DetachedTimestampFile.deserialize(BytesDeserializationContext(expected_serialized))
+            self.assertEqual(expected_instance, actual_instance)
+
+        file_stamp = DetachedTimestampFile.from_fd(OpSHA256, io.BytesIO(b''))
+        file_stamp.timestamp_op.timestamp.add_op(OpVerify, PendingAttestation(b'foobar'))
+
+        T(file_stamp, (b'\x00OpenTimestamps\x00\x00Proof\x00\xbf\x89\xe2\xe8\x84\xe8\x92\x94\x00' +
+                       b'\x20' + bytes.fromhex('e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855') +
+                       b'\x08' +
+                       b'\x00' + bytes.fromhex('83dfe30d2ef90c8e' + '07' + '06') + b'foobar'))
