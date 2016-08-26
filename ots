@@ -29,11 +29,10 @@ from bitcoin.core.script import CScript, OP_RETURN
 
 from binascii import hexlify
 
-from opentimestamps.core.op import *
 from opentimestamps.core.notary import *
 from opentimestamps.core.timestamp import *
 from opentimestamps.core.serialize import *
-from opentimestamps.op import *
+from opentimestamps.timestamp import *
 from opentimestamps.bitcoin import *
 
 parser = argparse.ArgumentParser(description="OpenTimestamps client.")
@@ -61,9 +60,6 @@ subparsers = parser.add_subparsers(title='Subcommands',
 # ----- stamp -----
 parser_stamp = subparsers.add_parser('stamp', aliases=['s'],
                                      help='Timestamp files')
-parser_stamp.add_argument('--no-nonce', dest='use_nonce', action='store_false', default=True,
-                          help='Do not use a nonce in the hash calculation. WARNING: may cause privacy loss!')
-
 
 stamp_type_group = parser_stamp.add_mutually_exclusive_group()
 stamp_type_group.add_argument('-c','--calendar', dest='method', action='store_const',
@@ -119,34 +115,38 @@ def setup_bitcoin(args):
 
 def stamp_command(args):
     # Create initial commitment ops for all files
-    file_op_paths = []
+    file_timestamps = []
+    merkle_roots = []
     for fd in args.files:
         # FIXME: handle file IO errors
-        op = OpSHA256.from_fd(fd)
-        file_op_paths.append(op)
+        file_timestamp = DetachedTimestampFile.from_fd(OpSHA256, fd)
 
-    # Remember that the files - and their timestamps - might get separated
-    # later, so if we didn't use a nonce for every file, the timestamp
-    # would leak information on the digests of adjacent files.
-    merkle_roots = [cat_sha256(file_op_path, os.urandom(16)) if args.use_nonce else file_op_path for file_op_path in file_op_paths]
+        # Add nonce
+        #
+        # Remember that the files - and their timestamps - might get separated
+        # later, so if we didn't use a nonce for every file, the timestamp
+        # would leak information on the digests of adjacent files.
+        append_nonce_op = file_timestamp.timestamp_op.timestamp.add_op(OpAppend, os.urandom(16))
+        merkle_root = append_nonce_op.timestamp.add_op(OpSHA256).timestamp
 
-    tip_op = make_merkle_tree(merkle_roots)
+        merkle_roots.append(merkle_root)
+        file_timestamps.append(file_timestamp)
+
+    merkle_tip = make_merkle_tree(merkle_roots)
 
     time_attestation = None
     if args.method == 'calendar':
-        req = urllib.request.Request(args.calendar_uri + '/commitment',data=bytes(tip_op))
+        req = urllib.request.Request(args.calendar_uri + '/commitment',data=merkle_tip.msg)
         with urllib.request.urlopen(req) as resp:
             assert resp.status == 200
 
             ctx = StreamDeserializationContext(resp)
-            Op.deserialize_extend(ctx, tip_op)
-
-            time_attestation = TimeAttestation.deserialize(ctx)
+            merkle_tip.add_op(Op.deserialize(ctx, merkle_tip))
 
     elif args.method == 'btc-wallet':
         proxy = setup_bitcoin(args)
 
-        unfunded_tx = CTransaction([],[CTxOut(0, CScript([OP_RETURN, bytes(tip_op)]))])
+        unfunded_tx = CTransaction([],[CTxOut(0, CScript([OP_RETURN, merkle_tip.msg]))])
         r = proxy.fundrawtransaction(unfunded_tx) # FIXME: handle errors
         funded_tx = r['tx']
 
@@ -171,22 +171,25 @@ def stamp_command(args):
 
         logging.info('Confirmed by block %s' % b2lx(blockhash))
 
+        block = proxy.getblock(blockhash)
+
+        # FIXME: as of v0.6.0 python-bitcoinlib doesn't support the verbose option
+        # for getblock(header), so we have to go a bit low-level to get the block
+        # height.
+        r = proxy._call('getblock', b2lx(blockhash), True)
+        blockheight = r['height']
+
         # We have a block hash! We can now generate the attestation from the block.
-        time_attestation = make_bitcoin_attestation_from_blockhash(tip_op, blockhash, proxy)
+        make_timestamp_from_block(merkle_tip, block, blockheight)
 
     else:
         assert False # Shouldn't happen
 
-    for (in_file, file_op_path) in zip(args.files, file_op_paths):
+    for (in_file, file_timestamp) in zip(args.files, file_timestamps):
         timestamp_file_path = in_file.name + '.ots'
         with open(timestamp_file_path, 'xb') as timestamp_fd:
-            timestamp = Timestamp(file_op_path, time_attestation)
-            detached_timestamp = DetachedTimestampFile(timestamp)
-
-            #import pdb; pdb.set_trace()
-
             ctx = StreamSerializationContext(timestamp_fd)
-            detached_timestamp.serialize(ctx)
+            file_timestamp.serialize(ctx)
 
 parser_stamp.set_defaults(cmd_func=stamp_command)
 
@@ -235,39 +238,37 @@ def verify_command(args):
 
 
     # File/digest is same as original. Next step is to check that the timestamp
-    # attestation is still valid.
-
-    attested_time = None
-
-    attestation = detached_timestamp.timestamp.attestation
-    if attestation.__class__ == PendingAttestation:
-        raise NotImplementedError
-
-    elif attestation.__class__ == BitcoinBlockHeaderAttestation:
-        proxy = setup_bitcoin(args)
-
-        try:
-            blockhash = proxy.getblockhash(attestation.height)
-        except IndexError:
-            logging.error("Can't find Bitcoin block! Height %d" % attestation.height)
-            sys.exit(1)
-
-        block_header = proxy.getblockheader(blockhash)
-
-        logging.debug("Attestation block hash: %s" % b2lx(blockhash))
-
-        final_commitment = detached_timestamp.timestamp.path.final_commitment()
-
-        try:
-            attested_time = attestation.verify_against_blockheader(final_commitment, block_header)
-        except VerificationError as err:
-            logging.error("Bitcoin verification failed: %s" % str(err))
-            sys.exit(1)
+    # attestations are still valid.
 
 
-        logging.debug("Attested time: %d", attested_time)
-        logging.info("Success! Bitcoin blockchain attests data existed prior to %s" % \
-                        datetime.datetime.fromtimestamp(attested_time).isoformat(' '))
+    for verify_op in detached_timestamp.timestamp_op.timestamp.verifications():
+        attestation = verify_op.attestation
+
+        if attestation.__class__ == PendingAttestation:
+            raise NotImplementedError
+
+        elif attestation.__class__ == BitcoinBlockHeaderAttestation:
+            proxy = setup_bitcoin(args)
+
+            try:
+                blockhash = proxy.getblockhash(attestation.height)
+            except IndexError:
+                logging.error("Can't find Bitcoin block! Height %d" % attestation.height)
+                sys.exit(1)
+
+            block_header = proxy.getblockheader(blockhash)
+
+            logging.debug("Attestation block hash: %s" % b2lx(blockhash))
+
+            try:
+                attested_time = attestation.verify_against_blockheader(verify_op.msg, block_header)
+            except VerificationError as err:
+                logging.error("Bitcoin verification failed: %s" % str(err))
+                sys.exit(1)
+
+            logging.debug("Attested time: %d", attested_time)
+            logging.info("Success! Bitcoin blockchain attests data existed prior to %s" % \
+                            datetime.datetime.fromtimestamp(attested_time).isoformat(' '))
 
 
 parser_verify.set_defaults(cmd_func=verify_command)
@@ -276,21 +277,10 @@ def info_command(args):
     ctx = StreamDeserializationContext(args.file)
     detached_timestamp = DetachedTimestampFile.deserialize(ctx)
 
-    print("File %s hash: %s" % (detached_timestamp.timestamp.path.HASHLIB_NAME, hexlify(detached_timestamp.timestamp.path.result).decode('utf8')))
+    print("File %s hash: %s" % (detached_timestamp.timestamp_op.HASHLIB_NAME, hexlify(detached_timestamp.file_digest).decode('utf8')))
 
-    print("Path ops:")
-
-    op = detached_timestamp.timestamp.path
-    while op is not None:
-        print('    ' + str(op))
-
-        if args.verbosity > 0:
-            print('-> %s' % hexlify(op.result).decode('utf8'))
-
-        op = op.next_op
-
-    print(detached_timestamp.timestamp.attestation)
-
+    print("Timestamp:")
+    print(detached_timestamp.timestamp_op.timestamp.str_tree())
 
 parser_info.set_defaults(cmd_func=info_command)
 
