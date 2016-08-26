@@ -11,7 +11,7 @@
 # in the LICENSE file.
 
 import sys
-sys.path.insert(1, sys.path[0] + '/python-opentimestamps/')
+
 
 import argparse
 import binascii
