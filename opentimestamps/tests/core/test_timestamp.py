@@ -73,6 +73,17 @@ class Test_Op(unittest.TestCase):
 
 
 class Test_Timestamp(unittest.TestCase):
+    def test_merge(self):
+        with self.assertRaises(ValueError):
+            Timestamp(b'a').merge(Timestamp(b'b'))
+
+        t1 = Timestamp(b'a')
+        t2 = Timestamp(b'a')
+        t2.add_op(OpVerify, PendingAttestation(b'foobar'))
+
+        t1.merge(t2)
+        self.assertEqual(t1.ops, t2.ops)
+
     def test_serialization(self):
         def T(expected_instance, expected_serialized):
             ctx = BytesSerializationContext()
