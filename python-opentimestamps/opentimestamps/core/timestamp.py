@@ -48,6 +48,15 @@ class Timestamp:
         self.ops.append(new_op)
         return new_op
 
+    def merge(self, other):
+        """Add all operations from another timestamp to this one
+
+        Raises ValueError if the other timestamp isn't for the same message
+        """
+        if self.__msg != other.__msg:
+            raise ValueError("Can't merge timestamps for different messages together")
+        self.ops.extend(other.ops)
+
     def serialize(self, ctx):
         if len(self.ops) == 0:
             raise ValueError("An empty timestamp can't be serialized")
