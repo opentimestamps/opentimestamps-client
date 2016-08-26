@@ -36,6 +36,18 @@ class Test_Op(unittest.TestCase):
         op = OpRIPEMD160(b'')
         self.assertEqual(op.timestamp.msg, bytes.fromhex('9c1185a5c5e9fc54612808977ee8f548b2258d31'))
 
+    def test_changing_timestamps(self):
+        op1 = OpRIPEMD160(b'')
+        op2 = OpRIPEMD160(b'')
+
+        self.assertIsNot(op1.timestamp, op2.timestamp)
+
+        op1.timestamp = op2.timestamp
+        self.assertIs(op1.timestamp, op2.timestamp)
+
+        with self.assertRaises(ValueError):
+            op1.timestamp = Timestamp(b'')
+
 class Test_Timestamp(unittest.TestCase):
     def test_serialize(self):
         stamp = Timestamp(b'foo')

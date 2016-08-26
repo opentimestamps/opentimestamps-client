@@ -116,10 +116,12 @@ class TransformOp(Op):
         The new timestamp must over the same message as the old timestamp.
         """
         try:
-            self.__timestamp
+            if self.__timestamp.msg != new_stamp.msg:
+                raise ValueError("Timestamp must be for the same message as before")
         except AttributeError:
-            assert self.__timestamp.msg == new_stamp.msg
-            self.__timestamp = new_stamp
+            # Not yet set
+            pass
+        self.__timestamp = new_stamp
 
     @property
     def result(self):
