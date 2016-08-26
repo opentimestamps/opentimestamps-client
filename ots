@@ -42,10 +42,6 @@ parser.add_argument("-q", "--quiet", action="count", default=0,
 parser.add_argument("-v", "--verbose", action="count", default=0,
                     help="Be more verbose. Both -v and -q may be used multiple times.")
 
-parser.add_argument('--calendar-uri', metavar='URI', dest='calendar_uri', action='store',
-                    default='https://btc.calendar.opentimestamps.org',
-                    help='URI of remote calendar.')
-
 btc_net_group  = parser.add_mutually_exclusive_group()
 btc_net_group.add_argument('--btc-testnet', dest='btc_net', action='store_const',
                     const='testnet', default='mainnet',
@@ -61,12 +57,11 @@ subparsers = parser.add_subparsers(title='Subcommands',
 parser_stamp = subparsers.add_parser('stamp', aliases=['s'],
                                      help='Timestamp files')
 
-stamp_type_group = parser_stamp.add_mutually_exclusive_group()
-stamp_type_group.add_argument('-c','--calendar', dest='method', action='store_const',
-                          const='calendar', default='calendar',
-                          help='Create timestamp with the aid of a remote calendar. (default)')
-stamp_type_group.add_argument('-w','--btc-wallet', dest='method', action='store_const',
-                          const='btc-wallet',
+parser_stamp.add_argument('-c','--calendar', metavar='URL', dest='calendar_urls', action='append', type=str,
+                          default=[],
+                          help='Create timestamp with the aid of a remote calendar. May be specified multiple times.')
+
+parser_stamp.add_argument('-w','--btc-wallet', dest='use_btc_wallet', action='store_true',
                           help='Create timestamp locally with the local Bitcoin wallet.')
 
 parser_stamp.add_argument('files', metavar='FILE', type=argparse.FileType('rb'),
@@ -134,16 +129,7 @@ def stamp_command(args):
 
     merkle_tip = make_merkle_tree(merkle_roots)
 
-    time_attestation = None
-    if args.method == 'calendar':
-        req = urllib.request.Request(args.calendar_uri + '/commitment',data=merkle_tip.msg)
-        with urllib.request.urlopen(req) as resp:
-            assert resp.status == 200
-
-            ctx = StreamDeserializationContext(resp)
-            merkle_tip.add_op(Op.deserialize(ctx, merkle_tip))
-
-    elif args.method == 'btc-wallet':
+    if args.use_btc_wallet:
         proxy = setup_bitcoin(args)
 
         unfunded_tx = CTransaction([],[CTxOut(0, CScript([OP_RETURN, merkle_tip.msg]))])
@@ -182,8 +168,18 @@ def stamp_command(args):
         # We have a block hash! We can now generate the attestation from the block.
         make_timestamp_from_block(merkle_tip, block, blockheight)
 
-    else:
-        assert False # Shouldn't happen
+    elif not args.calendar_urls:
+        # Neither calendar nor wallet specified; add default
+        raise NotImplementedError('default calendar not yet implemented')
+
+    for calendar_url in args.calendar_urls:
+        req = urllib.request.Request(calendar_url + '/commitment',data=merkle_tip.msg)
+        with urllib.request.urlopen(req) as resp:
+            assert resp.status == 200
+
+            ctx = StreamDeserializationContext(resp)
+            calendar_timestamp = Timestamp.deserialize(ctx, merkle_tip.msg)
+            merkle_tip.merge(calendar_timestamp)
 
     for (in_file, file_timestamp) in zip(args.files, file_timestamps):
         timestamp_file_path = in_file.name + '.ots'
@@ -245,7 +241,7 @@ def verify_command(args):
         attestation = verify_op.attestation
 
         if attestation.__class__ == PendingAttestation:
-            raise NotImplementedError
+            logging.info("Pending attestation %s" % attestation.uri)
 
         elif attestation.__class__ == BitcoinBlockHeaderAttestation:
             proxy = setup_bitcoin(args)
