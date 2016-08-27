@@ -165,7 +165,9 @@ def stamp_command(args):
         blockheight = r['height']
 
         # We have a block hash! We can now generate the attestation from the block.
-        make_timestamp_from_block(merkle_tip, block, blockheight)
+        block_timestamp = make_timestamp_from_block(merkle_tip.msg, block, blockheight)
+        assert block_timestamp is not None
+        merkle_tip.merge(block_timestamp)
 
     elif not args.calendar_urls:
         # Neither calendar nor wallet specified; add default
