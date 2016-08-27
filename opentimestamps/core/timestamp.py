@@ -98,6 +98,25 @@ class Timestamp:
             else:
                 yield from op.timestamp.verifications()
 
+    def directly_verified(self):
+        """Iterate over the directly verified nodes in the timestamp tree
+
+        Directly verified simply means that the timestamp has one or more
+        VerifyOp as children.
+        """
+        we_are_verified = False
+        for op in self.ops:
+            if isinstance(op, OpVerify):
+                we_are_verified = True
+            else:
+                yield from op.timestamp.directly_verified()
+
+        if we_are_verified:
+            yield self
+        else:
+            yield from ()
+
+
     def str_tree(self, indent=0):
         """Convert to tree (for debugging)"""
 
