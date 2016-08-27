@@ -34,8 +34,11 @@ def __make_btc_block_merkle_tree(blk_txids):
     return digests[0]
 
 
-def make_timestamp_from_block(root_timestamp, block, blockheight):
-    """Make a timestamp from a block"""
+def make_timestamp_from_block(digest, block, blockheight):
+    """Make a timestamp for a digest from a block
+
+    Returns a timestamp for that digest on success, None on failure
+    """
     # Find the transaction containing the root digest
     #
     # FIXME: we actually should find the _smallest_ transaction containing
@@ -43,7 +46,6 @@ def make_timestamp_from_block(root_timestamp, block, blockheight):
     commitment_tx = None
     prefix = None
     suffix = None
-    digest = root_timestamp.msg
     for tx in block.vtx:
         serialized_tx = tx.serialize()
 
@@ -59,10 +61,12 @@ def make_timestamp_from_block(root_timestamp, block, blockheight):
 
         break
     else:
-        raise ValueError("Couldn't find digest in block")
+        return None
+
+    digest_timestamp = Timestamp(digest)
 
     # Add the commitment ops necessary to go from the digest to the txid op
-    prefix_op = root_timestamp.add_op(OpPrepend, prefix)
+    prefix_op = digest_timestamp.add_op(OpPrepend, prefix)
     txid_stamp = cat_sha256d(prefix_op.timestamp, suffix)
 
     assert commitment_tx.GetHash() == txid_stamp.msg
@@ -81,3 +85,5 @@ def make_timestamp_from_block(root_timestamp, block, blockheight):
 
     attestation = BitcoinBlockHeaderAttestation(blockheight)
     merkleroot_stamp.add_op(OpVerify, attestation)
+
+    return digest_timestamp
