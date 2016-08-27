@@ -175,7 +175,7 @@ def stamp_command(args):
 
     elif not args.calendar_urls:
         # Neither calendar nor wallet specified; add default
-        raise NotImplementedError('default calendar not yet implemented')
+        args.calendar_urls.append('https://pool.opentimestamps.org')
 
     for calendar_url in args.calendar_urls:
         remote = RemoteCalendar(calendar_url)
