@@ -33,6 +33,7 @@ from opentimestamps.core.timestamp import *
 from opentimestamps.core.serialize import *
 from opentimestamps.timestamp import *
 from opentimestamps.bitcoin import *
+from opentimestamps.calendar import *
 
 parser = argparse.ArgumentParser(description="OpenTimestamps client.")
 
@@ -69,10 +70,13 @@ parser_stamp.add_argument('files', metavar='FILE', type=argparse.FileType('rb'),
 
 # ----- upgrade -----
 parser_upgrade = subparsers.add_parser('upgrade', aliases=['u'],
-                                        help='Upgrade existing timestamps to better proof')
-parser_upgrade.add_argument('files', metavar='FILE', type=argparse.FileType('r'),
+                                        help='Upgrade remote calendar timestamps to be locally verifiable')
+parser_upgrade.add_argument('-c','--calendar', metavar='URL', dest='calendar_urls', action='append', type=str,
+                            default=[],
+                            help='Override calendars in timestamp')
+parser_upgrade.add_argument('files', metavar='FILE', type=argparse.FileType('rb'),
                             nargs='+',
-                            help='Filename')
+                            help='Existing timestamp(s); moved to FILE.bak')
 
 # ----- verify -----
 parser_verify = subparsers.add_parser('verify', aliases=['v'],
@@ -90,7 +94,7 @@ parser_verify.add_argument('timestamp_fd', metavar='TIMESTAMP', type=argparse.Fi
                            help='Timestamp filename')
 
 # ----- info -----
-parser_info = subparsers.add_parser('info', aliases=['u'],
+parser_info = subparsers.add_parser('info', aliases=['i'],
                                         help='Show information on a timestamp')
 parser_info.add_argument('file', metavar='FILE', type=argparse.FileType('rb'),
                             help='Filename')
@@ -174,13 +178,10 @@ def stamp_command(args):
         raise NotImplementedError('default calendar not yet implemented')
 
     for calendar_url in args.calendar_urls:
-        req = urllib.request.Request(calendar_url + '/commitment',data=merkle_tip.msg)
-        with urllib.request.urlopen(req) as resp:
-            assert resp.status == 200
+        remote = RemoteCalendar(calendar_url)
 
-            ctx = StreamDeserializationContext(resp)
-            calendar_timestamp = Timestamp.deserialize(ctx, merkle_tip.msg)
-            merkle_tip.merge(calendar_timestamp)
+        calendar_timestamp = remote.submit(merkle_tip.msg)
+        merkle_tip.merge(calendar_timestamp)
 
     for (in_file, file_timestamp) in zip(args.files, file_timestamps):
         timestamp_file_path = in_file.name + '.ots'
@@ -192,7 +193,43 @@ parser_stamp.set_defaults(cmd_func=stamp_command)
 
 
 def upgrade_command(args):
-    pass
+    for old_stamp_fd in args.files:
+        logging.debug("Upgrading %s" % old_stamp_fd.name)
+
+        ctx = StreamDeserializationContext(old_stamp_fd)
+        detached_timestamp = DetachedTimestampFile.deserialize(ctx)
+
+        upgraded = False
+        for sub_stamp in detached_timestamp.timestamp_op.timestamp.directly_verified():
+            for op in sub_stamp.ops:
+                if not isinstance(op, OpVerify):
+                    continue
+
+                if op.attestation.__class__ == PendingAttestation:
+                    calendar_urls = args.calendar_urls
+                    if not calendar_urls:
+                        calendar_urls = [op.attestation.uri]
+
+                    commitment = op.msg
+                    for calendar_url in calendar_urls:
+                        logging.debug("Checking calendar %s for %s" % (op.attestation.uri, b2x(commitment)))
+                        calendar = RemoteCalendar(calendar_url)
+
+                        try:
+                            upgraded_stamp = calendar.get_timestamp(commitment)
+                        except KeyError:
+                            logging.info("Calendar %s: No timestamp found" % op.attestation.uri)
+                            continue
+
+                        sub_stamp.merge(upgraded_stamp)
+                        upgraded = True
+                        logging.info("Upgraded timestamp with %r" % upgraded_stamp.ops)
+
+        # Rename to save backup
+        os.rename(old_stamp_fd.name, old_stamp_fd.name + '.bak')
+        with open(old_stamp_fd.name, 'xb') as new_stamp_fd:
+            ctx = StreamSerializationContext(new_stamp_fd)
+            detached_timestamp.serialize(ctx)
 
 parser_upgrade.set_defaults(cmd_func=upgrade_command)
 
