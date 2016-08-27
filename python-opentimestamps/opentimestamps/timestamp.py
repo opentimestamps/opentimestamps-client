@@ -11,6 +11,8 @@
 
 """Convenience functions for dealing with operations"""
 
+import os
+
 from opentimestamps.core.timestamp import Timestamp, Op, OpAppend, OpPrepend, OpSHA256, OpRIPEMD160
 
 def cat_then_unary_op(unary_op_cls, left, right):
@@ -77,3 +79,8 @@ def make_merkle_tree(timestamps, binop=cat_sha256):
             next_stamps.append(prev_stamp)
 
         stamps = next_stamps
+
+def nonce_timestamp(private_timestamp):
+    """Create a nonced version of a timestamp for privacy"""
+    nonce_op = private_timestamp.add_op(OpAppend, os.urandom(16))
+    return nonce_op.timestamp.add_op(OpSHA256).timestamp
