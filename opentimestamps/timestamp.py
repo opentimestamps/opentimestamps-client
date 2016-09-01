@@ -15,6 +15,7 @@ import os
 
 from opentimestamps.core.timestamp import Timestamp, Op, OpAppend, OpPrepend, OpSHA256, OpRIPEMD160
 
+
 def cat_then_unary_op(unary_op_cls, left, right):
     """Concatenate left and right, then perform a unary operation on them
 
@@ -39,12 +40,15 @@ def cat_then_unary_op(unary_op_cls, left, right):
     unary_op = left_append_op.timestamp.add_op(unary_op_cls)
     return unary_op.timestamp
 
+
 def cat_sha256(left, right):
     return cat_then_unary_op(OpSHA256, left, right)
+
 
 def cat_sha256d(left, right):
     sha256_timestamp = cat_sha256(left, right)
     return sha256_timestamp.add_op(OpSHA256).timestamp
+
 
 def make_merkle_tree(timestamps, binop=cat_sha256):
     """Merkelize a set of timestamps
@@ -79,6 +83,7 @@ def make_merkle_tree(timestamps, binop=cat_sha256):
             next_stamps.append(prev_stamp)
 
         stamps = next_stamps
+
 
 def nonce_timestamp(private_timestamp):
     """Create a nonced version of a timestamp for privacy"""
