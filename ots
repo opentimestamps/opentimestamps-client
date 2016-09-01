@@ -42,13 +42,13 @@ parser.add_argument("-q", "--quiet", action="count", default=0,
 parser.add_argument("-v", "--verbose", action="count", default=0,
                     help="Be more verbose. Both -v and -q may be used multiple times.")
 
-btc_net_group  = parser.add_mutually_exclusive_group()
+btc_net_group = parser.add_mutually_exclusive_group()
 btc_net_group.add_argument('--btc-testnet', dest='btc_net', action='store_const',
-                    const='testnet', default='mainnet',
-                    help='Use Bitcoin testnet rather than mainnet')
+                           const='testnet', default='mainnet',
+                           help='Use Bitcoin testnet rather than mainnet')
 btc_net_group.add_argument('--btc-regtest', dest='btc_net', action='store_const',
-                    const='regtest',
-                    help='Use Bitcoin regtest rather than mainnet')
+                           const='regtest',
+                           help='Use Bitcoin regtest rather than mainnet')
 
 subparsers = parser.add_subparsers(title='Subcommands',
                                    description='All operations are done through subcommands:')
@@ -57,11 +57,11 @@ subparsers = parser.add_subparsers(title='Subcommands',
 parser_stamp = subparsers.add_parser('stamp', aliases=['s'],
                                      help='Timestamp files')
 
-parser_stamp.add_argument('-c','--calendar', metavar='URL', dest='calendar_urls', action='append', type=str,
+parser_stamp.add_argument('-c', '--calendar', metavar='URL', dest='calendar_urls', action='append', type=str,
                           default=[],
                           help='Create timestamp with the aid of a remote calendar. May be specified multiple times.')
 
-parser_stamp.add_argument('-w','--btc-wallet', dest='use_btc_wallet', action='store_true',
+parser_stamp.add_argument('-w', '--btc-wallet', dest='use_btc_wallet', action='store_true',
                           help='Create timestamp locally with the local Bitcoin wallet.')
 
 parser_stamp.add_argument('files', metavar='FILE', type=argparse.FileType('rb'),
@@ -71,7 +71,7 @@ parser_stamp.add_argument('files', metavar='FILE', type=argparse.FileType('rb'),
 # ----- upgrade -----
 parser_upgrade = subparsers.add_parser('upgrade', aliases=['u'],
                                         help='Upgrade remote calendar timestamps to be locally verifiable')
-parser_upgrade.add_argument('-c','--calendar', metavar='URL', dest='calendar_urls', action='append', type=str,
+parser_upgrade.add_argument('-c', '--calendar', metavar='URL', dest='calendar_urls', action='append', type=str,
                             default=[],
                             help='Override calendars in timestamp')
 parser_upgrade.add_argument('files', metavar='FILE', type=argparse.FileType('rb'),
@@ -95,9 +95,10 @@ parser_verify.add_argument('timestamp_fd', metavar='TIMESTAMP', type=argparse.Fi
 
 # ----- info -----
 parser_info = subparsers.add_parser('info', aliases=['i'],
-                                        help='Show information on a timestamp')
+                                    help='Show information on a timestamp')
 parser_info.add_argument('file', metavar='FILE', type=argparse.FileType('rb'),
-                            help='Filename')
+                         help='Filename')
+
 
 def setup_bitcoin(args):
     """Setup Bitcoin-related functionality
@@ -105,11 +106,12 @@ def setup_bitcoin(args):
     Sets mainnet/testnet and returns a RPC proxy.
     """
     if args.btc_net == 'testnet':
-       bitcoin.SelectParams('testnet')
+        bitcoin.SelectParams('testnet')
     elif args.btc_net == 'regtest':
-       bitcoin.SelectParams('regtest')
+        bitcoin.SelectParams('regtest')
 
     return bitcoin.rpc.Proxy()
+
 
 def stamp_command(args):
     # Create initial commitment ops for all files
@@ -136,7 +138,7 @@ def stamp_command(args):
         proxy = setup_bitcoin(args)
 
         unfunded_tx = CTransaction([],[CTxOut(0, CScript([OP_RETURN, merkle_tip.msg]))])
-        r = proxy.fundrawtransaction(unfunded_tx) # FIXME: handle errors
+        r = proxy.fundrawtransaction(unfunded_tx)  # FIXME: handle errors
         funded_tx = r['tx']
 
         r = proxy.signrawtransaction(funded_tx)
@@ -270,10 +272,8 @@ def verify_command(args):
             logging.error("File does not match original!")
             sys.exit(1)
 
-
     # File/digest is same as original. Next step is to check that the timestamp
     # attestations are still valid.
-
 
     for verify_op in detached_timestamp.timestamp_op.timestamp.verifications():
         attestation = verify_op.attestation
@@ -301,11 +301,12 @@ def verify_command(args):
                 sys.exit(1)
 
             logging.debug("Attested time: %d", attested_time)
-            logging.info("Success! Bitcoin blockchain attests data existed prior to %s" % \
-                            datetime.datetime.fromtimestamp(attested_time).isoformat(' '))
+            logging.info("Success! Bitcoin blockchain attests data existed prior to %s" %
+                         datetime.datetime.fromtimestamp(attested_time).isoformat(' '))
 
 
 parser_verify.set_defaults(cmd_func=verify_command)
+
 
 def info_command(args):
     ctx = StreamDeserializationContext(args.file)

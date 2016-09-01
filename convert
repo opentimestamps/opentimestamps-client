@@ -53,7 +53,6 @@ for fd in args.file_fds:
     old_path = old_ts[0]
     old_attestation = old_ts[1]
 
-
     target_filename = fd.name[:-4]
     target_fd = open(target_filename, 'rb')
 
