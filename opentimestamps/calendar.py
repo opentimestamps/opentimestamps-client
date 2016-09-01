@@ -11,9 +11,11 @@
 
 import binascii
 import urllib.request
-
+import ssl
+import os
 from opentimestamps.core.timestamp import Timestamp
 from opentimestamps.core.serialize import StreamDeserializationContext
+
 
 class RemoteCalendar:
     """Remote calendar server interface"""
@@ -22,6 +24,9 @@ class RemoteCalendar:
             # FIXME: is this safe? secure?
             url = url.decode('utf8')
         self.url = url
+        self.context = ssl.create_default_context()
+        __location__ = os.path.realpath(os.path.join(os.getcwd(), os.path.dirname(__file__)))
+        self.context.load_verify_locations(os.path.join(__location__, "certs.pem"))
 
     def submit(self, digest):
         """Submit a digest to the calendar
@@ -29,7 +34,7 @@ class RemoteCalendar:
         Returns a Timestamp committing to that digest
         """
         req = urllib.request.Request(self.url + '/digest', data=digest)
-        with urllib.request.urlopen(req) as resp:
+        with urllib.request.urlopen(req, context=self.context) as resp:
             if resp.status != 200:
                 raise Exception("Unknown response from calendar: %d" % resp.status)
 
@@ -42,7 +47,7 @@ class RemoteCalendar:
         Raises KeyError if the calendar doesn't have that commitment
         """
         req = urllib.request.Request(self.url + '/timestamp/' + binascii.hexlify(commitment).decode('utf8'))
-        with urllib.request.urlopen(req) as resp:
+        with urllib.request.urlopen(req, context=self.context) as resp:
             if resp.status == 404:
                 raise KeyError("Commitment not found")
 
