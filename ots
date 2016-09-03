@@ -30,6 +30,7 @@ from binascii import hexlify
 
 from opentimestamps.core.notary import *
 from opentimestamps.core.timestamp import *
+from opentimestamps.core.op import *
 from opentimestamps.core.serialize import *
 from opentimestamps.timestamp import *
 from opentimestamps.bitcoin import *
@@ -117,15 +118,15 @@ def stamp_command(args):
     merkle_roots = []
     for fd in args.files:
         # FIXME: handle file IO errors
-        file_timestamp = DetachedTimestampFile.from_fd(OpSHA256, fd)
+        file_timestamp = DetachedTimestampFile.from_fd(OpSHA256(), fd)
 
         # Add nonce
         #
         # Remember that the files - and their timestamps - might get separated
         # later, so if we didn't use a nonce for every file, the timestamp
         # would leak information on the digests of adjacent files.
-        append_nonce_op = file_timestamp.timestamp_op.timestamp.add_op(OpAppend, os.urandom(16))
-        merkle_root = append_nonce_op.timestamp.add_op(OpSHA256).timestamp
+        nonce_appended_stamp = file_timestamp.timestamp.ops.add(OpAppend(os.urandom(16)))
+        merkle_root = nonce_appended_stamp.ops.add(OpSHA256())
 
         merkle_roots.append(merkle_root)
         file_timestamps.append(file_timestamp)
@@ -199,18 +200,23 @@ def upgrade_command(args):
         ctx = StreamDeserializationContext(old_stamp_fd)
         detached_timestamp = DetachedTimestampFile.deserialize(ctx)
 
-        upgraded = False
-        for sub_stamp in detached_timestamp.timestamp_op.timestamp.directly_verified():
-            for op in sub_stamp.ops:
-                if not isinstance(op, OpVerify):
-                    continue
+        def directly_verified(stamp):
+            if stamp.attestations:
+                yield stamp
+            else:
+                for result_stamp in stamp.ops.values():
+                    yield from directly_verified(result_stamp)
+            yield from ()
 
-                if op.attestation.__class__ == PendingAttestation:
+        upgraded = False
+        for sub_stamp in directly_verified(detached_timestamp.timestamp):
+            for attestation in sub_stamp.attestations:
+                if attestation.__class__ == PendingAttestation:
                     calendar_urls = args.calendar_urls
                     if not calendar_urls:
                         calendar_urls = [op.attestation.uri]
 
-                    commitment = op.msg
+                    commitment = sub_stamp.msg
                     for calendar_url in calendar_urls:
                         logging.debug("Checking calendar %s for %s" % (op.attestation.uri, b2x(commitment)))
                         calendar = RemoteCalendar(calendar_url)
@@ -218,7 +224,7 @@ def upgrade_command(args):
                         try:
                             upgraded_stamp = calendar.get_timestamp(commitment)
                         except KeyError:
-                            logging.info("Calendar %s: No timestamp found" % op.attestation.uri)
+                            logging.info("Calendar %s: No timestamp found" % attestation.uri)
                             continue
 
                         sub_stamp.merge(upgraded_stamp)
@@ -261,11 +267,11 @@ def verify_command(args):
 
             args.target_fd = open(target_filename, 'rb')
 
-        logging.debug("Hashing file, algorithm %s" % detached_timestamp.file_hash_op_class.TAG_NAME)
-        actual_digest_op = detached_timestamp.file_hash_op_class.from_fd(args.target_fd)
-        logging.debug("Got digest %s" % b2x(actual_digest_op.result))
+        logging.debug("Hashing file, algorithm %s" % detached_timestamp.file_hash_op.TAG_NAME)
+        actual_file_digest = detached_timestamp.file_hash_op.hash_fd(args.target_fd)
+        logging.debug("Got digest %s" % b2x(actual_file_digest))
 
-        if actual_digest_op.result != detached_timestamp.file_digest:
+        if actual_file_digest != detached_timestamp.file_digest:
             logging.debug("Expected digest %s" % b2x(detached_timestamp.file_digest))
             logging.error("File does not match original!")
             sys.exit(1)
@@ -275,9 +281,7 @@ def verify_command(args):
     # attestations are still valid.
 
 
-    for verify_op in detached_timestamp.timestamp_op.timestamp.verifications():
-        attestation = verify_op.attestation
-
+    for msg, attestation in detached_timestamp.timestamp.all_attestations():
         if attestation.__class__ == PendingAttestation:
             logging.info("Pending attestation %s" % attestation.uri)
 
@@ -295,7 +299,7 @@ def verify_command(args):
             logging.debug("Attestation block hash: %s" % b2lx(blockhash))
 
             try:
-                attested_time = attestation.verify_against_blockheader(verify_op.msg, block_header)
+                attested_time = attestation.verify_against_blockheader(msg, block_header)
             except VerificationError as err:
                 logging.error("Bitcoin verification failed: %s" % str(err))
                 sys.exit(1)
@@ -311,10 +315,10 @@ def info_command(args):
     ctx = StreamDeserializationContext(args.file)
     detached_timestamp = DetachedTimestampFile.deserialize(ctx)
 
-    print("File %s hash: %s" % (detached_timestamp.timestamp_op.HASHLIB_NAME, hexlify(detached_timestamp.file_digest).decode('utf8')))
+    print("File %s hash: %s" % (detached_timestamp.file_hash_op.HASHLIB_NAME, hexlify(detached_timestamp.file_digest).decode('utf8')))
 
     print("Timestamp:")
-    print(detached_timestamp.timestamp_op.timestamp.str_tree())
+    print(detached_timestamp.timestamp.str_tree())
 
 parser_info.set_defaults(cmd_func=info_command)
 
