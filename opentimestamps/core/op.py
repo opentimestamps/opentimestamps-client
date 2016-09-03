@@ -77,6 +77,9 @@ class Op(tuple):
         """Perform the operation on a message"""
         raise NotImplementedError
 
+    def __repr__(self):
+        return '%s()' % self.__class__.__name__
+
     def __str__(self):
         return '%s' % self.TAG_NAME
 
@@ -126,6 +129,12 @@ class BinaryOp(Op):
     def __new__(cls, arg):
         return tuple.__new__(cls, (arg,))
 
+    def __repr__(self):
+        return '%s(%r)' % (self.__class__.__name__, self[0])
+
+    def __str__(self):
+        return '%s %s' % (self.TAG_NAME, binascii.hexlify(self[0]).decode('utf8'))
+
     def serialize(self, ctx):
         super().serialize(ctx)
         ctx.write_varbytes(self[0])
@@ -133,7 +142,7 @@ class BinaryOp(Op):
     @classmethod
     def deserialize_from_tag(cls, ctx, tag):
         if tag in cls.SUBCLS_BY_TAG:
-            arg = ctx.read_varbytes()
+            arg = ctx.read_varbytes(2**16)
             return cls.SUBCLS_BY_TAG[tag](arg)
         else:
             raise opentimestamps.core.serialize.DeserializationError("Unknown binary op tag 0x%0x" % tag[0])

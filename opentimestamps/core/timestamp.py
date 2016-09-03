@@ -165,15 +165,17 @@ class Timestamp:
         """Convert to tree (for debugging)"""
 
         r = ""
+        if len(self.attestations) > 0:
+            for attestation in self.attestations:
+                r += " "*indent + "verify %s" % str(attestation) + "\n"
+
         if len(self.ops) > 1:
-            for op in self.ops:
+            for op, timestamp in self.ops.items():
                 r += " "*indent + " -> " + "%s"%str(op) + "\n"
-                if isinstance(op, UnaryOp):
-                    r += op.timestamp.str_tree(indent+4)
-        else:
-            r += " "*indent + "%s\n" % str(self.ops[0])
-            if isinstance(self.ops[0], UnaryOp):
-                r += self.ops[0].timestamp.str_tree(indent)
+                r += timestamp.str_tree(indent+4)
+        elif len(self.ops) > 0:
+            r += " "*indent + "%s\n" % str(tuple(self.ops.keys())[0])
+            r += tuple(self.ops.values())[0].str_tree(indent)
 
         return r
 
