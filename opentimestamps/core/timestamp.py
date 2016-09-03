@@ -90,13 +90,16 @@ class Timestamp:
 
         return self
 
-    def verifications(self):
-        """Iterate over the verifications on this timestamp"""
+    def attestations(self):
+        """Iterate over the attestations in this timestamp
+
+        Returns iterable of (msg, attestation)
+        """
         for op in self.ops:
             if isinstance(op, OpVerify):
-                yield op
+                yield (self.msg, op.attestation)
             else:
-                yield from op.timestamp.verifications()
+                yield from op.timestamp.attestations()
 
     def directly_verified(self):
         """Iterate over the directly verified nodes in the timestamp tree
@@ -187,22 +190,16 @@ class OpVerify(Op):
 
     Verifications never have children.
     """
-    __slots__ = ['__msg','attestation']
+    __slots__ = ['attestation']
 
     TAG = b'\x00'
     TAG_NAME = 'verify'
 
-    @property
-    def msg(self):
-        return self.__msg
-
     def __init__(self, msg, attestation):
-        self.__msg = msg
         self.attestation = attestation
 
     def __eq__(self, other):
         return (self.__class__ == other.__class__
-                and self.__msg == other.__msg
                 and self.attestation == other.attestation)
 
     def __str__(self):
