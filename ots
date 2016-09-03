@@ -218,7 +218,7 @@ def upgrade_command(args):
 
                     commitment = sub_stamp.msg
                     for calendar_url in calendar_urls:
-                        logging.debug("Checking calendar %s for %s" % (op.attestation.uri, b2x(commitment)))
+                        logging.debug("Checking calendar %s for %s" % (attestation.uri, b2x(commitment)))
                         calendar = RemoteCalendar(calendar_url)
 
                         try:
