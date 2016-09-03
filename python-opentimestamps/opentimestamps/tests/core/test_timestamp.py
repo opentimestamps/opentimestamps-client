@@ -14,77 +14,55 @@ import unittest
 from opentimestamps.core.notary import *
 from opentimestamps.core.serialize import *
 from opentimestamps.core.timestamp import *
-
-class Test_Op(unittest.TestCase):
-    def test_append(self):
-        op = OpAppend(b'msg', b'suffix')
-        self.assertEqual(op.timestamp.msg, b'msgsuffix')
-
-    def test_prepend(self):
-        op = OpPrepend(b'msg', b'prefix')
-        self.assertEqual(op.timestamp.msg, b'prefixmsg')
-
-    def test_reverse(self):
-        op = OpReverse(b'abcd')
-        self.assertEqual(op.timestamp.msg, b'dcba')
-
-    def test_sha256(self):
-        op = OpSHA256(b'')
-        self.assertEqual(op.timestamp.msg, bytes.fromhex('e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'))
-
-    def test_ripemd160(self):
-        op = OpRIPEMD160(b'')
-        self.assertEqual(op.timestamp.msg, bytes.fromhex('9c1185a5c5e9fc54612808977ee8f548b2258d31'))
-
-    def test_changing_timestamps(self):
-        op1 = OpRIPEMD160(b'')
-        op2 = OpRIPEMD160(b'')
-
-        self.assertIsNot(op1.timestamp, op2.timestamp)
-
-        op1.timestamp = op2.timestamp
-        self.assertIs(op1.timestamp, op2.timestamp)
-
-        with self.assertRaises(ValueError):
-            op1.timestamp = Timestamp(b'')
-
-    def test_equality(self):
-        self.assertEqual(OpRIPEMD160(b''), OpRIPEMD160(b''))
-        self.assertEqual(OpReverse(b''), OpReverse(b''))
-
-        self.assertNotEqual(OpRIPEMD160(b''), OpSHA256(b''))
-
-        # Not equal even if results are same
-        self.assertNotEqual(OpAppend(b'', b''), OpPrepend(b'', b''))
-
-        # Not equal if timestamps differ
-        op1 = OpSHA256(b'')
-        op2 = OpSHA256(b'')
-        op2.timestamp.add_op(OpSHA256)
-        self.assertNotEqual(op1, op2)
-
-        # Equal if timestamps same
-        op1.timestamp.add_op(OpSHA256)
-        self.assertEqual(op1, op2)
-
-    def test_result(self):
-        op = OpSHA256(b'')
-        self.assertEqual(op.result, op.timestamp.msg)
-
+from opentimestamps.core.op import *
 
 class Test_Timestamp(unittest.TestCase):
+    def test_add_op(self):
+        """Adding operations to timestamps"""
+        t = Timestamp(b'abcd')
+        t.ops.add(OpReverse())
+        self.assertEqual(t.ops[OpReverse()], Timestamp(b'dcba'))
+
+        # The second add should succeed
+        t.ops.add(OpReverse())
+        self.assertEqual(t.ops[OpReverse()], Timestamp(b'dcba'))
+
+    def test_set_result_timestamp(self):
+        """Setting an op result timestamp"""
+        t1 = Timestamp(b'foo')
+        t2 = t1.ops.add(OpAppend(b'bar'))
+        t3 = t2.ops.add(OpAppend(b'baz'))
+
+        self.assertEqual(t1.ops[OpAppend(b'bar')].ops[OpAppend(b'baz')].msg, b'foobarbaz')
+
+        t1.ops[OpAppend(b'bar')] = Timestamp(b'foobar')
+
+        self.assertTrue(OpAppend(b'baz') not in t1.ops[OpAppend(b'bar')].ops)
+
+    def test_set_fail_if_wrong_message(self):
+        """Setting an op result timestamp fails if the messages don't match"""
+        t = Timestamp(b'abcd')
+        t.ops.add(OpReverse())
+
+        with self.assertRaises(ValueError):
+            t.ops[OpReverse()] = Timestamp(b'wrong')
+
     def test_merge(self):
+        """Merging timestamps"""
         with self.assertRaises(ValueError):
             Timestamp(b'a').merge(Timestamp(b'b'))
 
         t1 = Timestamp(b'a')
         t2 = Timestamp(b'a')
-        t2.add_op(OpVerify, PendingAttestation(b'foobar'))
+        t2.attestations.add(PendingAttestation(b'foobar'))
 
         t1.merge(t2)
-        self.assertEqual(t1.ops, t2.ops)
+        self.assertEqual(t1, t2)
+
+        # FIXME: more tests
 
     def test_serialization(self):
+        """Timestamp serialization/deserialization"""
         def T(expected_instance, expected_serialized):
             ctx = BytesSerializationContext()
             expected_instance.serialize(ctx)
@@ -97,43 +75,43 @@ class Test_Timestamp(unittest.TestCase):
 
 
         stamp = Timestamp(b'foo')
-        stamp.add_op(OpVerify, PendingAttestation(b'foobar'))
+        stamp.attestations.add(PendingAttestation(b'foobar'))
 
         T(stamp, b'\x00' + bytes.fromhex('83dfe30d2ef90c8e' + '07' + '06') + b'foobar')
 
-        stamp.add_op(OpVerify, PendingAttestation(b'foobar'))
-        T(stamp, b'\xff' + (b'\x00' + bytes.fromhex('83dfe30d2ef90c8e' + '07' + '06') + b'foobar') + \
+        stamp.attestations.add(PendingAttestation(b'barfoo'))
+        T(stamp, b'\xff' + (b'\x00' + bytes.fromhex('83dfe30d2ef90c8e' + '07' + '06') + b'barfoo') + \
                  (b'\x00' + bytes.fromhex('83dfe30d2ef90c8e' + '07' + '06') + b'foobar'))
 
 
-        stamp.add_op(OpVerify, PendingAttestation(b'foobar'))
-        T(stamp, b'\xff' + (b'\x00' + bytes.fromhex('83dfe30d2ef90c8e' + '07' + '06') + b'foobar') + \
+        stamp.attestations.add(PendingAttestation(b'foobaz'))
+        T(stamp, b'\xff' + (b'\x00' + bytes.fromhex('83dfe30d2ef90c8e' + '07' + '06') + b'barfoo') + \
                  b'\xff' + (b'\x00' + bytes.fromhex('83dfe30d2ef90c8e' + '07' + '06') + b'foobar') + \
-                 (b'\x00' + bytes.fromhex('83dfe30d2ef90c8e' + '07' + '06') + b'foobar'))
+                 (b'\x00' + bytes.fromhex('83dfe30d2ef90c8e' + '07' + '06') + b'foobaz'))
 
-        sha256_op = stamp.add_op(OpSHA256)
+        sha256_stamp = stamp.ops.add(OpSHA256())
 
-        # Shoudl fail - empty timestamps can't be serialized
+        # Should fail - empty timestamps can't be serialized
         with self.assertRaises(ValueError):
             ctx = BytesSerializationContext()
             stamp.serialize(ctx)
 
-        sha256_op.timestamp.add_op(OpVerify, PendingAttestation(b'deeper'))
-        T(stamp, b'\xff' + (b'\x00' + bytes.fromhex('83dfe30d2ef90c8e' + '07' + '06') + b'foobar') + \
+        sha256_stamp.attestations.add(PendingAttestation(b'deeper'))
+        T(stamp, b'\xff' + (b'\x00' + bytes.fromhex('83dfe30d2ef90c8e' + '07' + '06') + b'barfoo') + \
                  b'\xff' + (b'\x00' + bytes.fromhex('83dfe30d2ef90c8e' + '07' + '06') + b'foobar') + \
-                 b'\xff' + (b'\x00' + bytes.fromhex('83dfe30d2ef90c8e' + '07' + '06') + b'foobar') + \
+                 b'\xff' + (b'\x00' + bytes.fromhex('83dfe30d2ef90c8e' + '07' + '06') + b'foobaz') + \
                  b'\x08' + (b'\x00' + bytes.fromhex('83dfe30d2ef90c8e' + '07' + '06') + b'deeper'))
 
 class Test_DetachedTimestampFile(unittest.TestCase):
     def test_create_from_file(self):
-        file_stamp = DetachedTimestampFile.from_fd(OpSHA256, io.BytesIO(b''))
+        file_stamp = DetachedTimestampFile.from_fd(OpSHA256(), io.BytesIO(b''))
         self.assertEqual(file_stamp.file_digest, bytes.fromhex('e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'))
 
     def test_hash_fd(self):
-        file_stamp = DetachedTimestampFile.from_fd(OpSHA256, io.BytesIO(b''))
+        file_stamp = DetachedTimestampFile.from_fd(OpSHA256(), io.BytesIO(b''))
 
-        op2 = file_stamp.hash_fd(io.BytesIO(b''))
-        self.assertEqual(file_stamp.timestamp_op, op2)
+        result = file_stamp.file_hash_op.hash_fd(io.BytesIO(b''))
+        self.assertEqual(result, bytes.fromhex('e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'))
 
     def test_serialization(self):
         def T(expected_instance, expected_serialized):
@@ -146,8 +124,8 @@ class Test_DetachedTimestampFile(unittest.TestCase):
             actual_instance = DetachedTimestampFile.deserialize(BytesDeserializationContext(expected_serialized))
             self.assertEqual(expected_instance, actual_instance)
 
-        file_stamp = DetachedTimestampFile.from_fd(OpSHA256, io.BytesIO(b''))
-        file_stamp.timestamp_op.timestamp.add_op(OpVerify, PendingAttestation(b'foobar'))
+        file_stamp = DetachedTimestampFile.from_fd(OpSHA256(), io.BytesIO(b''))
+        file_stamp.timestamp.attestations.add(PendingAttestation(b'foobar'))
 
         T(file_stamp, (b'\x00OpenTimestamps\x00\x00Proof\x00\xbf\x89\xe2\xe8\x84\xe8\x92\x94\x00' +
                        b'\x20' + bytes.fromhex('e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855') +

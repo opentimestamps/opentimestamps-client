@@ -13,7 +13,8 @@
 
 import os
 
-from opentimestamps.core.timestamp import Timestamp, Op, OpAppend, OpPrepend, OpSHA256, OpRIPEMD160
+from opentimestamps.core.op import Op, OpAppend, OpPrepend, OpSHA256, OpRIPEMD160
+from opentimestamps.core.timestamp import Timestamp
 
 def cat_then_unary_op(unary_op_cls, left, right):
     """Concatenate left and right, then perform a unary operation on them
@@ -29,22 +30,21 @@ def cat_then_unary_op(unary_op_cls, left, right):
     if not isinstance(right, Timestamp):
         right = Timestamp(right)
 
-    left_append_op = left.add_op(OpAppend, right.msg)
-    right_prepend_op = right.add_op(OpPrepend, left.msg)
+    left_append_stamp = left.ops.add(OpAppend(right.msg))
+    right_prepend_stamp = right.ops.add(OpPrepend(left.msg))
 
     # Left and right should produce the same thing, so we can set the timestamp
     # of the left to the right.
-    left_append_op.timestamp = right_prepend_op.timestamp
+    left.ops[OpAppend(right.msg)] = right_prepend_stamp
 
-    unary_op = left_append_op.timestamp.add_op(unary_op_cls)
-    return unary_op.timestamp
+    return right_prepend_stamp.ops.add(unary_op_cls())
 
 def cat_sha256(left, right):
     return cat_then_unary_op(OpSHA256, left, right)
 
 def cat_sha256d(left, right):
     sha256_timestamp = cat_sha256(left, right)
-    return sha256_timestamp.add_op(OpSHA256).timestamp
+    return sha256_timestamp.ops.add(OpSHA256())
 
 def make_merkle_tree(timestamps, binop=cat_sha256):
     """Merkelize a set of timestamps
@@ -82,5 +82,5 @@ def make_merkle_tree(timestamps, binop=cat_sha256):
 
 def nonce_timestamp(private_timestamp):
     """Create a nonced version of a timestamp for privacy"""
-    nonce_op = private_timestamp.add_op(OpAppend, os.urandom(16))
-    return nonce_op.timestamp.add_op(OpSHA256).timestamp
+    stamp2 = private_timestamp.ops.add(OpAppend(os.urandom(16)))
+    return stamp2.ops.add(OpSHA256())
