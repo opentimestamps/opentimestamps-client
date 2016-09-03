@@ -11,7 +11,7 @@
 
 from bitcoin.core import b2lx
 
-from opentimestamps.core.timestamp import Timestamp,OpAppend, OpPrepend, OpVerify
+from opentimestamps.core.timestamp import Timestamp, OpAppend, OpPrepend
 from opentimestamps.timestamp import cat_sha256d
 from opentimestamps.core.notary import BitcoinBlockHeaderAttestation
 
@@ -84,6 +84,6 @@ def make_timestamp_from_block(digest, block, blockheight):
     merkleroot_stamp = __make_btc_block_merkle_tree(block_txid_stamps)
 
     attestation = BitcoinBlockHeaderAttestation(blockheight)
-    merkleroot_stamp.add_op(OpVerify, attestation)
+    merkleroot_stamp.attestations.add(attestation)
 
     return digest_timestamp

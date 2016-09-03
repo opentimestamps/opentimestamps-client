@@ -23,7 +23,7 @@ class Timestamp:
     edges being operations acting on those messages. The leafs of the tree are
     attestations that attest to the time that messages in the tree existed prior.
     """
-    __slots__ = ['__msg', 'ops']
+    __slots__ = ['__msg', 'attestations', 'ops']
 
     @property
     def msg(self):
@@ -31,6 +31,7 @@ class Timestamp:
 
     def __init__(self, msg):
         self.__msg = bytes(msg)
+        self.attestations = set()
         self.ops = []
 
     def __eq__(self, other):
@@ -58,16 +59,29 @@ class Timestamp:
         self.ops.extend(other.ops)
 
     def serialize(self, ctx):
-        if len(self.ops) == 0:
+        if not len(self.attestations) and not len(self.ops):
             raise ValueError("An empty timestamp can't be serialized")
 
-        elif len(self.ops) > 1:
+        sorted_attestations = sorted(self.attestations)
+        if len(sorted_attestations) > 1:
+            for attestation in sorted_attestations[0:-1]:
+                ctx.write_bytes(b'\xff\x00')
+                attestation.serialize(ctx)
+
+        if len(self.ops) == 0:
+            ctx.write_bytes(b'\x00')
+            sorted_attestations[-1].serialize(ctx)
+
+        elif len(self.ops) > 0:
+            if len(sorted_attestations) > 0:
+                ctx.write_bytes(b'\xff\x00')
+                sorted_attestations[-1].serialize(ctx)
+
             for op in self.ops[0:-1]:
                 ctx.write_bytes(b'\xff')
                 op.serialize(ctx)
 
-        # Again, a zero-op timestamp is prohibited by the serialization format!
-        self.ops[-1].serialize(ctx)
+            self.ops[-1].serialize(ctx)
 
     @classmethod
     def deserialize(cls, ctx, initial_msg):
@@ -79,27 +93,36 @@ class Timestamp:
         """
         self = cls(initial_msg)
 
+        def do_tag_or_attestation(tag):
+            if tag == b'\x00':
+                attestation = TimeAttestation.deserialize(ctx)
+                self.attestations.add(attestation)
+
+            else:
+                op = Op.deserialize_from_tag(ctx, initial_msg, tag)
+                self.ops.append(op)
+
+
         tag = ctx.read_bytes(1)
         while tag == b'\xff':
-            op = Op.deserialize(ctx, initial_msg)
-            self.ops.append(op)
+            do_tag_or_attestation(ctx.read_bytes(1))
+
             tag = ctx.read_bytes(1)
 
-        op = Op.deserialize_from_tag(ctx, initial_msg, tag)
-        self.ops.append(op)
+        do_tag_or_attestation(tag)
 
         return self
 
-    def attestations(self):
-        """Iterate over the attestations in this timestamp
+    def all_attestations(self):
+        """Iterate over all attestations recursively
 
         Returns iterable of (msg, attestation)
         """
+        for attestation in self.attestations:
+            yield (self.msg, attestation)
+
         for op in self.ops:
-            if isinstance(op, OpVerify):
-                yield (self.msg, op.attestation)
-            else:
-                yield from op.timestamp.attestations()
+            yield from op.timestamp.all_attestations()
 
     def directly_verified(self):
         """Iterate over the directly verified nodes in the timestamp tree
@@ -183,35 +206,6 @@ class Op:
     def deserialize(cls, ctx, initial_msg):
         tag = ctx.read_bytes(1)
         return cls.deserialize_from_tag(ctx, initial_msg, tag)
-
-@Op._register_op
-class OpVerify(Op):
-    """Verify attestation
-
-    Verifications never have children.
-    """
-    __slots__ = ['attestation']
-
-    TAG = b'\x00'
-    TAG_NAME = 'verify'
-
-    def __init__(self, msg, attestation):
-        self.attestation = attestation
-
-    def __eq__(self, other):
-        return (self.__class__ == other.__class__
-                and self.attestation == other.attestation)
-
-    def __str__(self):
-        return '%s %s' % (self.TAG_NAME, self.attestation)
-
-    def _serialize_op_payload(self, ctx):
-        self.attestation.serialize(ctx)
-
-    @classmethod
-    def _deserialize_op_payload(cls, ctx, initial_msg):
-        attestation = TimeAttestation.deserialize(ctx)
-        return cls(initial_msg, attestation)
 
 class TransformOp(Op):
     """Prove that a transformation of a message is timestamped"""

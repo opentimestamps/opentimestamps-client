@@ -25,7 +25,7 @@ class Test_make_timestamp_from_block(unittest.TestCase):
         digest = x('0496b538e853519c726a2c91e61ec11600ae1390813a627c66fb8be7947be63c52da7589379515d4e0a604f8141781e62294721166bf621e73a82cbf2342c858ee')
         root_stamp = make_timestamp_from_block(digest, block, 0)
 
-        (msg, attestation) = tuple(root_stamp.attestations())[0]
+        (msg, attestation) = tuple(root_stamp.all_attestations())[0]
         self.assertEqual(msg, lx('0e3e2357e806b6cdb1f70b54c3a3a17b6714ee1f0e68bebb44a74b1efd512098')) # merkleroot
         self.assertEqual(attestation.height, 0)
 
@@ -37,7 +37,7 @@ class Test_make_timestamp_from_block(unittest.TestCase):
         digest = lx('c3f0bb699bcc8a4e0716de45aef74c40aabeb80f7f00b3bdb45e115ee6f5400f')
         root_stamp = make_timestamp_from_block(digest, block, 586)
 
-        (msg, attestation) = tuple(root_stamp.attestations())[0]
+        (msg, attestation) = tuple(root_stamp.all_attestations())[0]
         self.assertEqual(msg, lx('197b3d968ce463aa5da7d8eeba8af35eba80ded4e4fe6808e6cc0dd1c069594d')) # merkleroot
         self.assertEqual(attestation.height, 586)
 
