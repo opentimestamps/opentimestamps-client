@@ -11,7 +11,8 @@
 
 from bitcoin.core import b2lx
 
-from opentimestamps.core.timestamp import Timestamp, OpAppend, OpPrepend
+from opentimestamps.core.timestamp import Timestamp
+from opentimestamps.core.op import OpAppend, OpPrepend
 from opentimestamps.timestamp import cat_sha256d
 from opentimestamps.core.notary import BitcoinBlockHeaderAttestation
 
@@ -66,8 +67,8 @@ def make_timestamp_from_block(digest, block, blockheight):
     digest_timestamp = Timestamp(digest)
 
     # Add the commitment ops necessary to go from the digest to the txid op
-    prefix_op = digest_timestamp.add_op(OpPrepend, prefix)
-    txid_stamp = cat_sha256d(prefix_op.timestamp, suffix)
+    prefix_stamp = digest_timestamp.ops.add(OpPrepend(prefix))
+    txid_stamp = cat_sha256d(prefix_stamp, suffix)
 
     assert commitment_tx.GetHash() == txid_stamp.msg
 
