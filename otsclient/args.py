@@ -35,14 +35,14 @@ def make_common_options_arg_parser():
 
     btc_net_group  = parser.add_mutually_exclusive_group()
     btc_net_group.add_argument('--btc-testnet', dest='btc_net', action='store_const',
-                        const='testnet', default='mainnet',
-                        help='Use Bitcoin testnet rather than mainnet')
+                               const='testnet', default='mainnet',
+                               help='Use Bitcoin testnet rather than mainnet')
     btc_net_group.add_argument('--btc-regtest', dest='btc_net', action='store_const',
-                        const='regtest',
-                        help='Use Bitcoin regtest rather than mainnet')
+                               const='regtest',
+                               help='Use Bitcoin regtest rather than mainnet')
     btc_net_group.add_argument('--no-bitcoin', dest='use_bitcoin', action='store_false',
-                        default=True,
-                        help='Disable Bitcoin entirely')
+                               default=True,
+                               help='Disable Bitcoin entirely')
 
     return parser
 
@@ -84,11 +84,11 @@ def parse_ots_args(raw_args):
     parser_stamp = subparsers.add_parser('stamp', aliases=['s'],
                                          help='Timestamp files')
 
-    parser_stamp.add_argument('-c','--calendar', metavar='URL', dest='calendar_urls', action='append', type=str,
+    parser_stamp.add_argument('-c', '--calendar', metavar='URL', dest='calendar_urls', action='append', type=str,
                               default=[],
                               help='Create timestamp with the aid of a remote calendar. May be specified multiple times.')
 
-    parser_stamp.add_argument('-w','--btc-wallet', dest='use_btc_wallet', action='store_true',
+    parser_stamp.add_argument('-w', '--btc-wallet', dest='use_btc_wallet', action='store_true',
                               help='Create timestamp locally with the local Bitcoin wallet.')
 
     parser_stamp.add_argument('files', metavar='FILE', type=argparse.FileType('rb'),
@@ -97,8 +97,8 @@ def parse_ots_args(raw_args):
 
     # ----- upgrade -----
     parser_upgrade = subparsers.add_parser('upgrade', aliases=['u'],
-                                            help='Upgrade remote calendar timestamps to be locally verifiable')
-    parser_upgrade.add_argument('-c','--calendar', metavar='URL', dest='calendar_urls', action='append', type=str,
+                                           help='Upgrade remote calendar timestamps to be locally verifiable')
+    parser_upgrade.add_argument('-c', '--calendar', metavar='URL', dest='calendar_urls', action='append', type=str,
                                 default=[],
                                 help='Override calendars in timestamp')
     parser_upgrade.add_argument('files', metavar='FILE', type=argparse.FileType('rb'),
@@ -122,9 +122,9 @@ def parse_ots_args(raw_args):
 
     # ----- info -----
     parser_info = subparsers.add_parser('info', aliases=['i'],
-                                            help='Show information on a timestamp')
+                                        help='Show information on a timestamp')
     parser_info.add_argument('file', metavar='FILE', type=argparse.FileType('rb'),
-                                help='Filename')
+                             help='Filename')
 
 
     parser_stamp.set_defaults(cmd_func=otsclient.cmds.stamp_command)
