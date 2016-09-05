@@ -127,6 +127,8 @@ class BinaryOp(Op):
     SUBCLS_BY_TAG = {}
 
     def __new__(cls, arg):
+        if not isinstance(arg, bytes):
+            raise TypeError("arg must be bytes")
         return tuple.__new__(cls, (arg,))
 
     def __repr__(self):

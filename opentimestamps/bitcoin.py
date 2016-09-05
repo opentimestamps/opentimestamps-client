@@ -35,20 +35,23 @@ def __make_btc_block_merkle_tree(blk_txids):
     return digests[0]
 
 
-def make_timestamp_from_block(digest, block, blockheight):
+def make_timestamp_from_block(digest, block, blockheight, *, max_tx_size=1000):
     """Make a timestamp for a digest from a block
 
     Returns a timestamp for that digest on success, None on failure
     """
-    # Find the transaction containing the root digest
-    #
-    # FIXME: we actually should find the _smallest_ transaction containing
-    # digest to ward off trolls...
+    # Find the smallest transaction containing the root digest
+
+    # FIXME: note how strategy changes once we add SHA256 midstate support
+    len_smallest_tx_found = max_tx_size + 1
     commitment_tx = None
     prefix = None
     suffix = None
     for tx in block.vtx:
         serialized_tx = tx.serialize()
+
+        if len(serialized_tx) > len_smallest_tx_found:
+            continue
 
         try:
             i = serialized_tx.index(digest)
@@ -60,8 +63,9 @@ def make_timestamp_from_block(digest, block, blockheight):
         prefix = serialized_tx[0:i]
         suffix = serialized_tx[i + len(digest):]
 
-        break
-    else:
+        len_smallest_tx_found = len(serialized_tx)
+
+    if len_smallest_tx_found > max_tx_size:
         return None
 
     digest_timestamp = Timestamp(digest)
