@@ -1,0 +1,188 @@
+#!/usr/bin/env python3
+# Copyright (C) 2016 The OpenTimestamps developers
+#
+# This file is part of the OpenTimestamps Client.
+#
+# It is subject to the license terms in the LICENSE file found in the top-level
+# directory of this distribution.
+#
+# No part of the OpenTimestamps Client, including this file, may be copied,
+# modified, propagated, or distributed except according to the terms contained
+# in the LICENSE file.
+
+import argparse
+import base64
+import bitcoin
+import logging
+import subprocess
+import sys
+
+from opentimestamps.core.timestamp import Timestamp
+from opentimestamps.core.op import OpAppend, OpSHA256
+from opentimestamps.core.serialize import BytesSerializationContext, BytesDeserializationContext
+
+import otsclient.args
+
+parser = argparse.ArgumentParser(description="OpenTimestamps Git GPG wrapper")
+
+parser.add_argument("-q", "--quiet", action="count", default=0,
+                    help="Be more quiet.")
+parser.add_argument("-v", "--verbose", action="count", default=0,
+                    help="Be more verbose. Both -v and -q may be used multiple times.")
+
+parser.add_argument("-g", "--gpg-program", action="store", default="/usr/bin/gpg",
+                    help="Path to the GnuPG binary (default %(default)s)")
+
+btc_net_group  = parser.add_mutually_exclusive_group()
+btc_net_group.add_argument('--btc-testnet', dest='btc_net', action='store_const',
+                    const='testnet', default='mainnet',
+                    help='Use Bitcoin testnet rather than mainnet')
+btc_net_group.add_argument('--btc-regtest', dest='btc_net', action='store_const',
+                    const='regtest',
+                    help='Use Bitcoin regtest rather than mainnet')
+
+parser.add_argument('-c','--calendar', metavar='URL', dest='calendar_urls', action='append', type=str,
+                    default=["https://pool.opentimestamps.org"],
+                    help='Create timestamp with the aid of a remote calendar. May be specified multiple times. Default: %(default)r')
+parser.add_argument('-w','--btc-wallet', dest='use_btc_wallet', action='store_true',
+                    help='Create timestamp locally with the local Bitcoin wallet.')
+
+
+parser.add_argument("gpgargs", nargs=argparse.REMAINDER,
+                    help='Arguments passed to GnuPG binary')
+
+args = parser.parse_args()
+
+args.verbosity = args.verbose - args.quiet
+if args.verbosity == 0:
+    logging.root.setLevel(logging.INFO)
+elif args.verbosity > 0:
+    logging.root.setLevel(logging.DEBUG)
+elif args.verbosity == -1:
+    logging.root.setLevel(logging.WARNING)
+elif args.verbosity < -1:
+    logging.root.setLevel(logging.ERROR)
+
+if len(args.gpgargs) == 0 or args.gpgargs[0] != '--':
+    parser.error("You need to have '--' as the last argument; see docs")
+
+def setup_bitcoin():
+    """Setup Bitcoin-related functionality
+
+    Sets mainnet/testnet and returns a RPC proxy.
+    """
+    if args.btc_net == 'testnet':
+       bitcoin.SelectParams('testnet')
+    elif args.btc_net == 'regtest':
+       bitcoin.SelectParams('regtest')
+
+    return bitcoin.rpc.Proxy()
+args.setup_bitcoin = setup_bitcoin
+
+args.gpgargs = args.gpgargs[1:]
+
+ASCII_ARMOR_HEADER = b'-----BEGIN OPENTIMESTAMPS GIT TIMESTAMP-----\n\n'
+ASCII_ARMOR_FOOTER = b'-----END OPENTIMESTAMPS GIT TIMESTAMP-----\n'
+
+def hash_signed_commit(git_commit, gpg_sig):
+    return OpSHA256()(OpSHA256()(git_commit) + OpSHA256()(gpg_sig))
+
+def write_ascii_armored(timestamp, fd):
+    ctx = BytesSerializationContext()
+    timestamp.serialize(ctx)
+    serialized_timestamp = ctx.getbytes()
+
+    fd.write(ASCII_ARMOR_HEADER)
+
+    header = b'\x01\x00' # major.minor
+    b64_encoded = base64.standard_b64encode(header + serialized_timestamp)
+    for chunk in (b64_encoded[i:i+64] for i in range(0, len(b64_encoded), 64)):
+        fd.write(chunk)
+        fd.write(b'\n')
+
+    fd.write(ASCII_ARMOR_FOOTER)
+
+def deserialize_ascii_armored_timestamp(git_commit, gpg_sig):
+    stamp_start = gpg_sig.find(ASCII_ARMOR_HEADER)
+    if stamp_start == -1:
+        return None
+
+    stamp_end = gpg_sig.find(b'\n' + ASCII_ARMOR_FOOTER)
+    if stamp_end == -1:
+        return None
+
+    base64_encoded_stamp = gpg_sig[stamp_start + len(ASCII_ARMOR_HEADER):stamp_end]
+
+    initial_msg = hash_signed_commit(git_commit, gpg_sig[0:stamp_start])
+    try:
+        serialized_stamp = base64.standard_b64decode(base64_encoded_stamp)
+
+        major_version = serialized_stamp[0]
+        minor_version = serialized_stamp[1]
+
+        if major_version != 1:
+            logging.error("Can't verify timestamp; major version %d not known" % major_version)
+
+        logging.debug("Git timestamp is version %d.%d" % (major_version, minor_version))
+
+        ctx = BytesDeserializationContext(serialized_stamp[2:])
+        timestamp = Timestamp.deserialize(ctx, initial_msg)
+    except Exception as err:
+        logging.error("Bad timestamp: %r" % err)
+        return None
+
+    return timestamp
+
+if '-bsau' in args.gpgargs:
+    with subprocess.Popen([args.gpg_program] + args.gpgargs, stdin=subprocess.PIPE, stdout=subprocess.PIPE) as gpg_proc:
+        logging.debug("Reading Git commit")
+        git_commit = sys.stdin.buffer.read()
+
+        logging.debug("Git commit: %r" % git_commit)
+
+        # FIXME: can this fail to write all bytes?
+        n = gpg_proc.stdin.write(git_commit)
+        logging.debug("Wrote %d bytes to GnuPG out of %d" % (n, len(git_commit)))
+        gpg_proc.stdin.close()
+
+        gpg_sig = gpg_proc.stdout.read()
+
+        logging.debug("PGP sig: %r" % gpg_sig)
+
+
+        # Timestamp the commit and tag together
+        signed_commit_timestamp = Timestamp(hash_signed_commit(git_commit, gpg_sig))
+
+        otsclient.cmds.create_timestamp(signed_commit_timestamp, args.calendar_urls, args.setup_bitcoin if args.use_btc_wallet else False)
+
+
+        sys.stdout.buffer.write(gpg_sig)
+        write_ascii_armored(signed_commit_timestamp, sys.stdout.buffer)
+
+elif '--verify' in args.gpgargs and len(args.gpgargs) == 4:
+    # Verify
+    with open(args.gpgargs[2], 'rb') as gpg_sig_fd:
+        gpg_sig = gpg_sig_fd.read()
+        git_commit = sys.stdin.buffer.read()
+
+        timestamp = deserialize_ascii_armored_timestamp(git_commit, gpg_sig)
+        if timestamp is None:
+            print("OpenTimestamps: No timestamp found", file=sys.stderr)
+        else:
+            good = otsclient.cmds.verify_timestamp(timestamp, args)
+
+            if good:
+                print("OpenTimestamps: Good timestamp", file=sys.stderr)
+            else:
+                print("OpenTimestamps: BAD timestamp", file=sys.stderr)
+        sys.stderr.flush()
+
+        logging.debug("Running GnuPG binary: %r" % ([args.gpg_program] + args.gpgargs))
+        with subprocess.Popen([args.gpg_program] + args.gpgargs, stdin=subprocess.PIPE) as gpg_proc:
+            gpg_proc.stdin.write(git_commit)
+            gpg_proc.stdin.close()
+
+else:
+    parser.error("Unexpected GnuPG command line arguments! Don't know what to do with '%s'" % ' '.join(args.gpgargs))
+
+# vim:syntax=python filetype=python
