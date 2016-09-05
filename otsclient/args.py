@@ -16,7 +16,7 @@ import os
 import otsclient.cache
 import otsclient.cmds
 
-def parse_args(raw_args):
+def make_common_options_arg_parser():
     parser = argparse.ArgumentParser(description="OpenTimestamps client.")
 
     parser.add_argument("-q", "--quiet", action="count", default=0,
@@ -43,6 +43,39 @@ def parse_args(raw_args):
     btc_net_group.add_argument('--no-bitcoin', dest='use_bitcoin', action='store_false',
                         default=True,
                         help='Disable Bitcoin entirely')
+
+    return parser
+
+def handle_common_options(args, parser):
+    args.parser = parser
+    args.verbosity = args.verbose - args.quiet
+
+    if args.cache_path is not None:
+        args.cache_path = os.path.normpath(os.path.expanduser(args.cache_path))
+    args.cache = otsclient.cache.TimestampCache(args.cache_path)
+
+    def setup_bitcoin():
+        """Setup Bitcoin-related functionality
+
+        Sets mainnet/testnet and returns a RPC proxy.
+        """
+        if args.btc_net == 'testnet':
+           bitcoin.SelectParams('testnet')
+        elif args.btc_net == 'regtest':
+           bitcoin.SelectParams('regtest')
+        elif args.btc_net == 'mainnet':
+           bitcoin.SelectParams('mainnet')
+        else:
+            assert False
+
+        return bitcoin.rpc.Proxy()
+
+    args.setup_bitcoin = setup_bitcoin
+
+    return args
+
+def parse_ots_args(raw_args):
+    parser = make_common_options_arg_parser()
 
     subparsers = parser.add_subparsers(title='Subcommands',
                                        description='All operations are done through subcommands:')
@@ -100,27 +133,6 @@ def parse_args(raw_args):
     parser_info.set_defaults(cmd_func=otsclient.cmds.info_command)
 
     args = parser.parse_args(raw_args)
-    args.parser = parser
-    args.verbosity = args.verbose - args.quiet
-
-    args.cache = otsclient.cache.TimestampCache(os.path.normpath(os.path.expanduser(args.cache_path)))
-
-    def setup_bitcoin():
-        """Setup Bitcoin-related functionality
-
-        Sets mainnet/testnet and returns a RPC proxy.
-        """
-        if args.btc_net == 'testnet':
-           bitcoin.SelectParams('testnet')
-        elif args.btc_net == 'regtest':
-           bitcoin.SelectParams('regtest')
-        elif args.btc_net == 'mainnet':
-           bitcoin.SelectParams('mainnet')
-        else:
-            assert False
-
-        return bitcoin.rpc.Proxy()
-
-    args.setup_bitcoin = setup_bitcoin
+    args = handle_common_options(args, parser)
 
     return args
