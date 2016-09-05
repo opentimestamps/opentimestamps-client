@@ -50,11 +50,6 @@ class TimeAttestation:
     def deserialize(cls, ctx):
         tag = ctx.read_bytes(8)
 
-        if tag == PendingAttestation.OLDTAG:
-            return PendingAttestation.deserialize(ctx)
-        elif tag == BitcoinBlockHeaderAttestation.OLDTAG:
-            return BitcoinBlockHeaderAttestation.deserialize(ctx)
-
         serialized_attestation = ctx.read_varbytes(8192) # FIXME: what should max length be?
 
         payload_ctx = opentimestamps.core.serialize.BytesDeserializationContext(serialized_attestation)
@@ -77,7 +72,6 @@ class PendingAttestation(TimeAttestation):
     use to try to find out more information.
     """
 
-    OLDTAG = bytes.fromhex('83dfe30d2ef90c8d')
     TAG = bytes.fromhex('83dfe30d2ef90c8e')
 
     # FIXME: what characters are allowed in uri's?
@@ -122,7 +116,6 @@ class BitcoinBlockHeaderAttestation(TimeAttestation):
     to fill in pruned details).
     """
 
-    OLDTAG = bytes.fromhex('0588960d73d71900')
     TAG = bytes.fromhex('0588960d73d71901')
 
     def __init__(self, height):
