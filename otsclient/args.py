@@ -11,11 +11,12 @@
 
 import argparse
 import bitcoin
+import os
 
+import otsclient.cache
 import otsclient.cmds
 
-
-def parse_args(raw_args):
+def make_common_options_arg_parser():
     parser = argparse.ArgumentParser(description="OpenTimestamps client.")
 
     parser.add_argument("-q", "--quiet", action="count", default=0,
@@ -23,7 +24,16 @@ def parse_args(raw_args):
     parser.add_argument("-v", "--verbose", action="count", default=0,
                         help="Be more verbose. Both -v and -q may be used multiple times.")
 
-    btc_net_group = parser.add_mutually_exclusive_group()
+    cache_group  = parser.add_mutually_exclusive_group()
+    cache_group.add_argument("--cache", action="store", type=str,
+                             dest='cache_path',
+                             default='~/.ots/cache',
+                             help="Location of the timestamp cache. Default: %(default)s")
+    cache_group.add_argument("--no-cache", action="store_const", const=None,
+                             dest='cache_path',
+                             help="Disable the timestamp cache")
+
+    btc_net_group  = parser.add_mutually_exclusive_group()
     btc_net_group.add_argument('--btc-testnet', dest='btc_net', action='store_const',
                                const='testnet', default='mainnet',
                                help='Use Bitcoin testnet rather than mainnet')
@@ -33,6 +43,39 @@ def parse_args(raw_args):
     btc_net_group.add_argument('--no-bitcoin', dest='use_bitcoin', action='store_false',
                                default=True,
                                help='Disable Bitcoin entirely')
+
+    return parser
+
+def handle_common_options(args, parser):
+    args.parser = parser
+    args.verbosity = args.verbose - args.quiet
+
+    if args.cache_path is not None:
+        args.cache_path = os.path.normpath(os.path.expanduser(args.cache_path))
+    args.cache = otsclient.cache.TimestampCache(args.cache_path)
+
+    def setup_bitcoin():
+        """Setup Bitcoin-related functionality
+
+        Sets mainnet/testnet and returns a RPC proxy.
+        """
+        if args.btc_net == 'testnet':
+           bitcoin.SelectParams('testnet')
+        elif args.btc_net == 'regtest':
+           bitcoin.SelectParams('regtest')
+        elif args.btc_net == 'mainnet':
+           bitcoin.SelectParams('mainnet')
+        else:
+            assert False
+
+        return bitcoin.rpc.Proxy()
+
+    args.setup_bitcoin = setup_bitcoin
+
+    return args
+
+def parse_ots_args(raw_args):
+    parser = make_common_options_arg_parser()
 
     subparsers = parser.add_subparsers(title='Subcommands',
                                        description='All operations are done through subcommands:')
@@ -83,31 +126,13 @@ def parse_args(raw_args):
     parser_info.add_argument('file', metavar='FILE', type=argparse.FileType('rb'),
                              help='Filename')
 
+
     parser_stamp.set_defaults(cmd_func=otsclient.cmds.stamp_command)
     parser_upgrade.set_defaults(cmd_func=otsclient.cmds.upgrade_command)
     parser_verify.set_defaults(cmd_func=otsclient.cmds.verify_command)
     parser_info.set_defaults(cmd_func=otsclient.cmds.info_command)
 
     args = parser.parse_args(raw_args)
-    args.parser = parser
-    args.verbosity = args.verbose - args.quiet
-
-    def setup_bitcoin():
-        """Setup Bitcoin-related functionality
-
-        Sets mainnet/testnet and returns a RPC proxy.
-        """
-        if args.btc_net == 'testnet':
-            bitcoin.SelectParams('testnet')
-        elif args.btc_net == 'regtest':
-            bitcoin.SelectParams('regtest')
-        elif args.btc_net == 'mainnet':
-            bitcoin.SelectParams('mainnet')
-        else:
-            assert False
-
-        return bitcoin.rpc.Proxy()
-
-    args.setup_bitcoin = setup_bitcoin
+    args = handle_common_options(args, parser)
 
     return args

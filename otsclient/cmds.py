@@ -145,22 +145,36 @@ def upgrade_timestamp(timestamp, args):
                     calendar_urls = [attestation.uri]
 
                 commitment = sub_stamp.msg
-                for calendar_url in calendar_urls:
-                    logging.debug("Checking calendar %s for %s" % (attestation.uri, b2x(commitment)))
-                    calendar = RemoteCalendar(calendar_url)
+                if sub_stamp.msg in args.cache:
+                    logging.debug("Found %s in cache" % b2x(commitment))
 
-                    try:
-                        upgraded_stamp = calendar.get_timestamp(commitment)
-                    except KeyError:
-                        logging.info("Calendar %s: No timestamp found" % attestation.uri)
-                        continue
-                    except Exception as exp:
-                        logging.info("Calendar %s: %r" % (attestation.uri, exp))
-                        continue
+                    upgraded_stamp = args.cache[sub_stamp.msg]
 
                     sub_stamp.merge(upgraded_stamp)
                     upgraded = True
-                    logging.info("Upgraded timestamp with %r" % upgraded_stamp.ops)
+                    logging.info("Upgraded timestamp from cache with %r" % upgraded_stamp.ops)
+
+                else:
+                    for calendar_url in calendar_urls:
+                        logging.debug("Checking calendar %s for %s" % (attestation.uri, b2x(commitment)))
+                        calendar = RemoteCalendar(calendar_url)
+
+                        try:
+                            upgraded_stamp = calendar.get_timestamp(commitment)
+                        except KeyError:
+                            logging.info("Calendar %s: No timestamp found" % attestation.uri)
+                            continue
+                        except Exception as exp:
+                            logging.info("Calendar %s: %r" % (attestation.uri, exp))
+                            continue
+
+                        # FIXME: should check what the timestamp has been upgraded to first
+                        args.cache.merge(upgraded_stamp)
+
+                        sub_stamp.merge(upgraded_stamp)
+                        upgraded = True
+                        logging.info("Upgraded timestamp with %r" % upgraded_stamp.ops)
+
     return upgraded
 
 
