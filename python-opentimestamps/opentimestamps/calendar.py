@@ -42,13 +42,16 @@ class RemoteCalendar:
         Raises KeyError if the calendar doesn't have that commitment
         """
         req = urllib.request.Request(self.url + '/timestamp/' + binascii.hexlify(commitment).decode('utf8'))
-        with urllib.request.urlopen(req) as resp:
-            if resp.status == 404:
+        try:
+            with urllib.request.urlopen(req) as resp:
+                if resp.status == 200:
+                    ctx = StreamDeserializationContext(resp)
+                    return Timestamp.deserialize(ctx, commitment)
+
+                else:
+                    raise Exception("Unknown response from calendar: %d" % resp.status)
+        except urllib.error.HTTPError as exp:
+            if exp.code == 404:
                 raise KeyError("Commitment not found")
-
-            elif resp.status == 200:
-                ctx = StreamDeserializationContext(resp)
-                return Timestamp.deserialize(ctx, commitment)
-
             else:
-                raise Exception("Unknown response from calendar: %d" % resp.status)
+                raise exp
