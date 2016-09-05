@@ -40,6 +40,9 @@ btc_net_group.add_argument('--btc-testnet', dest='btc_net', action='store_const'
 btc_net_group.add_argument('--btc-regtest', dest='btc_net', action='store_const',
                     const='regtest',
                     help='Use Bitcoin regtest rather than mainnet')
+btc_net_group.add_argument('--no-bitcoin', dest='use_bitcoin', action='store_false',
+                    default=True,
+                    help='Disable Bitcoin entirely')
 
 parser.add_argument('-c','--calendar', metavar='URL', dest='calendar_urls', action='append', type=str,
                     default=["https://pool.opentimestamps.org"],

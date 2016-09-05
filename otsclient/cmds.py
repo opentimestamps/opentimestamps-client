@@ -186,6 +186,10 @@ def verify_timestamp(timestamp, args):
             logging.info("Pending attestation %s" % attestation.uri)
 
         elif attestation.__class__ == BitcoinBlockHeaderAttestation:
+            if not args.use_bitcoin:
+                logging.info("Not checking Bitcoin attestation; disabled")
+                continue
+
             proxy = args.setup_bitcoin()
 
             try:

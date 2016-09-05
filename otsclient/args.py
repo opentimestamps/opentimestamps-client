@@ -30,6 +30,9 @@ def parse_args(raw_args):
     btc_net_group.add_argument('--btc-regtest', dest='btc_net', action='store_const',
                         const='regtest',
                         help='Use Bitcoin regtest rather than mainnet')
+    btc_net_group.add_argument('--no-bitcoin', dest='use_bitcoin', action='store_false',
+                        default=True,
+                        help='Disable Bitcoin entirely')
 
     subparsers = parser.add_subparsers(title='Subcommands',
                                        description='All operations are done through subcommands:')
@@ -99,6 +102,10 @@ def parse_args(raw_args):
            bitcoin.SelectParams('testnet')
         elif args.btc_net == 'regtest':
            bitcoin.SelectParams('regtest')
+        elif args.btc_net == 'mainnet':
+           bitcoin.SelectParams('mainnet')
+        else:
+            assert False
 
         return bitcoin.rpc.Proxy()
 
