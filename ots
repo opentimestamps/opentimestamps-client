@@ -214,7 +214,7 @@ def upgrade_command(args):
                 if attestation.__class__ == PendingAttestation:
                     calendar_urls = args.calendar_urls
                     if not calendar_urls:
-                        calendar_urls = [op.attestation.uri]
+                        calendar_urls = [attestation.uri]
 
                     commitment = sub_stamp.msg
                     for calendar_url in calendar_urls:
