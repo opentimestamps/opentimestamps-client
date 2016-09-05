@@ -23,16 +23,16 @@ def parse_args(raw_args):
     parser.add_argument("-v", "--verbose", action="count", default=0,
                         help="Be more verbose. Both -v and -q may be used multiple times.")
 
-    btc_net_group  = parser.add_mutually_exclusive_group()
+    btc_net_group = parser.add_mutually_exclusive_group()
     btc_net_group.add_argument('--btc-testnet', dest='btc_net', action='store_const',
-                        const='testnet', default='mainnet',
-                        help='Use Bitcoin testnet rather than mainnet')
+                               const='testnet', default='mainnet',
+                               help='Use Bitcoin testnet rather than mainnet')
     btc_net_group.add_argument('--btc-regtest', dest='btc_net', action='store_const',
-                        const='regtest',
-                        help='Use Bitcoin regtest rather than mainnet')
+                               const='regtest',
+                               help='Use Bitcoin regtest rather than mainnet')
     btc_net_group.add_argument('--no-bitcoin', dest='use_bitcoin', action='store_false',
-                        default=True,
-                        help='Disable Bitcoin entirely')
+                               default=True,
+                               help='Disable Bitcoin entirely')
 
     subparsers = parser.add_subparsers(title='Subcommands',
                                        description='All operations are done through subcommands:')
@@ -41,11 +41,11 @@ def parse_args(raw_args):
     parser_stamp = subparsers.add_parser('stamp', aliases=['s'],
                                          help='Timestamp files')
 
-    parser_stamp.add_argument('-c','--calendar', metavar='URL', dest='calendar_urls', action='append', type=str,
+    parser_stamp.add_argument('-c', '--calendar', metavar='URL', dest='calendar_urls', action='append', type=str,
                               default=[],
                               help='Create timestamp with the aid of a remote calendar. May be specified multiple times.')
 
-    parser_stamp.add_argument('-w','--btc-wallet', dest='use_btc_wallet', action='store_true',
+    parser_stamp.add_argument('-w', '--btc-wallet', dest='use_btc_wallet', action='store_true',
                               help='Create timestamp locally with the local Bitcoin wallet.')
 
     parser_stamp.add_argument('files', metavar='FILE', type=argparse.FileType('rb'),
@@ -54,8 +54,8 @@ def parse_args(raw_args):
 
     # ----- upgrade -----
     parser_upgrade = subparsers.add_parser('upgrade', aliases=['u'],
-                                            help='Upgrade remote calendar timestamps to be locally verifiable')
-    parser_upgrade.add_argument('-c','--calendar', metavar='URL', dest='calendar_urls', action='append', type=str,
+                                           help='Upgrade remote calendar timestamps to be locally verifiable')
+    parser_upgrade.add_argument('-c', '--calendar', metavar='URL', dest='calendar_urls', action='append', type=str,
                                 default=[],
                                 help='Override calendars in timestamp')
     parser_upgrade.add_argument('files', metavar='FILE', type=argparse.FileType('rb'),
@@ -79,10 +79,9 @@ def parse_args(raw_args):
 
     # ----- info -----
     parser_info = subparsers.add_parser('info', aliases=['i'],
-                                            help='Show information on a timestamp')
+                                        help='Show information on a timestamp')
     parser_info.add_argument('file', metavar='FILE', type=argparse.FileType('rb'),
-                                help='Filename')
-
+                             help='Filename')
 
     parser_stamp.set_defaults(cmd_func=otsclient.cmds.stamp_command)
     parser_upgrade.set_defaults(cmd_func=otsclient.cmds.upgrade_command)
@@ -99,11 +98,11 @@ def parse_args(raw_args):
         Sets mainnet/testnet and returns a RPC proxy.
         """
         if args.btc_net == 'testnet':
-           bitcoin.SelectParams('testnet')
+            bitcoin.SelectParams('testnet')
         elif args.btc_net == 'regtest':
-           bitcoin.SelectParams('regtest')
+            bitcoin.SelectParams('regtest')
         elif args.btc_net == 'mainnet':
-           bitcoin.SelectParams('mainnet')
+            bitcoin.SelectParams('mainnet')
         else:
             assert False
 

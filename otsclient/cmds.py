@@ -35,6 +35,7 @@ from opentimestamps.timestamp import *
 from opentimestamps.bitcoin import *
 from opentimestamps.calendar import *
 
+
 def create_timestamp(timestamp, calendar_urls, setup_bitcoin=False):
     """Create a timestamp
 
@@ -46,8 +47,8 @@ def create_timestamp(timestamp, calendar_urls, setup_bitcoin=False):
     if setup_bitcoin:
         proxy = setup_bitcoin()
 
-        unfunded_tx = CTransaction([],[CTxOut(0, CScript([OP_RETURN, timestamp.msg]))])
-        r = proxy.fundrawtransaction(unfunded_tx) # FIXME: handle errors
+        unfunded_tx = CTransaction([], [CTxOut(0, CScript([OP_RETURN, timestamp.msg]))])
+        r = proxy.fundrawtransaction(unfunded_tx)  # FIXME: handle errors
         funded_tx = r['tx']
 
         r = proxy.signrawtransaction(funded_tx)
@@ -91,6 +92,7 @@ def create_timestamp(timestamp, calendar_urls, setup_bitcoin=False):
         calendar_timestamp = remote.submit(timestamp.msg)
         timestamp.merge(calendar_timestamp)
 
+
 def stamp_command(args):
     # Create initial commitment ops for all files
     file_timestamps = []
@@ -123,6 +125,7 @@ def stamp_command(args):
         with open(timestamp_file_path, 'xb') as timestamp_fd:
             ctx = StreamSerializationContext(timestamp_fd)
             file_timestamp.serialize(ctx)
+
 
 def upgrade_timestamp(timestamp, args):
     def directly_verified(stamp):
@@ -160,6 +163,7 @@ def upgrade_timestamp(timestamp, args):
                     logging.info("Upgraded timestamp with %r" % upgraded_stamp.ops)
     return upgraded
 
+
 def upgrade_command(args):
     for old_stamp_fd in args.files:
         logging.debug("Upgrading %s" % old_stamp_fd.name)
@@ -175,6 +179,7 @@ def upgrade_command(args):
             with open(old_stamp_fd.name, 'xb') as new_stamp_fd:
                 ctx = StreamSerializationContext(new_stamp_fd)
                 detached_timestamp.serialize(ctx)
+
 
 def verify_timestamp(timestamp, args):
     args.calendar_urls = []
@@ -212,11 +217,12 @@ def verify_timestamp(timestamp, args):
                 continue
 
             logging.debug("Attested time: %d", attested_time)
-            logging.info("Success! Bitcoin blockchain attests data existed prior to %s" % \
-                            datetime.datetime.fromtimestamp(attested_time).isoformat(' '))
+            logging.info("Success! Bitcoin blockchain attests data existed prior to %s" %
+                         datetime.datetime.fromtimestamp(attested_time).isoformat(' '))
             good = True
 
     return good
+
 
 def verify_command(args):
     ctx = StreamDeserializationContext(args.timestamp_fd)
@@ -254,9 +260,9 @@ def verify_command(args):
             logging.error("File does not match original!")
             sys.exit(1)
 
-
     if not verify_timestamp(detached_timestamp.timestamp, args):
         sys.exit(1)
+
 
 def info_command(args):
     ctx = StreamDeserializationContext(args.file)
