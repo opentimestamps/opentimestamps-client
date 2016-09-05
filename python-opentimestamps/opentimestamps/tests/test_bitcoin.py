@@ -44,3 +44,7 @@ class Test_make_timestamp_from_block(unittest.TestCase):
         # Check behavior when the digest is not found
         root_stamp = make_timestamp_from_block(b'not in the block', block, 586)
         self.assertEqual(root_stamp, None)
+
+        # Check that size limit is respected
+        root_stamp = make_timestamp_from_block(digest, block, 586, max_tx_size=1)
+        self.assertEqual(root_stamp, None)
