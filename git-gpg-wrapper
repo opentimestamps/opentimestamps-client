@@ -147,6 +147,10 @@ if '-bsau' in args.gpgargs:
 
         gpg_sig = gpg_proc.stdout.read()
 
+        # GnuPG produces no output on failure
+        if not gpg_sig:
+            sys.exit(1)
+
         logging.debug("PGP sig: %r" % gpg_sig)
 
 
