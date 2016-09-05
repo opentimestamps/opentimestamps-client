@@ -174,6 +174,8 @@ class OpReverse(UnaryOp):
     TAG_NAME = 'reverse'
 
     def __call__(self, msg):
+        import warnings
+        warnings.warn("OpReverse may get removed; see https://github.com/opentimestamps/python-opentimestamps/issues/5", PendingDeprecationWarning)
         return msg[::-1]
 
 
