@@ -11,9 +11,10 @@
 
 import argparse
 import bitcoin
+import os
 
+import otsclient.cache
 import otsclient.cmds
-
 
 def parse_args(raw_args):
     parser = argparse.ArgumentParser(description="OpenTimestamps client.")
@@ -22,6 +23,15 @@ def parse_args(raw_args):
                         help="Be more quiet.")
     parser.add_argument("-v", "--verbose", action="count", default=0,
                         help="Be more verbose. Both -v and -q may be used multiple times.")
+
+    cache_group  = parser.add_mutually_exclusive_group()
+    cache_group.add_argument("--cache", action="store", type=str,
+                             dest='cache_path',
+                             default='~/.ots/cache',
+                             help="Location of the timestamp cache. Default: %(default)s")
+    cache_group.add_argument("--no-cache", action="store_const", const=None,
+                             dest='cache_path',
+                             help="Disable the timestamp cache")
 
     btc_net_group  = parser.add_mutually_exclusive_group()
     btc_net_group.add_argument('--btc-testnet', dest='btc_net', action='store_const',
@@ -92,6 +102,8 @@ def parse_args(raw_args):
     args = parser.parse_args(raw_args)
     args.parser = parser
     args.verbosity = args.verbose - args.quiet
+
+    args.cache = otsclient.cache.TimestampCache(os.path.normpath(os.path.expanduser(args.cache_path)))
 
     def setup_bitcoin():
         """Setup Bitcoin-related functionality
