@@ -174,7 +174,7 @@ elif '--verify' in args.gpgargs and len(args.gpgargs) == 4:
             if good:
                 print("OpenTimestamps: Good timestamp", file=sys.stderr)
             else:
-                print("OpenTimestamps: BAD timestamp", file=sys.stderr)
+                print("OpenTimestamps: Could not verify timestamp", file=sys.stderr)
         sys.stderr.flush()
 
         logging.debug("Running GnuPG binary: %r" % ([args.gpg_program] + args.gpgargs))

@@ -151,6 +151,9 @@ def upgrade_timestamp(timestamp, args):
                     except KeyError:
                         logging.info("Calendar %s: No timestamp found" % attestation.uri)
                         continue
+                    except Exception as exp:
+                        logging.info("Calendar %s: %r" % (attestation.uri, exp))
+                        continue
 
                     sub_stamp.merge(upgraded_stamp)
                     upgraded = True
@@ -177,6 +180,7 @@ def verify_timestamp(timestamp, args):
     args.calendar_urls = []
     upgrade_timestamp(timestamp, args)
 
+    good = False
     for msg, attestation in timestamp.all_attestations():
         if attestation.__class__ == PendingAttestation:
             logging.info("Pending attestation %s" % attestation.uri)
@@ -188,7 +192,10 @@ def verify_timestamp(timestamp, args):
                 blockhash = proxy.getblockhash(attestation.height)
             except IndexError:
                 logging.error("Can't find Bitcoin block! Height %d" % attestation.height)
-                return False
+                continue
+            except ConnectionError as exp:
+                logging.error("Could not connect to local Bitcoin node: %s" % exp)
+                continue
 
             block_header = proxy.getblockheader(blockhash)
 
@@ -198,12 +205,14 @@ def verify_timestamp(timestamp, args):
                 attested_time = attestation.verify_against_blockheader(msg, block_header)
             except VerificationError as err:
                 logging.error("Bitcoin verification failed: %s" % str(err))
-                return False
+                continue
 
             logging.debug("Attested time: %d", attested_time)
             logging.info("Success! Bitcoin blockchain attests data existed prior to %s" % \
                             datetime.datetime.fromtimestamp(attested_time).isoformat(' '))
-    return True
+            good = True
+
+    return good
 
 def verify_command(args):
     ctx = StreamDeserializationContext(args.timestamp_fd)
