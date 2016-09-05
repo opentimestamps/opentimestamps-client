@@ -30,15 +30,25 @@ class TimeAttestation:
 
         ctx.write_varbytes(payload_ctx.getbytes())
 
+    def __eq__(self, other):
+        if isinstance(other, TimeAttestation):
+            assert self.__class__ is not other.__class__ # should be implemented by subclass
+            return False
+
+        else:
+            return NotImplemented
+
+    def __lt__(self, other):
+        if isinstance(other, TimeAttestation):
+            assert self.__class__ is not other.__class__ # should be implemented by subclass
+            return self.TAG < other.TAG
+
+        else:
+            return NotImplemented
 
     @classmethod
     def deserialize(cls, ctx):
         tag = ctx.read_bytes(8)
-
-        if tag == PendingAttestation.OLDTAG:
-            return PendingAttestation.deserialize(ctx)
-        elif tag == BitcoinBlockHeaderAttestation.OLDTAG:
-            return BitcoinBlockHeaderAttestation.deserialize(ctx)
 
         serialized_attestation = ctx.read_varbytes(8192) # FIXME: what should max length be?
 
@@ -62,7 +72,6 @@ class PendingAttestation(TimeAttestation):
     use to try to find out more information.
     """
 
-    OLDTAG = bytes.fromhex('83dfe30d2ef90c8d')
     TAG = bytes.fromhex('83dfe30d2ef90c8e')
 
     # FIXME: what characters are allowed in uri's?
@@ -73,8 +82,20 @@ class PendingAttestation(TimeAttestation):
         return 'PendingAttestation(%r)' % self.uri
 
     def __eq__(self, other):
-        return (self.__class__ == other.__class__
-                and self.uri == other.uri)
+        if other.__class__ is PendingAttestation:
+            return self.uri == other.uri
+        else:
+            super().__eq__(other)
+
+    def __lt__(self, other):
+        if other.__class__ is PendingAttestation:
+            return self.uri < other.uri
+
+        else:
+            super().__eq__(other)
+
+    def __hash__(self):
+        return hash(self.uri)
 
     def _serialize_payload(self, ctx):
         ctx.write_varbytes(self.uri)
@@ -95,15 +116,26 @@ class BitcoinBlockHeaderAttestation(TimeAttestation):
     to fill in pruned details).
     """
 
-    OLDTAG = bytes.fromhex('0588960d73d71900')
     TAG = bytes.fromhex('0588960d73d71901')
 
     def __init__(self, height):
         self.height = height
 
     def __eq__(self, other):
-        return (self.__class__ == other.__class__
-                and self.height == other.height)
+        if other.__class__ is BitcoinBlockHeaderAttestation:
+            return self.height == other.height
+        else:
+            super().__eq__(other)
+
+    def __lt__(self, other):
+        if other.__class__ is BitcoinBlockHeaderAttestation:
+            return self.height < other.height
+
+        else:
+            super().__eq__(other)
+
+    def __hash__(self):
+        return hash(self.height)
 
     def verify_against_blockheader(self, digest, block_header):
         """Verify attestation against a block header

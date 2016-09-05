@@ -11,7 +11,8 @@
 
 from bitcoin.core import b2lx
 
-from opentimestamps.core.timestamp import Timestamp,OpAppend, OpPrepend, OpVerify
+from opentimestamps.core.timestamp import Timestamp
+from opentimestamps.core.op import OpAppend, OpPrepend
 from opentimestamps.timestamp import cat_sha256d
 from opentimestamps.core.notary import BitcoinBlockHeaderAttestation
 
@@ -34,20 +35,23 @@ def __make_btc_block_merkle_tree(blk_txids):
     return digests[0]
 
 
-def make_timestamp_from_block(digest, block, blockheight):
+def make_timestamp_from_block(digest, block, blockheight, *, max_tx_size=1000):
     """Make a timestamp for a digest from a block
 
     Returns a timestamp for that digest on success, None on failure
     """
-    # Find the transaction containing the root digest
-    #
-    # FIXME: we actually should find the _smallest_ transaction containing
-    # digest to ward off trolls...
+    # Find the smallest transaction containing the root digest
+
+    # FIXME: note how strategy changes once we add SHA256 midstate support
+    len_smallest_tx_found = max_tx_size + 1
     commitment_tx = None
     prefix = None
     suffix = None
     for tx in block.vtx:
         serialized_tx = tx.serialize()
+
+        if len(serialized_tx) > len_smallest_tx_found:
+            continue
 
         try:
             i = serialized_tx.index(digest)
@@ -59,15 +63,16 @@ def make_timestamp_from_block(digest, block, blockheight):
         prefix = serialized_tx[0:i]
         suffix = serialized_tx[i + len(digest):]
 
-        break
-    else:
+        len_smallest_tx_found = len(serialized_tx)
+
+    if len_smallest_tx_found > max_tx_size:
         return None
 
     digest_timestamp = Timestamp(digest)
 
     # Add the commitment ops necessary to go from the digest to the txid op
-    prefix_op = digest_timestamp.add_op(OpPrepend, prefix)
-    txid_stamp = cat_sha256d(prefix_op.timestamp, suffix)
+    prefix_stamp = digest_timestamp.ops.add(OpPrepend(prefix))
+    txid_stamp = cat_sha256d(prefix_stamp, suffix)
 
     assert commitment_tx.GetHash() == txid_stamp.msg
 
@@ -84,6 +89,6 @@ def make_timestamp_from_block(digest, block, blockheight):
     merkleroot_stamp = __make_btc_block_merkle_tree(block_txid_stamps)
 
     attestation = BitcoinBlockHeaderAttestation(blockheight)
-    merkleroot_stamp.add_op(OpVerify, attestation)
+    merkleroot_stamp.attestations.add(attestation)
 
     return digest_timestamp

@@ -9,12 +9,43 @@
 # modified, propagated, or distributed except according to the terms contained
 # in the LICENSE file.
 
-import hashlib
 import binascii
+import hashlib
 
+from opentimestamps.core.op import Op, UnaryOp, CryptOp
 from opentimestamps.core.notary import TimeAttestation
 
 import opentimestamps.core.serialize
+
+class OpSet(dict):
+    """Set of operations"""
+    __slots__ = ['__make_timestamp']
+    def __init__(self, make_timestamp_func):
+        self.__make_timestamp = make_timestamp_func
+
+    def add(self, key):
+        """Add key
+
+        Returns the value associated with that key
+        """
+        try:
+            return self[key]
+        except KeyError:
+            value = self.__make_timestamp(key)
+            self[key] = value
+            return value
+
+    def __setitem__(self, op, new_timestamp):
+        try:
+            existing_timestamp = self[op]
+        except KeyError:
+            dict.__setitem__(self, op, new_timestamp)
+            return
+
+        if existing_timestamp.msg != new_timestamp.msg:
+            raise ValueError("Can't change existing result timestamp: timestamps are for different messages")
+
+        dict.__setitem__(self, op, new_timestamp)
 
 class Timestamp:
     """Proof that one or more attestations commit to a message
@@ -23,7 +54,7 @@ class Timestamp:
     edges being operations acting on those messages. The leafs of the tree are
     attestations that attest to the time that messages in the tree existed prior.
     """
-    __slots__ = ['__msg', 'ops']
+    __slots__ = ['__msg', 'attestations', 'ops']
 
     @property
     def msg(self):
@@ -31,7 +62,8 @@ class Timestamp:
 
     def __init__(self, msg):
         self.__msg = bytes(msg)
-        self.ops = []
+        self.attestations = set()
+        self.ops = OpSet(lambda op: Timestamp(op(msg)))
 
     def __eq__(self, other):
         if isinstance(other, Timestamp):
@@ -42,32 +74,51 @@ class Timestamp:
     def __repr__(self):
         return 'Timestamp(<%s>)' % binascii.hexlify(self.__msg).decode('utf8')
 
-    def add_op(self, op_cls, *args):
-        """Add a new operation"""
-        new_op = op_cls(self.__msg, *args)
-        self.ops.append(new_op)
-        return new_op
-
     def merge(self, other):
-        """Add all operations from another timestamp to this one
+        """Add all operations and attestations from another timestamp to this one
 
         Raises ValueError if the other timestamp isn't for the same message
         """
+        if not isinstance(other, Timestamp):
+            raise TypeError("Can only merge Timestamps together")
+
         if self.__msg != other.__msg:
             raise ValueError("Can't merge timestamps for different messages together")
-        self.ops.extend(other.ops)
+
+        self.attestations.update(other.attestations)
+
+        for other_op, other_op_stamp in other.ops.items():
+            our_op_stamp = self.ops.add(other_op)
+            our_op_stamp.merge(other_op_stamp)
 
     def serialize(self, ctx):
-        if len(self.ops) == 0:
+        if not len(self.attestations) and not len(self.ops):
             raise ValueError("An empty timestamp can't be serialized")
 
-        elif len(self.ops) > 1:
-            for op in self.ops[0:-1]:
+        sorted_attestations = sorted(self.attestations)
+        if len(sorted_attestations) > 1:
+            for attestation in sorted_attestations[0:-1]:
+                ctx.write_bytes(b'\xff\x00')
+                attestation.serialize(ctx)
+
+        if len(self.ops) == 0:
+            ctx.write_bytes(b'\x00')
+            sorted_attestations[-1].serialize(ctx)
+
+        elif len(self.ops) > 0:
+            if len(sorted_attestations) > 0:
+                ctx.write_bytes(b'\xff\x00')
+                sorted_attestations[-1].serialize(ctx)
+
+            sorted_ops = sorted(self.ops.items(), key=lambda item: item[0])
+            for op, stamp in sorted_ops[0:-1]:
                 ctx.write_bytes(b'\xff')
                 op.serialize(ctx)
+                stamp.serialize(ctx)
 
-        # Again, a zero-op timestamp is prohibited by the serialization format!
-        self.ops[-1].serialize(ctx)
+            last_op, last_stamp = sorted_ops[-1]
+            last_op.serialize(ctx)
+            last_stamp.serialize(ctx)
 
     @classmethod
     def deserialize(cls, ctx, initial_msg):
@@ -79,319 +130,54 @@ class Timestamp:
         """
         self = cls(initial_msg)
 
+        def do_tag_or_attestation(tag):
+            if tag == b'\x00':
+                attestation = TimeAttestation.deserialize(ctx)
+                self.attestations.add(attestation)
+
+            else:
+                op = Op.deserialize_from_tag(ctx, tag)
+                stamp = Timestamp.deserialize(ctx, op(initial_msg))
+                self.ops[op] = stamp
+
         tag = ctx.read_bytes(1)
         while tag == b'\xff':
-            op = Op.deserialize(ctx, initial_msg)
-            self.ops.append(op)
+            do_tag_or_attestation(ctx.read_bytes(1))
+
             tag = ctx.read_bytes(1)
 
-        op = Op.deserialize_from_tag(ctx, initial_msg, tag)
-        self.ops.append(op)
+        do_tag_or_attestation(tag)
 
         return self
 
-    def verifications(self):
-        """Iterate over the verifications on this timestamp"""
-        for op in self.ops:
-            if isinstance(op, OpVerify):
-                yield op
-            else:
-                yield from op.timestamp.verifications()
+    def all_attestations(self):
+        """Iterate over all attestations recursively
 
-    def directly_verified(self):
-        """Iterate over the directly verified nodes in the timestamp tree
-
-        Directly verified simply means that the timestamp has one or more
-        VerifyOp as children.
+        Returns iterable of (msg, attestation)
         """
-        we_are_verified = False
-        for op in self.ops:
-            if isinstance(op, OpVerify):
-                we_are_verified = True
-            else:
-                yield from op.timestamp.directly_verified()
+        for attestation in self.attestations:
+            yield (self.msg, attestation)
 
-        if we_are_verified:
-            yield self
-        else:
-            yield from ()
-
+        for op_stamp in self.ops.values():
+            yield from op_stamp.all_attestations()
 
     def str_tree(self, indent=0):
         """Convert to tree (for debugging)"""
 
         r = ""
+        if len(self.attestations) > 0:
+            for attestation in self.attestations:
+                r += " "*indent + "verify %s" % str(attestation) + "\n"
+
         if len(self.ops) > 1:
-            for op in self.ops:
+            for op, timestamp in self.ops.items():
                 r += " "*indent + " -> " + "%s"%str(op) + "\n"
-                if isinstance(op, TransformOp):
-                    r += op.timestamp.str_tree(indent+4)
-        else:
-            r += " "*indent + "%s\n" % str(self.ops[0])
-            if isinstance(self.ops[0], TransformOp):
-                r += self.ops[0].timestamp.str_tree(indent)
+                r += timestamp.str_tree(indent+4)
+        elif len(self.ops) > 0:
+            r += " "*indent + "%s\n" % str(tuple(self.ops.keys())[0])
+            r += tuple(self.ops.values())[0].str_tree(indent)
 
         return r
-
-class Op:
-    """Timestamp proof operations
-
-    Operations are the edges in the timestamp tree, with each operation proving
-    something about a message.
-    """
-    SUBCLS_BY_TAG = {}
-    __slots__ = []
-
-    def __init__(self, result):
-        raise NotImplementedError
-
-    def __eq__(self, other):
-        raise NotImplementedError
-
-    def __str__(self):
-        return '%s' % self.TAG_NAME
-
-    @classmethod
-    def _register_op(cls, subcls):
-        cls.SUBCLS_BY_TAG[subcls.TAG] = subcls
-        if cls != Op:
-            cls.__base__._register_op(subcls)
-        return subcls
-
-    def _serialize_op_payload(self, ctx):
-        pass
-
-    def serialize(self, ctx):
-        ctx.write_bytes(self.TAG)
-        self._serialize_op_payload(ctx)
-
-    @classmethod
-    def _deserialize_op_payload(cls, ctx, initial_msg):
-        return cls(initial_msg)
-
-    @classmethod
-    def deserialize_from_tag(cls, ctx, initial_msg, tag):
-        if not tag in cls.SUBCLS_BY_TAG:
-            raise opentimestamps.core.serialize.DeserializationError("Unknown operation tag 0x%0x" % tag[0])
-
-        return cls.SUBCLS_BY_TAG[tag]._deserialize_op_payload(ctx, initial_msg)
-
-    @classmethod
-    def deserialize(cls, ctx, initial_msg):
-        tag = ctx.read_bytes(1)
-        return cls.deserialize_from_tag(ctx, initial_msg, tag)
-
-@Op._register_op
-class OpVerify(Op):
-    """Verify attestation
-
-    Verifications never have children.
-    """
-    __slots__ = ['__msg','attestation']
-
-    TAG = b'\x00'
-    TAG_NAME = 'verify'
-
-    @property
-    def msg(self):
-        return self.__msg
-
-    def __init__(self, msg, attestation):
-        self.__msg = msg
-        self.attestation = attestation
-
-    def __eq__(self, other):
-        return (self.__class__ == other.__class__
-                and self.__msg == other.__msg
-                and self.attestation == other.attestation)
-
-    def __str__(self):
-        return '%s %s' % (self.TAG_NAME, self.attestation)
-
-    def _serialize_op_payload(self, ctx):
-        self.attestation.serialize(ctx)
-
-    @classmethod
-    def _deserialize_op_payload(cls, ctx, initial_msg):
-        attestation = TimeAttestation.deserialize(ctx)
-        return cls(initial_msg, attestation)
-
-class TransformOp(Op):
-    """Prove that a transformation of a message is timestamped"""
-    __slots__ = ['__timestamp']
-
-    SUBCLS_BY_TAG = {}
-
-    @property
-    def timestamp(self):
-        """Timestamp on the result"""
-        return self.__timestamp
-
-    @timestamp.setter
-    def timestamp(self, new_stamp):
-        """Set a new timestamp
-
-        The new timestamp must over the same message as the old timestamp.
-        """
-        try:
-            if self.__timestamp.msg != new_stamp.msg:
-                raise ValueError("Timestamp must be for the same message as before")
-        except AttributeError:
-            # Not yet set
-            pass
-        self.__timestamp = new_stamp
-
-    @property
-    def result(self):
-        """The result of this operation"""
-        return self.__timestamp.msg
-
-    def __eq__(self, other):
-        return (self.__class__ == other.__class__
-                and self.__timestamp == other.__timestamp)
-
-    def __init__(self, result):
-        # FIXME: check length limits on result
-        self.__timestamp = Timestamp(result)
-
-    def serialize(self, ctx):
-        super().serialize(ctx)
-        self.__timestamp.serialize(ctx)
-
-    @classmethod
-    def _deserialize_transform_op_payload(cls, ctx, initial_msg):
-        return cls(initial_msg)
-
-    @classmethod
-    def _deserialize_op_payload(cls, ctx, initial_msg):
-        self = cls._deserialize_transform_op_payload(ctx, initial_msg)
-        self.__timestamp = Timestamp.deserialize(ctx, self.result)
-        return self
-
-
-@TransformOp._register_op
-class OpAppend(TransformOp):
-    """Append a suffix to a message"""
-    TAG = b'\xf0'
-    TAG_NAME = 'append'
-
-    def __init__(self, msg, suffix):
-        """Create a new append operation"""
-        self.suffix = bytes(suffix)
-        result = bytes(msg) + self.suffix
-        super().__init__(result)
-
-    def __str__(self):
-        return 'append %s' % binascii.hexlify(self.suffix).decode('utf8')
-
-    def _serialize_op_payload(self, ctx):
-        ctx.write_varbytes(self.suffix)
-
-    @classmethod
-    def _deserialize_transform_op_payload(cls, ctx, initial_msg):
-        suffix = ctx.read_varbytes(2**20) # FIXME: what should maximum be here?
-        return OpAppend(initial_msg, suffix)
-
-@TransformOp._register_op
-class OpPrepend(TransformOp):
-    TAG = b'\xf1'
-    TAG_NAME = 'prepend'
-
-    def __init__(self, msg, prefix):
-        self.prefix = bytes(prefix)
-        result = self.prefix + bytes(msg)
-        super().__init__(result)
-
-    def __str__(self):
-        return 'prepend %s' % binascii.hexlify(self.prefix).decode('utf8')
-
-    def _serialize_op_payload(self, ctx):
-        ctx.write_varbytes(self.prefix)
-
-    @classmethod
-    def _deserialize_transform_op_payload(cls, ctx, initial_msg):
-        prefix = ctx.read_varbytes(2**20) # FIXME: what should maximum be here?
-        return OpPrepend(initial_msg, prefix)
-
-
-@TransformOp._register_op
-class OpReverse(TransformOp):
-    TAG = b'\xf2'
-    TAG_NAME = 'reverse'
-
-    def __init__(self, msg):
-        super().__init__(bytes(msg)[::-1])
-
-
-class CryptOp(TransformOp):
-    """Cryptographic transformations
-
-    These transformations have the unique property that for any length message,
-    the size of the result they return is fixed. Additionally, they're the only
-    type of timestamp that can be applied directly to a stream.
-    """
-    __slots__ = []
-    SUBCLS_BY_TAG = {}
-
-    def __init__(self, msg):
-        hasher = hashlib.new(self.HASHLIB_NAME, bytes(msg))
-        result = hasher.digest()
-        super().__init__(result)
-
-
-    @classmethod
-    def from_fd(cls, fd):
-        hasher = hashlib.new(cls.HASHLIB_NAME)
-        while True:
-            chunk = fd.read(2**20) # 1MB chunks
-            if chunk:
-                hasher.update(chunk)
-            else:
-                break
-
-        result = hasher.digest()
-        self = cls.__new__(cls)
-        TransformOp.__init__(self, result)
-        return self
-
-    @classmethod
-    def deserialize_from_initial_result(cls, ctx, initial_result):
-        tag = ctx.read_bytes(1)
-        if not tag in cls.SUBCLS_BY_TAG:
-            raise opentimestamps.core.serialize.DeserializationError("Unknown operation tag 0x%0x" % tag[0])
-
-        subcls = cls.SUBCLS_BY_TAG[tag]
-        self = subcls.__new__(subcls)
-        TransformOp.__init__(self, initial_result)
-        self.timestamp = Timestamp.deserialize(ctx, initial_result)
-        return self
-
-# Cryptographic operation tag numbers taken from RFC4880
-
-@CryptOp._register_op
-class OpSHA1(CryptOp):
-    # Remember that for timestamping, hash algorithms with collision attacks
-    # *are* secure! We've still proven that both messages existed prior to some
-    # point in time - the fact that they both have the same hash digest doesn't
-    # change that.
-    #
-    # Heck, even md5 is still secure enough for timestamping... but that's
-    # pushing our luck...
-    TAG = b'\x02'
-    TAG_NAME = 'sha1'
-    HASHLIB_NAME = "sha1"
-
-@CryptOp._register_op
-class OpRIPEMD160(CryptOp):
-    TAG = b'\x03'
-    TAG_NAME = 'ripemd160'
-    HASHLIB_NAME = "ripemd160"
-
-@CryptOp._register_op
-class OpSHA256(CryptOp):
-    TAG = b'\x08'
-    TAG_NAME = 'sha256'
-    HASHLIB_NAME = "sha256"
 
 
 class DetachedTimestampFile:
@@ -410,48 +196,39 @@ class DetachedTimestampFile:
     @property
     def file_digest(self):
         """The digest of the file that was timestamped"""
-        return self.timestamp_op.result
+        return self.timestamp.msg
 
-    @property
-    def file_hash_op_class(self):
-        """The op class used to hash the original file"""
-        return self.timestamp_op.__class__
-
-    def __init__(self, timestamp_op):
-        self.timestamp_op = timestamp_op
+    def __init__(self, file_hash_op, timestamp):
+        self.file_hash_op = file_hash_op
+        self.timestamp = timestamp
 
     def __repr__(self):
-        return 'DetachedTimestampFile(<%s:%s>)' % (str(self.timestamp_op), binascii.hexlify(self.file_digest).decode('utf8'))
+        return 'DetachedTimestampFile(<%s:%s>)' % (str(self.file_hash_op), binascii.hexlify(self.file_digest).decode('utf8'))
 
     def __eq__(self, other):
         return (self.__class__ == other.__class__ and
-                self.timestamp_op == other.timestamp_op)
+                self.file_hash_op == other.file_hash_op and
+                self.timestamp == other.timestamp)
 
     @classmethod
-    def from_fd(cls, op_cls, fd):
-        timestamp_op = op_cls.from_fd(fd)
-        return cls(timestamp_op)
-
-    def hash_fd(self, fd):
-        """Hash a stream with the same hashing algorithm we have
-
-        Returns a new CryptOp, whose result can be checked against
-        self.timestamp_op
-        """
-        return self.timestamp_op.__class__.from_fd(fd)
+    def from_fd(cls, file_hash_op, fd):
+        fd_hash = file_hash_op.hash_fd(fd)
+        return cls(file_hash_op, Timestamp(fd_hash))
 
     def serialize(self, ctx):
         ctx.write_bytes(self.HEADER_MAGIC)
 
-        ctx.write_varbytes(self.timestamp_op.result)
-        self.timestamp_op.serialize(ctx)
+        ctx.write_varbytes(self.timestamp.msg)
+        self.file_hash_op.serialize(ctx)
+        self.timestamp.serialize(ctx)
 
     @classmethod
     def deserialize(cls, ctx):
         header_magic = ctx.read_bytes(len(cls.HEADER_MAGIC))
         assert header_magic == cls.HEADER_MAGIC
 
-        first_result = ctx.read_varbytes(64)
-        timestamp_op = CryptOp.deserialize_from_initial_result(ctx, first_result)
+        file_hash = ctx.read_varbytes(64)
+        file_hash_op = CryptOp.deserialize(ctx)
+        timestamp = Timestamp.deserialize(ctx, file_hash)
 
-        return DetachedTimestampFile(timestamp_op)
+        return DetachedTimestampFile(file_hash_op, timestamp)
