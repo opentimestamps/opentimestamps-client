@@ -22,9 +22,9 @@ class Test_Op(unittest.TestCase):
         """Prepend operation"""
         self.assertEqual(OpPrepend(b'prefix')(b'msg'), b'prefixmsg')
 
-    def test_reverse(self):
-        """Reverse operation"""
-        self.assertEqual(OpReverse()(b'abcd'), b'dcba')
+#    def test_reverse(self):
+#        """Reverse operation"""
+#        self.assertEqual(OpReverse()(b'abcd'), b'dcba')
 
     def test_sha256(self):
         """SHA256 operation"""

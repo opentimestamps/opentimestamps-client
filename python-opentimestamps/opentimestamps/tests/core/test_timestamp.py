@@ -20,12 +20,12 @@ class Test_Timestamp(unittest.TestCase):
     def test_add_op(self):
         """Adding operations to timestamps"""
         t = Timestamp(b'abcd')
-        t.ops.add(OpReverse())
-        self.assertEqual(t.ops[OpReverse()], Timestamp(b'dcba'))
+        t.ops.add(OpAppend(b'efgh'))
+        self.assertEqual(t.ops[OpAppend(b'efgh')], Timestamp(b'abcdefgh'))
 
-        # The second add should succeed
-        t.ops.add(OpReverse())
-        self.assertEqual(t.ops[OpReverse()], Timestamp(b'dcba'))
+        # The second add should succeed with the timestamp unchanged
+        t.ops.add(OpAppend(b'efgh'))
+        self.assertEqual(t.ops[OpAppend(b'efgh')], Timestamp(b'abcdefgh'))
 
     def test_set_result_timestamp(self):
         """Setting an op result timestamp"""
@@ -42,10 +42,10 @@ class Test_Timestamp(unittest.TestCase):
     def test_set_fail_if_wrong_message(self):
         """Setting an op result timestamp fails if the messages don't match"""
         t = Timestamp(b'abcd')
-        t.ops.add(OpReverse())
+        t.ops.add(OpSHA256())
 
         with self.assertRaises(ValueError):
-            t.ops[OpReverse()] = Timestamp(b'wrong')
+            t.ops[OpSHA256()] = Timestamp(b'wrong')
 
     def test_merge(self):
         """Merging timestamps"""

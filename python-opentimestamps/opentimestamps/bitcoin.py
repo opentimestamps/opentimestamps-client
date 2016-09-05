@@ -16,6 +16,7 @@ from opentimestamps.core.op import OpAppend, OpPrepend
 from opentimestamps.timestamp import cat_sha256d
 from opentimestamps.core.notary import BitcoinBlockHeaderAttestation
 
+
 def __make_btc_block_merkle_tree(blk_txids):
     assert len(blk_txids) > 0
 
@@ -27,7 +28,7 @@ def __make_btc_block_merkle_tree(blk_txids):
             digests.append(digests[-1].msg)
 
         next_level = []
-        for i in range(0,len(digests),2):
+        for i in range(0,len(digests), 2):
             next_level.append(cat_sha256d(digests[i], digests[i + 1]))
 
         digests = next_level
