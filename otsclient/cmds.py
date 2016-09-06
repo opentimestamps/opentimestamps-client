@@ -120,14 +120,35 @@ def stamp_command(args):
 
     create_timestamp(merkle_tip, args.calendar_urls, args.setup_bitcoin if args.use_btc_wallet else False)
 
+    if args.wait:
+        upgrade_timestamp(merkle_tip, args)
+        logging.info("Timestamp complete; saving")
+
     for (in_file, file_timestamp) in zip(args.files, file_timestamps):
         timestamp_file_path = in_file.name + '.ots'
         with open(timestamp_file_path, 'xb') as timestamp_fd:
             ctx = StreamSerializationContext(timestamp_fd)
             file_timestamp.serialize(ctx)
 
+def is_timestamp_complete(stamp, args):
+    """Determine if timestamp is complete and can be verified"""
+    for msg, attestation in stamp.all_attestations():
+        if attestation.__class__ == BitcoinBlockHeaderAttestation:
+            # FIXME: we should actually check this attestation, rather than
+            # assuming it's valid
+            return True
+    else:
+        return False
 
 def upgrade_timestamp(timestamp, args):
+    """Attempt to upgrade an incomplete timestamp to make it verifiable
+
+    Returns True if the timestamp has changed, False otherwise.
+
+    Note that this means if the timestamp that is already complete, False will
+    be returned as nothing has changed.
+    """
+
     def directly_verified(stamp):
         if stamp.attestations:
             yield stamp
@@ -136,25 +157,55 @@ def upgrade_timestamp(timestamp, args):
                 yield from directly_verified(result_stamp)
         yield from ()
 
-    upgraded = False
-    for sub_stamp in directly_verified(timestamp):
-        for attestation in sub_stamp.attestations:
-            if attestation.__class__ == PendingAttestation:
-                calendar_urls = args.calendar_urls
-                if not calendar_urls:
-                    calendar_urls = [attestation.uri]
+    def get_attestations(stamp):
+        return set(attest for msg, attest in stamp.all_attestations())
 
-                commitment = sub_stamp.msg
-                if sub_stamp.msg in args.cache:
-                    logging.debug("Found %s in cache" % b2x(commitment))
 
-                    upgraded_stamp = args.cache[sub_stamp.msg]
+    changed = False
 
-                    sub_stamp.merge(upgraded_stamp)
-                    upgraded = True
-                    logging.info("Upgraded timestamp from cache with %r" % upgraded_stamp.ops)
+    # First, check the cache for upgrades to this timestamp. Since the cache is
+    # local, we do this very agressively, checking every single sub-timestamp
+    # against the cache.
+    def walk_stamp(stamp):
+        yield stamp
+        for sub_stamp in stamp.ops.values():
+            yield from walk_stamp(sub_stamp)
 
-                else:
+    existing_attestations = get_attestations(timestamp)
+    for sub_stamp in walk_stamp(timestamp):
+        try:
+            cached_stamp = args.cache[sub_stamp.msg]
+        except KeyError:
+            continue
+        sub_stamp.merge(cached_stamp)
+
+    new_attestations_from_cache = get_attestations(timestamp).difference(existing_attestations)
+    if len(new_attestations_from_cache):
+        changed = True
+        logging.info("Got %d attestation(s) from cache" % len(new_attestations_from_cache))
+        existing_attestations.update(new_attestations_from_cache)
+        for new_att in new_attestations_from_cache:
+            logging.debug("    %r" % new_att)
+
+    while not is_timestamp_complete(timestamp, args):
+        # Check remote calendars for upgrades.
+        #
+        # This time we only check PendingAttestations - we can't be as
+        # agressive.
+        found_new_attestations = False
+        for sub_stamp in directly_verified(timestamp):
+            for attestation in sub_stamp.attestations:
+                if attestation.__class__ == PendingAttestation:
+                    calendar_urls = args.calendar_urls
+                    if calendar_urls:
+                        logging.debug("Attestation URI %r overridden by user-specified remote calendar(s)" % attestation.uri)
+                    else:
+                        # FIXME: need to whitelist these - not good if
+                        # timestamps can cause us to connect to arbitrary
+                        # servers over the interwebs
+                        calendar_urls = [attestation.uri]
+
+                    commitment = sub_stamp.msg
                     for calendar_url in calendar_urls:
                         logging.debug("Checking calendar %s for %s" % (attestation.uri, b2x(commitment)))
                         calendar = RemoteCalendar(calendar_url)
@@ -168,14 +219,34 @@ def upgrade_timestamp(timestamp, args):
                             logging.info("Calendar %s: %r" % (attestation.uri, exp))
                             continue
 
-                        # FIXME: should check what the timestamp has been upgraded to first
-                        args.cache.merge(upgraded_stamp)
+                        new_attestations = get_attestations(upgraded_stamp).difference(existing_attestations)
 
-                        sub_stamp.merge(upgraded_stamp)
-                        upgraded = True
-                        logging.info("Upgraded timestamp with %r" % upgraded_stamp.ops)
+                        if new_attestations:
+                            changed = True
+                            found_new_attestations = True
+                            logging.info("Got %d new attestation(s) from %r" % (len(new_attestations), calendar_url))
+                            for new_att in new_attestations:
+                                logging.debug("    %r" % new_att)
+                            existing_attestations.update(new_attestations)
 
-    return upgraded
+                            # FIXME: need to think about DoS attacks here
+                            args.cache.merge(upgraded_stamp)
+                            sub_stamp.merge(upgraded_stamp)
+
+        if not args.wait:
+            break
+
+        elif found_new_attestations:
+            # We got something new, so loop around immediately to check if
+            # we're now complete
+            continue
+
+        else:
+            # Nothing new, so wait
+            logging.info("Timestamp not complete; waiting %d sec before trying again" % args.wait_interval)
+            time.sleep(args.wait_interval)
+
+    return changed
 
 
 def upgrade_command(args):
@@ -185,14 +256,21 @@ def upgrade_command(args):
         ctx = StreamDeserializationContext(old_stamp_fd)
         detached_timestamp = DetachedTimestampFile.deserialize(ctx)
 
-        upgraded = upgrade_timestamp(detached_timestamp.timestamp, args)
+        changed = upgrade_timestamp(detached_timestamp.timestamp, args)
 
-        if upgraded:
-            # Rename to save backup
-            os.rename(old_stamp_fd.name, old_stamp_fd.name + '.bak')
+        if changed:
+            backup_name = old_stamp_fd.name + '.bak'
+            logging.debug("Got new timestamp data; renaming existing timestamp to %r" % backup_name)
+            os.rename(old_stamp_fd.name, backup_name)
             with open(old_stamp_fd.name, 'xb') as new_stamp_fd:
                 ctx = StreamSerializationContext(new_stamp_fd)
                 detached_timestamp.serialize(ctx)
+
+        if is_timestamp_complete(detached_timestamp.timestamp, args):
+            logging.info("Success! Timestamp is complete")
+        else:
+            logging.info("Failed; timestamp is not complete")
+            sys.exit(1)
 
 
 def verify_timestamp(timestamp, args):
@@ -202,7 +280,8 @@ def verify_timestamp(timestamp, args):
     good = False
     for msg, attestation in timestamp.all_attestations():
         if attestation.__class__ == PendingAttestation:
-            logging.info("Pending attestation %s" % attestation.uri)
+            # Handled by the upgrade_timestamp() call above.
+            pass
 
         elif attestation.__class__ == BitcoinBlockHeaderAttestation:
             if not args.use_bitcoin:

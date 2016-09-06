@@ -44,6 +44,14 @@ def make_common_options_arg_parser():
                                default=True,
                                help='Disable Bitcoin entirely')
 
+    parser.add_argument("-w", "--wait", action="store_true", default=False,
+                        help="When creating, upgrading, or verifying "
+                             "timestamps, wait until a complete timestamp "
+                             "committed in the Bitcoin blockchain is available "
+                             "instead of returning immediately.")
+    parser.add_argument("--wait-interval", action="store", type=int, default=30,
+                        help=argparse.SUPPRESS) # best if users don't change this and DoS attack the calendars...
+
     return parser
 
 def handle_common_options(args, parser):
@@ -88,7 +96,7 @@ def parse_ots_args(raw_args):
                               default=[],
                               help='Create timestamp with the aid of a remote calendar. May be specified multiple times.')
 
-    parser_stamp.add_argument('-w', '--btc-wallet', dest='use_btc_wallet', action='store_true',
+    parser_stamp.add_argument('-b', '--btc-wallet', dest='use_btc_wallet', action='store_true',
                               help='Create timestamp locally with the local Bitcoin wallet.')
 
     parser_stamp.add_argument('files', metavar='FILE', type=argparse.FileType('rb'),
