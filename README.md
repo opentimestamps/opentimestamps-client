@@ -4,4 +4,4 @@ OpenTimestamps Client
 Requirements
 ------------
 
-python-bitcoinlib v0.6.0
+python-bitcoinlib v0.6.1
