@@ -18,31 +18,31 @@ class Test_UrlWhitelist(unittest.TestCase):
         """Empty whitelist"""
         wl = UrlWhitelist()
 
-        self.assertNotIn(b'', wl)
-        self.assertNotIn(b'http://example.com', wl)
+        self.assertNotIn('', wl)
+        self.assertNotIn('http://example.com', wl)
 
     def test_exact_match(self):
         """Exact match"""
 
-        wl = UrlWhitelist((b"https://example.com",))
-        self.assertIn(b"https://example.com", wl)
-        self.assertNotIn(b"http://example.com", wl)
-        self.assertNotIn(b"http://example.org", wl)
+        wl = UrlWhitelist(("https://example.com",))
+        self.assertIn("https://example.com", wl)
+        self.assertNotIn("http://example.com", wl)
+        self.assertNotIn("http://example.org", wl)
 
         # I'm happy for this to be strict
-        self.assertIn(b"https://example.com", wl)
+        self.assertIn("https://example.com", wl)
 
     def test_add_scheme(self):
         """URL scheme added automatically"""
-        wl = UrlWhitelist((b"example.com",))
-        self.assertIn(b"https://example.com", wl)
-        self.assertIn(b"http://example.com", wl)
+        wl = UrlWhitelist(("example.com",))
+        self.assertIn("https://example.com", wl)
+        self.assertIn("http://example.com", wl)
 
     def test_glob_match(self):
         """Glob matching"""
-        wl = UrlWhitelist((b"*.example.com",))
-        self.assertIn(b"https://foo.example.com", wl)
-        self.assertIn(b"http://bar.example.com", wl)
-        self.assertIn(b"http://foo.bar.example.com", wl)
+        wl = UrlWhitelist(("*.example.com",))
+        self.assertIn("https://foo.example.com", wl)
+        self.assertIn("http://bar.example.com", wl)
+        self.assertIn("http://foo.bar.example.com", wl)
 
-        self.assertNotIn(b"http://barexample.com", wl)
+        self.assertNotIn("http://barexample.com", wl)

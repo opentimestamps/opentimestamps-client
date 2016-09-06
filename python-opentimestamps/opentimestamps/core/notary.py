@@ -74,12 +74,37 @@ class PendingAttestation(TimeAttestation):
 
     TAG = bytes.fromhex('83dfe30d2ef90c8e')
 
-    # FIXME: what characters are allowed in uri's?
+    MAX_URI_LENGTH = 1000
+    """Maximum legal URI length, in bytes"""
+
+    ALLOWED_URI_CHARS = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._/:"
+    """Characters allowed in URI's
+
+    Note how we've left out the characters necessary for parameters, queries,
+    or fragments, as well as IPv6 [] notation, percent-encoding special
+    characters, and @ login notation. Hopefully this keeps us out of trouble!
+    """
+
+    @classmethod
+    def check_uri(cls, uri):
+        """Check URI for validity
+
+        Raises ValueError appropriately
+        """
+        if len(uri) > cls.MAX_URI_LENGTH:
+            raise ValueError("URI exceeds maximum length")
+        for char in uri:
+            if char not in cls.ALLOWED_URI_CHARS:
+                raise ValueError("URI contains invalid character %r" % bytes([char]))
+
     def __init__(self, uri):
+        if not isinstance(uri, str):
+            raise TypeError("URI must be a string")
+        self.check_uri(uri.encode())
         self.uri = uri
 
     def __repr__(self):
-        return 'PendingAttestation(%r)' % self.uri
+        return 'PendingAttestation(%s)' % self.uri
 
     def __eq__(self, other):
         if other.__class__ is PendingAttestation:
@@ -98,12 +123,18 @@ class PendingAttestation(TimeAttestation):
         return hash(self.uri)
 
     def _serialize_payload(self, ctx):
-        ctx.write_varbytes(self.uri)
+        ctx.write_varbytes(self.uri.encode())
 
     @classmethod
     def deserialize(cls, ctx):
-        uri = ctx.read_varbytes(4096) # FIXME: what should this limit be?
-        return PendingAttestation(uri)
+        utf8_uri = ctx.read_varbytes(cls.MAX_URI_LENGTH)
+
+        try:
+            cls.check_uri(utf8_uri)
+        except ValueError as exp:
+            raise opentimestamps.core.serialize.DeserializationError("Invalid URI: %r" % exp)
+
+        return PendingAttestation(utf8_uri.decode())
 
 class BitcoinBlockHeaderAttestation(TimeAttestation):
     """Signed by the Bitcoin blockchain
