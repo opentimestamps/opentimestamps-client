@@ -40,7 +40,7 @@ def make_common_options_arg_parser():
     cache_group  = parser.add_mutually_exclusive_group()
     cache_group.add_argument("--cache", action="store", type=str,
                              dest='cache_path',
-                             default='~/.ots/cache',
+                             default='~/.cache/ots',
                              help="Location of the timestamp cache. Default: %(default)s")
     cache_group.add_argument("--no-cache", action="store_const", const=None,
                              dest='cache_path',
