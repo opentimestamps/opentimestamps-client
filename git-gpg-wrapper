@@ -133,6 +133,9 @@ if '-bsau' in args.gpgargs:
         otsclient.cmds.create_timestamp(signed_commit_timestamp, args.calendar_urls, args.setup_bitcoin if args.use_btc_wallet else False)
 
         if args.wait:
+            # Interpreted as override by the upgrade command
+            # FIXME: need to clean this bad abstraction up!
+            args.calendar_urls = []
             otsclient.cmds.upgrade_timestamp(signed_commit_timestamp, args)
 
         sys.stdout.buffer.write(gpg_sig)
