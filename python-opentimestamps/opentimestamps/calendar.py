@@ -11,6 +11,7 @@
 
 import binascii
 import urllib.request
+import fnmatch
 
 from opentimestamps.core.timestamp import Timestamp
 from opentimestamps.core.serialize import StreamDeserializationContext
@@ -55,3 +56,44 @@ class RemoteCalendar:
                 raise KeyError("Commitment not found")
             else:
                 raise exp
+
+class UrlWhitelist(set):
+    """Glob-matching whitelist for URL's"""
+
+    def __init__(self, urls=()):
+        for url in urls:
+            self.add(url)
+
+    def add(self, url):
+        # Easier if everything is in bytes so we don't have to deal with
+        # potentially invalid unicode
+        if not isinstance(url, bytes):
+            url = url.encode('utf8')
+
+        if url.startswith(b'http://') or url.startswith(b'https://'):
+            parsed_url = urllib.parse.urlparse(url)
+
+            # FIXME: should have a more friendly error message
+            assert not parsed_url.params and not parsed_url.query and not parsed_url.fragment
+
+            set.add(self, parsed_url)
+
+        else:
+            self.add(b'http://' + url)
+            self.add(b'https://' + url)
+
+    def __contains__(self, url):
+        parsed_url = urllib.parse.urlparse(url)
+
+        # FIXME: probably should tell user why...
+        if parsed_url.params or parsed_url.query or parsed_url.fragment:
+            return False
+
+        for pattern in self:
+            if (parsed_url.scheme == pattern.scheme and
+                    parsed_url.path == pattern.path and
+                    fnmatch.fnmatch(parsed_url.netloc, pattern.netloc)):
+                return True
+
+        else:
+            return False
