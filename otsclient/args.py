@@ -13,8 +13,12 @@ import argparse
 import bitcoin
 import os
 
+import opentimestamps.calendar
+
 import otsclient.cache
 import otsclient.cmds
+
+DEFAULT_WHITELIST='https://*.calendar.opentimestamps.org'
 
 def make_common_options_arg_parser():
     parser = argparse.ArgumentParser(description="OpenTimestamps client.")
@@ -23,6 +27,15 @@ def make_common_options_arg_parser():
                         help="Be more quiet.")
     parser.add_argument("-v", "--verbose", action="count", default=0,
                         help="Be more verbose. Both -v and -q may be used multiple times.")
+
+    whitelist_group  = parser.add_mutually_exclusive_group()
+    whitelist_group.add_argument('-l', '--whitelist', metavar='URL', action='append', type=str,
+                                 default=[],
+                                 help='Whitelist a remote calendar. If no whitelist is specified, %s is whitelisted by default.' % DEFAULT_WHITELIST)
+    whitelist_group.add_argument('--no-remote-calendars', dest='whitelist', action='store_const',
+                                 const=None,
+                                 default=[],
+                                 help='Prevent any remote calendar from being contacted.')
 
     cache_group  = parser.add_mutually_exclusive_group()
     cache_group.add_argument("--cache", action="store", type=str,
@@ -61,6 +74,15 @@ def handle_common_options(args, parser):
     if args.cache_path is not None:
         args.cache_path = os.path.normpath(os.path.expanduser(args.cache_path))
     args.cache = otsclient.cache.TimestampCache(args.cache_path)
+
+    if args.whitelist is not None:
+        if not args.whitelist:
+            args.whitelist = [DEFAULT_WHITELIST]
+
+        whitelist = opentimestamps.calendar.UrlWhitelist()
+        for url in args.whitelist:
+            whitelist.add(url)
+        args.whitelist = whitelist
 
     def setup_bitcoin():
         """Setup Bitcoin-related functionality

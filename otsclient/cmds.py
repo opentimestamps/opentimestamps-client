@@ -200,10 +200,14 @@ def upgrade_timestamp(timestamp, args):
                     if calendar_urls:
                         logging.debug("Attestation URI %r overridden by user-specified remote calendar(s)" % attestation.uri)
                     else:
-                        # FIXME: need to whitelist these - not good if
-                        # timestamps can cause us to connect to arbitrary
-                        # servers over the interwebs
-                        calendar_urls = [attestation.uri]
+                        if args.whitelist is None:
+                            logging.info("Ignoring attestation from calendar %r: remote calendars disabled" % attestation.uri)
+                            continue
+                        elif attestation.uri in args.whitelist:
+                            calendar_urls = [attestation.uri]
+                        else:
+                            logging.info("Ignoring attestation from calendar %r: not whitelisted" % attestation.uri)
+                            continue
 
                     commitment = sub_stamp.msg
                     for calendar_url in calendar_urls:
