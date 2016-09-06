@@ -132,6 +132,8 @@ if '-bsau' in args.gpgargs:
 
         otsclient.cmds.create_timestamp(signed_commit_timestamp, args.calendar_urls, args.setup_bitcoin if args.use_btc_wallet else False)
 
+        if args.wait:
+            otsclient.cmds.upgrade_timestamp(signed_commit_timestamp, args)
 
         sys.stdout.buffer.write(gpg_sig)
         write_ascii_armored(signed_commit_timestamp, sys.stdout.buffer)
