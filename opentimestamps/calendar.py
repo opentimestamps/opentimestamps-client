@@ -19,9 +19,8 @@ from opentimestamps.core.serialize import StreamDeserializationContext
 class RemoteCalendar:
     """Remote calendar server interface"""
     def __init__(self, url):
-        if isinstance(url, bytes):
-            # FIXME: is this safe? secure?
-            url = url.decode('utf8')
+        if not isinstance(url, str):
+            raise TypeError("URL must be a string")
         self.url = url
 
     def submit(self, digest):
@@ -65,12 +64,10 @@ class UrlWhitelist(set):
             self.add(url)
 
     def add(self, url):
-        # Easier if everything is in bytes so we don't have to deal with
-        # potentially invalid unicode
-        if not isinstance(url, bytes):
-            url = url.encode('utf8')
+        if not isinstance(url, str):
+            raise TypeError("URL must be a string")
 
-        if url.startswith(b'http://') or url.startswith(b'https://'):
+        if url.startswith('http://') or url.startswith('https://'):
             parsed_url = urllib.parse.urlparse(url)
 
             # FIXME: should have a more friendly error message
@@ -79,8 +76,8 @@ class UrlWhitelist(set):
             set.add(self, parsed_url)
 
         else:
-            self.add(b'http://' + url)
-            self.add(b'https://' + url)
+            self.add('http://' + url)
+            self.add('https://' + url)
 
     def __contains__(self, url):
         parsed_url = urllib.parse.urlparse(url)
