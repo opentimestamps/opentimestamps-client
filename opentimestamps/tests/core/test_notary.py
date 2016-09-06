@@ -16,7 +16,7 @@ from opentimestamps.core.notary import *
 
 class Test_PendingAttestation(unittest.TestCase):
     def test_serialize(self):
-        pending_attestation = PendingAttestation(b'foobar')
+        pending_attestation = PendingAttestation('foobar')
         expected_serialized = bytes.fromhex('83dfe30d2ef90c8e' + '07' + '06') + b'foobar'
 
         ctx = BytesSerializationContext()
@@ -26,10 +26,10 @@ class Test_PendingAttestation(unittest.TestCase):
         ctx = BytesDeserializationContext(expected_serialized)
         pending_attestation2 = TimeAttestation.deserialize(ctx)
 
-        self.assertEqual(pending_attestation2.uri, b'foobar')
+        self.assertEqual(pending_attestation2.uri, 'foobar')
 
     def test_deserialize(self):
-        pending_attestation = PendingAttestation(b'foobar')
+        pending_attestation = PendingAttestation('foobar')
 
         ctx = BytesSerializationContext()
         pending_attestation.serialize(ctx)

@@ -54,7 +54,7 @@ class Test_Timestamp(unittest.TestCase):
 
         t1 = Timestamp(b'a')
         t2 = Timestamp(b'a')
-        t2.attestations.add(PendingAttestation(b'foobar'))
+        t2.attestations.add(PendingAttestation('foobar'))
 
         t1.merge(t2)
         self.assertEqual(t1, t2)
@@ -75,16 +75,16 @@ class Test_Timestamp(unittest.TestCase):
 
 
         stamp = Timestamp(b'foo')
-        stamp.attestations.add(PendingAttestation(b'foobar'))
+        stamp.attestations.add(PendingAttestation('foobar'))
 
         T(stamp, b'\x00' + bytes.fromhex('83dfe30d2ef90c8e' + '07' + '06') + b'foobar')
 
-        stamp.attestations.add(PendingAttestation(b'barfoo'))
+        stamp.attestations.add(PendingAttestation('barfoo'))
         T(stamp, b'\xff' + (b'\x00' + bytes.fromhex('83dfe30d2ef90c8e' + '07' + '06') + b'barfoo') + \
                  (b'\x00' + bytes.fromhex('83dfe30d2ef90c8e' + '07' + '06') + b'foobar'))
 
 
-        stamp.attestations.add(PendingAttestation(b'foobaz'))
+        stamp.attestations.add(PendingAttestation('foobaz'))
         T(stamp, b'\xff' + (b'\x00' + bytes.fromhex('83dfe30d2ef90c8e' + '07' + '06') + b'barfoo') + \
                  b'\xff' + (b'\x00' + bytes.fromhex('83dfe30d2ef90c8e' + '07' + '06') + b'foobar') + \
                  (b'\x00' + bytes.fromhex('83dfe30d2ef90c8e' + '07' + '06') + b'foobaz'))
@@ -96,7 +96,7 @@ class Test_Timestamp(unittest.TestCase):
             ctx = BytesSerializationContext()
             stamp.serialize(ctx)
 
-        sha256_stamp.attestations.add(PendingAttestation(b'deeper'))
+        sha256_stamp.attestations.add(PendingAttestation('deeper'))
         T(stamp, b'\xff' + (b'\x00' + bytes.fromhex('83dfe30d2ef90c8e' + '07' + '06') + b'barfoo') + \
                  b'\xff' + (b'\x00' + bytes.fromhex('83dfe30d2ef90c8e' + '07' + '06') + b'foobar') + \
                  b'\xff' + (b'\x00' + bytes.fromhex('83dfe30d2ef90c8e' + '07' + '06') + b'foobaz') + \
@@ -125,7 +125,7 @@ class Test_DetachedTimestampFile(unittest.TestCase):
             self.assertEqual(expected_instance, actual_instance)
 
         file_stamp = DetachedTimestampFile.from_fd(OpSHA256(), io.BytesIO(b''))
-        file_stamp.timestamp.attestations.add(PendingAttestation(b'foobar'))
+        file_stamp.timestamp.attestations.add(PendingAttestation('foobar'))
 
         T(file_stamp, (b'\x00OpenTimestamps\x00\x00Proof\x00\xbf\x89\xe2\xe8\x84\xe8\x92\x94\x00' +
                        b'\x20' + bytes.fromhex('e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855') +

@@ -98,11 +98,13 @@ class PendingAttestation(TimeAttestation):
                 raise ValueError("URI contains invalid character %r" % bytes([char]))
 
     def __init__(self, uri):
-        self.check_uri(uri)
+        if not isinstance(uri, str):
+            raise TypeError("URI must be a string")
+        self.check_uri(uri.encode())
         self.uri = uri
 
     def __repr__(self):
-        return 'PendingAttestation(%r)' % self.uri
+        return 'PendingAttestation(%s)' % self.uri
 
     def __eq__(self, other):
         if other.__class__ is PendingAttestation:
@@ -121,18 +123,18 @@ class PendingAttestation(TimeAttestation):
         return hash(self.uri)
 
     def _serialize_payload(self, ctx):
-        ctx.write_varbytes(self.uri)
+        ctx.write_varbytes(self.uri.encode())
 
     @classmethod
     def deserialize(cls, ctx):
-        uri = ctx.read_varbytes(cls.MAX_URI_LENGTH)
+        utf8_uri = ctx.read_varbytes(cls.MAX_URI_LENGTH)
 
         try:
-            cls.check_uri(uri)
+            cls.check_uri(utf8_uri)
         except ValueError as exp:
             raise opentimestamps.core.serialize.DeserializationError("Invalid URI: %r" % exp)
 
-        return PendingAttestation(uri)
+        return PendingAttestation(utf8_uri.decode())
 
 class BitcoinBlockHeaderAttestation(TimeAttestation):
     """Signed by the Bitcoin blockchain
