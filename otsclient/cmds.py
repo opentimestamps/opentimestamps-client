@@ -88,7 +88,7 @@ def create_timestamp(timestamp, calendar_urls, setup_bitcoin=False):
     for calendar_url in calendar_urls:
         remote = RemoteCalendar(calendar_url)
 
-        logging.info('Submitting to remote calendar %r' % calendar_url)
+        logging.info('Submitting to remote calendar %s' % calendar_url)
         calendar_timestamp = remote.submit(timestamp.msg)
         timestamp.merge(calendar_timestamp)
 
@@ -198,15 +198,15 @@ def upgrade_timestamp(timestamp, args):
                 if attestation.__class__ == PendingAttestation:
                     calendar_urls = args.calendar_urls
                     if calendar_urls:
-                        logging.debug("Attestation URI %r overridden by user-specified remote calendar(s)" % attestation.uri)
+                        logging.debug("Attestation URI %s overridden by user-specified remote calendar(s)" % attestation.uri)
                     else:
                         if args.whitelist is None:
-                            logging.info("Ignoring attestation from calendar %r: remote calendars disabled" % attestation.uri)
+                            logging.info("Ignoring attestation from calendar %s: remote calendars disabled" % attestation.uri)
                             continue
                         elif attestation.uri in args.whitelist:
                             calendar_urls = [attestation.uri]
                         else:
-                            logging.info("Ignoring attestation from calendar %r: not whitelisted" % attestation.uri)
+                            logging.info("Ignoring attestation from calendar %s: not whitelisted" % attestation.uri)
                             continue
 
                     commitment = sub_stamp.msg
@@ -228,7 +228,7 @@ def upgrade_timestamp(timestamp, args):
                         if new_attestations:
                             changed = True
                             found_new_attestations = True
-                            logging.info("Got %d new attestation(s) from %r" % (len(new_attestations), calendar_url))
+                            logging.info("Got %d new attestation(s) from %s" % (len(new_attestations), calendar_url))
                             for new_att in new_attestations:
                                 logging.debug("    %r" % new_att)
                             existing_attestations.update(new_attestations)
