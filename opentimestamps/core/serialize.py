@@ -9,6 +9,7 @@
 # modified, propagated, or distributed except according to the terms contained
 # in the LICENSE file.
 
+import binascii
 import io
 
 class DeserializationError(Exception):
@@ -19,6 +20,9 @@ class BadMagicError(DeserializationError):
 
     Raise this when a file format magic number is incorrect.
     """
+    def __init__(self, expected_magic, actual_magic):
+        super().__init__('Expected magic bytes 0x%s, but got 0x%s instead' % (binascii.hexlify(expected_magic).decode(),
+                                                                              binascii.hexlify(actual_magic).decode()))
 
 class TruncationError(DeserializationError):
     """Truncated data encountered while deserializing"""
