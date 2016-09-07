@@ -126,9 +126,14 @@ def stamp_command(args):
 
     for (in_file, file_timestamp) in zip(args.files, file_timestamps):
         timestamp_file_path = in_file.name + '.ots'
-        with open(timestamp_file_path, 'xb') as timestamp_fd:
-            ctx = StreamSerializationContext(timestamp_fd)
-            file_timestamp.serialize(ctx)
+
+        try:
+            with open(timestamp_file_path, 'xb') as timestamp_fd:
+                ctx = StreamSerializationContext(timestamp_fd)
+                file_timestamp.serialize(ctx)
+        except IOError as exp:
+            logging.error("Failed to create timestamp %r: %s" % (timestamp_file_path, exp))
+            sys.exit(1)
 
 def is_timestamp_complete(stamp, args):
     """Determine if timestamp is complete and can be verified"""
@@ -258,17 +263,38 @@ def upgrade_command(args):
         logging.debug("Upgrading %s" % old_stamp_fd.name)
 
         ctx = StreamDeserializationContext(old_stamp_fd)
-        detached_timestamp = DetachedTimestampFile.deserialize(ctx)
+        try:
+            detached_timestamp = DetachedTimestampFile.deserialize(ctx)
+
+        # IOError's are already handled by argparse
+        except DeserializationError as exp:
+            logging.error("Invalid timestamp %r: %r" % (old_stamp_fd.name, exp))
+            sys.exit(1)
 
         changed = upgrade_timestamp(detached_timestamp.timestamp, args)
 
         if changed:
             backup_name = old_stamp_fd.name + '.bak'
             logging.debug("Got new timestamp data; renaming existing timestamp to %r" % backup_name)
-            os.rename(old_stamp_fd.name, backup_name)
-            with open(old_stamp_fd.name, 'xb') as new_stamp_fd:
-                ctx = StreamSerializationContext(new_stamp_fd)
-                detached_timestamp.serialize(ctx)
+
+            if os.path.exists(backup_name):
+                logging.error("Can't backup timestamp: %r already exists" % backup_name)
+                sys.exit(1)
+
+            try:
+                os.rename(old_stamp_fd.name, backup_name)
+            except IOError as exp:
+                logging.error("Couldn't backup exiting timestamp, rename failed: %s" % exp)
+                sys.exit(1)
+
+            try:
+                with open(old_stamp_fd.name, 'xb') as new_stamp_fd:
+                    ctx = StreamSerializationContext(new_stamp_fd)
+                    detached_timestamp.serialize(ctx)
+            except IOError as exp:
+                # FIXME: should we try to restore the old file here?
+                logging.error("Couldn't upgrade timestamp %s: %s" % (old_stamp_fd.name, exp))
+                sys.exit(1)
 
         if is_timestamp_complete(detached_timestamp.timestamp, args):
             logging.info("Success! Timestamp is complete")
@@ -323,7 +349,11 @@ def verify_timestamp(timestamp, args):
 
 def verify_command(args):
     ctx = StreamDeserializationContext(args.timestamp_fd)
-    detached_timestamp = DetachedTimestampFile.deserialize(ctx)
+    try:
+        detached_timestamp = DetachedTimestampFile.deserialize(ctx)
+    except DeserializationError as exp:
+        logging.error("Invalid timestamp %r: %r" % (args.timestamp_fd.name, exp))
+        sys.exit(1)
 
     if args.hex_digest is not None:
         try:
@@ -363,7 +393,11 @@ def verify_command(args):
 
 def info_command(args):
     ctx = StreamDeserializationContext(args.file)
-    detached_timestamp = DetachedTimestampFile.deserialize(ctx)
+    try:
+        detached_timestamp = DetachedTimestampFile.deserialize(ctx)
+    except DeserializationError as exp:
+        logging.error("Invalid timestamp %r: %r" % (args.file.name, exp))
+        sys.exit(1)
 
     print("File %s hash: %s" % (detached_timestamp.file_hash_op.HASHLIB_NAME, hexlify(detached_timestamp.file_digest).decode('utf8')))
 
