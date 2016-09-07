@@ -230,7 +230,7 @@ class DetachedTimestampFile:
         header_magic = ctx.read_bytes(len(cls.HEADER_MAGIC))
 
         if header_magic != cls.HEADER_MAGIC:
-            raise opentimestamps.core.serialize.BadMagicError()
+            raise opentimestamps.core.serialize.BadMagicError(cls.HEADER_MAGIC, header_magic)
 
         file_hash = ctx.read_varbytes(cls.MAX_FILE_DIGEST_LENGTH, cls.MIN_FILE_DIGEST_LENGTH)
         file_hash_op = CryptOp.deserialize(ctx)
