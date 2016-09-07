@@ -58,7 +58,7 @@ class PacketWriter(io.BufferedIOBase):
         if not isinstance(fd, io.BufferedIOBase):
             raise TypeError('fd must be buffered IO')
 
-        self.raw = io.BufferedWriter(fd)
+        self.raw = fd
         self.pending = b''
 
     def write(self, buf):

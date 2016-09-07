@@ -106,6 +106,14 @@ class Test_PacketWriter(unittest.TestCase):
             writer.flush()
             writer.write(b'World!')
 
+    def test_del_does_not_close(self):
+        """Deleting a PacketWriter does not close the underlying stream"""
+        with io.BytesIO() as fd:
+            writer = PacketWriter(fd)
+            del writer
+
+            self.assertFalse(fd.closed)
+
 class Test_PacketReader(unittest.TestCase):
     def test_close_only_packet(self):
         """Close does not close underlying stream"""
