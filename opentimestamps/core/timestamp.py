@@ -193,6 +193,9 @@ class DetachedTimestampFile:
     identified as 'data' by the file utility.
     """
 
+    MIN_FILE_DIGEST_LENGTH = 20 # 160-bit hash
+    MAX_FILE_DIGEST_LENGTH = 32 # 256-bit hash
+
     @property
     def file_digest(self):
         """The digest of the file that was timestamped"""
@@ -225,9 +228,11 @@ class DetachedTimestampFile:
     @classmethod
     def deserialize(cls, ctx):
         header_magic = ctx.read_bytes(len(cls.HEADER_MAGIC))
-        assert header_magic == cls.HEADER_MAGIC
 
-        file_hash = ctx.read_varbytes(64)
+        if header_magic != cls.HEADER_MAGIC:
+            raise opentimestamps.core.serialize.BadMagicError()
+
+        file_hash = ctx.read_varbytes(cls.MAX_FILE_DIGEST_LENGTH, cls.MIN_FILE_DIGEST_LENGTH)
         file_hash_op = CryptOp.deserialize(ctx)
         timestamp = Timestamp.deserialize(ctx, file_hash)
 

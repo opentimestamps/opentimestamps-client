@@ -14,6 +14,12 @@ import io
 class DeserializationError(Exception):
     """Base class for all errors encountered during deserialization"""
 
+class BadMagicError(DeserializationError):
+    """A magic number is incorrect
+
+    Raise this when a file format magic number is incorrect.
+    """
+
 class TruncationError(DeserializationError):
     """Truncated data encountered while deserializing"""
 
@@ -152,10 +158,12 @@ class StreamDeserializationContext(DeserializationContext):
             expected_length = self.read_varuint(None)
         return self.fd_read(expected_length)
 
-    def read_varbytes(self, max_length):
+    def read_varbytes(self, max_len, min_len=0):
         l = self.read_varuint()
-        if l > max_length:
-            raise DeserializationError('varbytes length exceeded; %d > %d' % (l, max_length))
+        if l > max_len:
+            raise DeserializationError('varbytes max length exceeded; %d > %d' % (l, max_len))
+        if l < min_len:
+            raise DeserializationError('varbytes min length not met; %d < %d' % (l, min_len))
         return self.fd_read(l)
 
 class BytesSerializationContext(StreamSerializationContext):
