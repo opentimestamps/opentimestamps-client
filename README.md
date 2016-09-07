@@ -13,5 +13,5 @@ python-bitcoinlib v0.6.1
 Unit tests
 ----------
 
-    python3 -m unittest discover -v
+python3 -m unittest discover -v
 
