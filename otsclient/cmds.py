@@ -268,7 +268,7 @@ def upgrade_command(args):
 
         # IOError's are already handled by argparse
         except DeserializationError as exp:
-            logging.error("Invalid timestamp %r: %r" % (old_stamp_fd.name, exp))
+            logging.error("Invalid timestamp %r: %s" % (old_stamp_fd.name, exp))
             sys.exit(1)
 
         changed = upgrade_timestamp(detached_timestamp.timestamp, args)
@@ -352,7 +352,7 @@ def verify_command(args):
     try:
         detached_timestamp = DetachedTimestampFile.deserialize(ctx)
     except DeserializationError as exp:
-        logging.error("Invalid timestamp %r: %r" % (args.timestamp_fd.name, exp))
+        logging.error("Invalid timestamp %r: %s" % (args.timestamp_fd.name, exp))
         sys.exit(1)
 
     if args.hex_digest is not None:
@@ -396,7 +396,7 @@ def info_command(args):
     try:
         detached_timestamp = DetachedTimestampFile.deserialize(ctx)
     except DeserializationError as exp:
-        logging.error("Invalid timestamp %r: %r" % (args.file.name, exp))
+        logging.error("Invalid timestamp %r: %s" % (args.file.name, exp))
         sys.exit(1)
 
     print("File %s hash: %s" % (detached_timestamp.file_hash_op.HASHLIB_NAME, hexlify(detached_timestamp.file_digest).decode('utf8')))
