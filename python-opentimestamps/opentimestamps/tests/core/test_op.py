@@ -43,7 +43,7 @@ class Test_Op(unittest.TestCase):
         self.assertNotEqual(OpAppend(b'foo'), OpAppend(b'bar'))
         self.assertNotEqual(OpAppend(b'foo'), OpPrepend(b'foo'))
 
-    def test_equality(self):
+    def test_ordering(self):
         """Operation ordering"""
         self.assertTrue(OpSHA1() < OpRIPEMD160())
         # FIXME: more tests
