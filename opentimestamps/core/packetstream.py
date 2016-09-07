@@ -146,15 +146,26 @@ class PacketWriter(io.BufferedIOBase):
         # self.flush() for us.
         super().close()
 
+class PacketMissingError(IOError):
+    """Raised when a packet is completely missing"""
+
 class PacketReader(io.BufferedIOBase):
     """Read an individual packet"""
 
     def __init__(self, fd):
-        """Create a new packet stream for reading"""
+        """Create a new packet stream reader
+
+        The first byte of the packet will be read immediately; if that read()
+        fails PacketMissingError will be raised.
+        """
         self.raw = fd
 
         # Bytes remaining until the end of the current sub-packet
-        self.len_remaining_subpacket = 0
+        l = fd.read(1)
+        if not l:
+            raise PacketMissingError("Packet completely missing")
+
+        self.len_remaining_subpacket = l[0]
 
         # Whether the end of the entire packet has been reached
         self.end_of_packet = False

@@ -107,24 +107,6 @@ class Test_PacketWriter(unittest.TestCase):
             writer.write(b'World!')
 
 class Test_PacketReader(unittest.TestCase):
-    def test_open_close(self):
-        """Open followed by close does not read underlying stream"""
-        fd = io.BytesIO(b'Hello World!')
-
-        reader = PacketReader(fd)
-
-        self.assertEqual(fd.tell(), 0)
-        self.assertFalse(reader.closed)
-        reader.close()
-        self.assertTrue(reader.closed)
-        self.assertEqual(fd.tell(), 0)
-        del reader
-        self.assertEqual(fd.tell(), 0)
-
-        with PacketReader(fd) as reader:
-            self.assertEqual(fd.tell(), 0)
-        self.assertEqual(fd.tell(), 0)
-
     def test_close_only_packet(self):
         """Close does not close underlying stream"""
         with io.BytesIO(b'\x00') as fd:
@@ -134,27 +116,18 @@ class Test_PacketReader(unittest.TestCase):
             self.assertTrue(reader.closed)
             self.assertFalse(fd.closed)
 
-            reader = PacketReader(fd)
-            self.assertEqual(reader.read(), b'')
-            self.assertFalse(reader.closed)
-            self.assertFalse(fd.closed)
-
-            reader.close()
-            self.assertTrue(reader.closed)
-            self.assertFalse(fd.closed)
-
     def test_valid_empty_packet(self):
         """Empty, but valid, packets"""
         with io.BytesIO(b'\x00') as fd:
             reader = PacketReader(fd)
-            self.assertEqual(fd.tell(), 0)
+            self.assertEqual(fd.tell(), 1)
 
             self.assertFalse(reader.end_of_packet)
 
             # reading nothing is a no-op
             self.assertEqual(reader.read(0), b'')
             self.assertFalse(reader.end_of_packet)
-            self.assertEqual(fd.tell(), 0)
+            self.assertEqual(fd.tell(), 1)
 
             self.assertEqual(reader.read(1), b'')
             self.assertTrue(reader.end_of_packet)
@@ -165,7 +138,7 @@ class Test_PacketReader(unittest.TestCase):
         """Reading less than a single sub-packet"""
         with io.BytesIO(b'\x0cHello World!\x00') as fd:
             reader = PacketReader(fd)
-            self.assertEqual(fd.tell(), 0)
+            self.assertEqual(fd.tell(), 1)
 
             self.assertEqual(reader.read(12), b'Hello World!')
             self.assertFalse(reader.end_of_packet) # reader hasn't found out yet
@@ -180,7 +153,7 @@ class Test_PacketReader(unittest.TestCase):
         """Reads that span multiple sub-packets"""
         with io.BytesIO(b'\x01H' + b'\x0bello World!' + b'\x00') as fd:
             reader = PacketReader(fd)
-            self.assertEqual(fd.tell(), 0)
+            self.assertEqual(fd.tell(), 1)
 
             self.assertEqual(reader.read(12), b'Hello World!')
             self.assertFalse(reader.end_of_packet) # reader hasn't found out yet
@@ -191,17 +164,14 @@ class Test_PacketReader(unittest.TestCase):
 
             self.assertEqual(fd.tell(), 15)
 
+    def test_missing_packet(self):
+        """Completely missing packet raises PacketMissingError"""
+        with io.BytesIO(b'') as fd:
+            with self.assertRaises(PacketMissingError):
+                PacketReader(fd)
+
     def test_truncated_packet(self):
         """Packet truncated at the first sub-packet"""
-
-        with io.BytesIO(b'') as fd:
-            reader = PacketReader(fd)
-
-            self.assertEqual(reader.read(), b'')
-            self.assertTrue(reader.end_of_packet)
-            self.assertEqual(reader.truncated, 1) # one missing byte, the end of packet marker
-
-            self.assertEqual(fd.tell(), 0)
 
         with io.BytesIO(b'\x01') as fd:
             reader = PacketReader(fd)
