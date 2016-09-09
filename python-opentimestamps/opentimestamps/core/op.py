@@ -178,6 +178,15 @@ class OpReverse(UnaryOp):
         warnings.warn("OpReverse may get removed; see https://github.com/opentimestamps/python-opentimestamps/issues/5", PendingDeprecationWarning)
         return msg[::-1]
 
+@UnaryOp._register_op
+class OpHexlify(UnaryOp):
+    """Convert bytes to lower-case hexadecimal representation"""
+    TAG = b'\xf3'
+    TAG_NAME = 'hexlify'
+
+    def __call__(self, msg):
+        return binascii.hexlify(msg)
+
 
 class CryptOp(UnaryOp):
     """Cryptographic transformations
