@@ -438,7 +438,19 @@ def git_extract_command(args):
         sys.exit(1)
 
     # Merge the two timestamps
-    append_commit_stamp = stamper.timestamp.ops.add(OpPrepend(commit_stamp.msg))
+
+    # First, we need to find the tip of the file timestamp
+    tip = file_stamp.timestamp
+    while tip.ops:
+        assert len(tip.ops) == 1 # FIXME: should handle divergence
+        tip = tuple(tip.ops.values())[0]
+
+    # Second, splice it to the commit timestamp.
+    #
+    # Remember that the commit timestamp was on SHA256(SHA256(git_commit) +
+    # SHA256(git_hash)), and the commitment to the tree is in the first op - an
+    # OpAppend - so we have to create an OpPrepend:
+    append_commit_stamp = tip.ops.add(OpPrepend(commit_stamp.msg))
     append_commit_stamp.merge(tuple(commit_stamp.ops.values())[0])
 
     if args.timestamp_file is None:
