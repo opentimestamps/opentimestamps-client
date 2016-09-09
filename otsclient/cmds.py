@@ -487,7 +487,7 @@ def git_extract_command(args):
     append_commit_stamp.merge(tuple(commit_stamp.ops.values())[0])
 
     if args.timestamp_file is None:
-        args.timestamp_file = open(args.path + '.ots', 'wb')
+        args.timestamp_file = open(args.path + '.ots', 'xb')
 
     with args.timestamp_file as fd:
         ctx = StreamSerializationContext(fd)
