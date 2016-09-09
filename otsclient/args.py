@@ -157,10 +157,28 @@ def parse_ots_args(raw_args):
                              help='Filename')
 
 
+
     parser_stamp.set_defaults(cmd_func=otsclient.cmds.stamp_command)
     parser_upgrade.set_defaults(cmd_func=otsclient.cmds.upgrade_command)
     parser_verify.set_defaults(cmd_func=otsclient.cmds.verify_command)
     parser_info.set_defaults(cmd_func=otsclient.cmds.info_command)
+
+    try:
+        import git
+
+        parser_git_extract = subparsers.add_parser('git-extract',
+                                                   help='Extract timestamp for a single file from a timestamp git commit')
+        parser_git_extract.add_argument('path', metavar='PATH', type=str,
+                                        help='Path to file, from root of the git repo')
+        parser_git_extract.add_argument('timestamp_file', metavar='TIMESTAMP', type=argparse.FileType('wb'), nargs='?',
+                                        help='Filename to write timestamp to. Default: PATH.ots')
+        parser_git_extract.add_argument('commit', metavar='COMMIT', type=str, nargs='?',
+                                        default='HEAD',
+                                        help='Commit. Default: %(default)s')
+        parser_git_extract.set_defaults(cmd_func=otsclient.cmds.git_extract_command)
+
+    except ImportError:
+        pass
 
     args = parser.parse_args(raw_args)
     args = handle_common_options(args, parser)

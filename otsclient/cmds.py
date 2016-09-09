@@ -403,3 +403,47 @@ def info_command(args):
 
     print("Timestamp:")
     print(detached_timestamp.timestamp.str_tree())
+
+
+
+def git_extract_command(args):
+    import git
+    from otsclient.git import hash_signed_commit, deserialize_ascii_armored_timestamp, extract_sig_from_git_commit
+    from opentimestamps.git import GitTreeTimestamper
+
+    repo = git.Repo()
+
+    commit = repo.commit(args.commit)
+    serialized_signed_commit = commit.data_stream[3].read()
+
+    git_commit, gpg_sig = extract_sig_from_git_commit(serialized_signed_commit)
+
+    if not gpg_sig:
+        logging.error("%s is not signed" % args.commit)
+        sys.exit(1)
+
+    commit_stamp = deserialize_ascii_armored_timestamp(git_commit, gpg_sig)
+
+    if commit_stamp is None:
+        logging.error("%s is signed, but not timestamped" % args.commit)
+        sys.exit(1)
+
+    stamper = GitTreeTimestamper(commit.tree)
+
+    try:
+        file_stamp = stamper[args.path]
+    except Exception as exp:
+        # FIXME
+        logging.error("%r", exp)
+        sys.exit(1)
+
+    # Merge the two timestamps
+    append_commit_stamp = stamper.timestamp.ops.add(OpPrepend(commit_stamp.msg))
+    append_commit_stamp.merge(tuple(commit_stamp.ops.values())[0])
+
+    if args.timestamp_file is None:
+        args.timestamp_file = open(args.path + '.ots', 'wb')
+
+    with args.timestamp_file as fd:
+        ctx = StreamSerializationContext(fd)
+        file_stamp.serialize(ctx)

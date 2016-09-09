@@ -29,6 +29,8 @@ from opentimestamps.core.op import OpAppend, OpSHA256
 from opentimestamps.core.serialize import BytesSerializationContext, BytesDeserializationContext
 
 import otsclient.args
+from otsclient.git import hash_signed_commit, write_ascii_armored, deserialize_ascii_armored_timestamp
+
 
 parser = otsclient.args.make_common_options_arg_parser()
 
@@ -61,59 +63,6 @@ if len(args.gpgargs) == 0 or args.gpgargs[0] != '--':
     parser.error("You need to have '--' as the last argument; see docs")
 
 args.gpgargs = args.gpgargs[1:]
-
-ASCII_ARMOR_HEADER = b'-----BEGIN OPENTIMESTAMPS GIT TIMESTAMP-----\n\n'
-ASCII_ARMOR_FOOTER = b'-----END OPENTIMESTAMPS GIT TIMESTAMP-----\n'
-
-def hash_signed_commit(git_commit, gpg_sig):
-    return OpSHA256()(OpSHA256()(git_commit) + OpSHA256()(gpg_sig))
-
-def write_ascii_armored(timestamp, fd, minor_version):
-    ctx = BytesSerializationContext()
-    timestamp.serialize(ctx)
-    serialized_timestamp = ctx.getbytes()
-
-    fd.write(ASCII_ARMOR_HEADER)
-
-    header = (b'\x01' + # major
-              bytes([minor_version]))
-    b64_encoded = base64.standard_b64encode(header + serialized_timestamp)
-    for chunk in (b64_encoded[i:i+64] for i in range(0, len(b64_encoded), 64)):
-        fd.write(chunk)
-        fd.write(b'\n')
-
-    fd.write(ASCII_ARMOR_FOOTER)
-
-def deserialize_ascii_armored_timestamp(git_commit, gpg_sig):
-    stamp_start = gpg_sig.find(ASCII_ARMOR_HEADER)
-    if stamp_start == -1:
-        return None
-
-    stamp_end = gpg_sig.find(b'\n' + ASCII_ARMOR_FOOTER)
-    if stamp_end == -1:
-        return None
-
-    base64_encoded_stamp = gpg_sig[stamp_start + len(ASCII_ARMOR_HEADER):stamp_end]
-
-    initial_msg = hash_signed_commit(git_commit, gpg_sig[0:stamp_start])
-    try:
-        serialized_stamp = base64.standard_b64decode(base64_encoded_stamp)
-
-        major_version = serialized_stamp[0]
-        minor_version = serialized_stamp[1]
-
-        if major_version != 1:
-            logging.error("Can't verify timestamp; major version %d not known" % major_version)
-
-        logging.debug("Git timestamp is version %d.%d" % (major_version, minor_version))
-
-        ctx = BytesDeserializationContext(serialized_stamp[2:])
-        timestamp = Timestamp.deserialize(ctx, initial_msg)
-    except Exception as err:
-        logging.error("Bad timestamp: %r" % err)
-        return None
-
-    return timestamp
 
 if '-bsau' in args.gpgargs:
     with subprocess.Popen([args.gpg_program] + args.gpgargs, stdin=subprocess.PIPE, stdout=subprocess.PIPE) as gpg_proc:
