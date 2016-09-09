@@ -168,6 +168,8 @@ def parse_ots_args(raw_args):
 
         parser_git_extract = subparsers.add_parser('git-extract',
                                                    help='Extract timestamp for a single file from a timestamp git commit')
+        parser_git_extract.add_argument('--annex', action='store_true',
+                                        help='Enable git-annex symlink support')
         parser_git_extract.add_argument('path', metavar='PATH', type=str,
                                         help='Path to file, from root of the git repo')
         parser_git_extract.add_argument('timestamp_file', metavar='TIMESTAMP', type=argparse.FileType('wb'), nargs='?',

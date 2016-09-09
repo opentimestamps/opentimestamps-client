@@ -437,6 +437,39 @@ def git_extract_command(args):
         logging.error("%r", exp)
         sys.exit(1)
 
+    blob = commit.tree[args.path]
+    if args.annex and blob.mode == 0o120000:
+        fd = io.BytesIO()
+        blob.stream_data(fd)
+        link_contents = fd.getvalue()
+
+        if b'SHA256' in link_contents:
+            hex_digest_start = link_contents.find(b'--')
+            if hex_digest_start < 0:
+                logging.error("%r not a git-annex symlink" % args.path)
+                sys.exit(1)
+            hex_digest_start += 2
+
+            hex_digest = link_contents[hex_digest_start:hex_digest_start+32*2]
+
+            new_file_stamp = DetachedTimestampFile(OpSHA256(), Timestamp(binascii.unhexlify(hex_digest)))
+
+            new_file_stamp.timestamp.ops.add(OpHexlify()) \
+                                    .ops.add(OpPrepend(link_contents[0:hex_digest_start])) \
+                                    .ops.add(OpAppend(link_contents[hex_digest_start+32*2:])) \
+                                    .ops[OpSHA256()] = file_stamp.timestamp
+
+            file_stamp = new_file_stamp
+
+        else:
+            logging.error("%r not a SHA256 git-annex symlink" % args.path)
+            sys.exit(1)
+
+
+    elif blob.mode == 0o120000:
+        logging.error("%r is a symlink; see --annex" % args.path)
+        sys.exit(1)
+
     # Merge the two timestamps
 
     # First, we need to find the tip of the file timestamp
