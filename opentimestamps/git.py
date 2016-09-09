@@ -13,6 +13,7 @@
 
 import dbm
 import git
+import os
 
 from opentimestamps.core.timestamp import Timestamp, DetachedTimestampFile
 from opentimestamps.core.op import OpAppend, OpSHA256
@@ -54,8 +55,8 @@ class GitTreeTimestamper:
         self.tree = tree
 
         if db is None:
-            os.make_dirs(repo.git_dir + '/ots', exist_ok=True)
-            db = dbm.open(repo.git_dir + '/ots/tree-hash-cache-v1', 'c')
+            os.makedirs(tree.repo.git_dir + '/ots', exist_ok=True)
+            db = dbm.open(tree.repo.git_dir + '/ots/tree-hash-cache-v1', 'c')
         self.db = db
         self.file_hash_op = file_hash_op
         self.tree_hash_op = tree_hash_op
