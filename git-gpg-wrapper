@@ -17,6 +17,13 @@ import logging
 import subprocess
 import sys
 
+try:
+    import git
+    from opentimestamps.git import GitTreeTimestamper
+    REHASH_TREES_SUPPORTED = True
+except ImportError:
+    REHASH_TREES_SUPPORTED = False
+
 from opentimestamps.core.timestamp import Timestamp
 from opentimestamps.core.op import OpAppend, OpSHA256
 from opentimestamps.core.serialize import BytesSerializationContext, BytesDeserializationContext
@@ -33,7 +40,8 @@ parser.add_argument('-c','--calendar', metavar='URL', dest='calendar_urls', acti
                     help='Create timestamp with the aid of a remote calendar. May be specified multiple times. Default: %(default)r')
 parser.add_argument('-b','--btc-wallet', dest='use_btc_wallet', action='store_true',
                     help='Create timestamp locally with the local Bitcoin wallet.')
-
+parser.add_argument('--rehash-trees', action='store_true',
+                    help='Re-hash tree contents (requires GitPython)')
 parser.add_argument("gpgargs", nargs=argparse.REMAINDER,
                     help='Arguments passed to GnuPG binary')
 
@@ -60,14 +68,15 @@ ASCII_ARMOR_FOOTER = b'-----END OPENTIMESTAMPS GIT TIMESTAMP-----\n'
 def hash_signed_commit(git_commit, gpg_sig):
     return OpSHA256()(OpSHA256()(git_commit) + OpSHA256()(gpg_sig))
 
-def write_ascii_armored(timestamp, fd):
+def write_ascii_armored(timestamp, fd, minor_version):
     ctx = BytesSerializationContext()
     timestamp.serialize(ctx)
     serialized_timestamp = ctx.getbytes()
 
     fd.write(ASCII_ARMOR_HEADER)
 
-    header = b'\x01\x00' # major.minor
+    header = (b'\x01' + # major
+              bytes([minor_version]))
     b64_encoded = base64.standard_b64encode(header + serialized_timestamp)
     for chunk in (b64_encoded[i:i+64] for i in range(0, len(b64_encoded), 64)):
         fd.write(chunk)
@@ -126,11 +135,25 @@ if '-bsau' in args.gpgargs:
 
         logging.debug("PGP sig: %r" % gpg_sig)
 
-
         # Timestamp the commit and tag together
         signed_commit_timestamp = Timestamp(hash_signed_commit(git_commit, gpg_sig))
+        final_timestamp = signed_commit_timestamp
 
-        otsclient.cmds.create_timestamp(signed_commit_timestamp, args.calendar_urls, args.setup_bitcoin if args.use_btc_wallet else False)
+        minor_version = 0
+        if REHASH_TREES_SUPPORTED and args.rehash_trees:
+            # CWD will be the git repo, so this should get us the right one
+            repo = git.Repo()
+
+            hextree = git_commit[5:5 + 20*2].decode()
+            tree = repo.tree(hextree)
+            tree.path = ''
+
+            tree_stamper = GitTreeTimestamper(tree)
+
+            final_timestamp = signed_commit_timestamp.ops.add(OpAppend(tree_stamper.timestamp.msg)).ops.add(OpSHA256())
+            minor_version = 1
+
+        otsclient.cmds.create_timestamp(final_timestamp, args.calendar_urls, args.setup_bitcoin if args.use_btc_wallet else False)
 
         if args.wait:
             # Interpreted as override by the upgrade command
@@ -139,7 +162,7 @@ if '-bsau' in args.gpgargs:
             otsclient.cmds.upgrade_timestamp(signed_commit_timestamp, args)
 
         sys.stdout.buffer.write(gpg_sig)
-        write_ascii_armored(signed_commit_timestamp, sys.stdout.buffer)
+        write_ascii_armored(signed_commit_timestamp, sys.stdout.buffer, minor_version)
 
 elif '--verify' in args.gpgargs and len(args.gpgargs) == 4:
     # Verify
