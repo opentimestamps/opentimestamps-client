@@ -73,6 +73,13 @@ class GitTreeTimestamper:
                     stamper = GitTreeTimestamper(item, db=db, file_hash_op=file_hash_op, tree_hash_op=tree_hash_op)
                     timestamp = stamper.timestamp
 
+                elif isinstance(item, git.Submodule):
+                    # A submodule is just a git commit hash.
+                    #
+                    # Unfortunately we're not guaranteed to have the repo
+                    # behind it, so all we can do is timestamp that SHA1 hash.
+                    timestamp = Timestamp(item.binsha)
+
                 else:
                     raise NotImplementedError("Don't know what to do with %r" % item)
 

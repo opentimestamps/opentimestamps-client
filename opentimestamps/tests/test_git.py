@@ -110,3 +110,14 @@ class Test_GitTreeTimestamper(unittest.TestCase):
         stamper = self.make_stamper("75736a2524c624c1a08a574938686f83de5a8a86")
 
         two_a_stamp = stamper['two/a']
+
+    def test_submodule(self):
+        """Git tree with submodule"""
+        stamper = self.make_stamper("a3efe73f270866bc8d8f6ce01d22c02f14b21a1a")
+
+        nonce_key = OpSHA256()(bytes.fromhex('48b96efa66e2958e955a31a7d9b8f2ac8384b8b9') +
+                               b'\x01\x89\x08\x0c\xfb\xd0\xe8\x08') # tag
+
+        self.assertEqual(stamper.timestamp.msg,
+                         OpSHA256()(bytes.fromhex('48b96efa66e2958e955a31a7d9b8f2ac8384b8b9') +
+                                    OpSHA256()(bytes.fromhex('48b96efa66e2958e955a31a7d9b8f2ac8384b8b9') + nonce_key)))
