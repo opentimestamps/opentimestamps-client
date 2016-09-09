@@ -104,3 +104,9 @@ class Test_GitTreeTimestamper(unittest.TestCase):
 
         self.assertEqual(stamper.timestamp.msg,
                          OpSHA256()(n_one + n_two))
+
+    def test_tree_with_prefix_matching_blob(self):
+        """Git tree with prefix matching blob"""
+        stamper = self.make_stamper("75736a2524c624c1a08a574938686f83de5a8a86")
+
+        two_a_stamp = stamper['two/a']

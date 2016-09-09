@@ -101,6 +101,9 @@ class GitTreeTimestamper:
 
         # Second, calculate per-item nonces deterministically from that key,
         # and add those nonces to the timestamps of every item in the tree.
+        #
+        # Note how while we usually use 128-bit nonces, here we're using
+        # full-length nonces: this helps obscure the directory structure.
         def deterministically_nonce_stamp(private_stamp):
             nonce = tree_hash_op(private_stamp.msg + nonce_key)
             nonce_added = private_stamp.ops.add(OpAppend(nonce))
@@ -133,7 +136,7 @@ class GitTreeTimestamper:
                 else:
                     raise ValueError("Path %r is not a blob" % item.path)
 
-            elif path.startswith(item.path):
+            elif path.startswith(item.path + '/'):
                 if isinstance(item, git.Tree):
                     # recurse
                     tree_stamper = GitTreeTimestamper(item, db=self.db, file_hash_op=self.file_hash_op, tree_hash_op=self.tree_hash_op)
