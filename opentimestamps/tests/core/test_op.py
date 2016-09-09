@@ -26,6 +26,13 @@ class Test_Op(unittest.TestCase):
 #        """Reverse operation"""
 #        self.assertEqual(OpReverse()(b'abcd'), b'dcba')
 
+    def test_reverse(self):
+        """Hexlify operation"""
+        for msg, expected in ((b'', b''),
+                              (b'\x00', b'00'),
+                              (b'\xde\xad\xbe\xef', b'deadbeef')):
+            self.assertEqual(OpHexlify()(msg), expected)
+
     def test_sha256(self):
         """SHA256 operation"""
         self.assertEqual(OpSHA256()(b''), bytes.fromhex('e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'))
