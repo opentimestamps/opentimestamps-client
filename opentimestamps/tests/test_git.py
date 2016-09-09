@@ -121,3 +121,14 @@ class Test_GitTreeTimestamper(unittest.TestCase):
         self.assertEqual(stamper.timestamp.msg,
                          OpSHA256()(bytes.fromhex('48b96efa66e2958e955a31a7d9b8f2ac8384b8b9') +
                                     OpSHA256()(bytes.fromhex('48b96efa66e2958e955a31a7d9b8f2ac8384b8b9') + nonce_key)))
+
+    def test_dangling_symlink(self):
+        """Git tree with dangling symlink"""
+        stamper = self.make_stamper("a59620c107a67c4b6323e6e96aed9929d6a89618")
+
+        nonce_key = OpSHA256()(OpSHA256()(b'does-not-exist') +
+                               b'\x01\x89\x08\x0c\xfb\xd0\xe8\x08') # tag
+
+        self.assertEqual(stamper.timestamp.msg,
+                         OpSHA256()(OpSHA256()(b'does-not-exist') +
+                                    OpSHA256()(OpSHA256()(b'does-not-exist') + nonce_key)))
