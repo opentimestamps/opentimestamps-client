@@ -60,6 +60,9 @@ class TimestampCache:
         if self.path is None:
             raise KeyError
 
+        elif len(commitment) > 64: # FIXME: hack to avoid filename-too-long errors
+            raise KeyError
+
         try:
             with open(self.__commitment_to_filename(commitment), 'rb') as stamp_fd:
                 ctx = StreamDeserializationContext(stamp_fd)
