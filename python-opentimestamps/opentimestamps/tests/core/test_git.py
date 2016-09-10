@@ -19,7 +19,7 @@ from bitcoin.core import b2x
 
 from opentimestamps.core.timestamp import *
 from opentimestamps.core.op import *
-from opentimestamps.git import *
+from opentimestamps.core.git import *
 
 class Test_GitTreeTimestamper(unittest.TestCase):
 
@@ -32,7 +32,7 @@ class Test_GitTreeTimestamper(unittest.TestCase):
 
     def make_stamper(self, commit):
         # Yes, we're using our own git repo as the test data!
-        repo = git.Repo(__file__ + '../../../../')
+        repo = git.Repo(__file__ + '../../../../../')
 
         db = dbm.open(self.db_dir.name + '/db', 'c')
         tree = repo.commit(commit).tree
