@@ -16,7 +16,7 @@ import git
 import os
 
 from opentimestamps.core.timestamp import Timestamp, DetachedTimestampFile
-from opentimestamps.core.op import OpAppend, OpSHA256
+from opentimestamps.core.op import OpAppend, OpPrepend, OpSHA256
 from opentimestamps.timestamp import make_merkle_tree
 
 class GitTreeTimestamper:
@@ -56,7 +56,11 @@ class GitTreeTimestamper:
 
         if db is None:
             os.makedirs(tree.repo.git_dir + '/ots', exist_ok=True)
-            db = dbm.open(tree.repo.git_dir + '/ots/tree-hash-cache-v1', 'c')
+
+            # WARNING: change the version number if any of the following is
+            # changed; __init__() is consensus-critical!
+            db = dbm.open(tree.repo.git_dir + '/ots/tree-hash-cache-v2', 'c')
+
         self.db = db
         self.file_hash_op = file_hash_op
         self.tree_hash_op = tree_hash_op
@@ -109,12 +113,19 @@ class GitTreeTimestamper:
         # Second, calculate per-item nonces deterministically from that key,
         # and add those nonces to the timestamps of every item in the tree.
         #
-        # Note how while we usually use 128-bit nonces, here we're using
-        # full-length nonces: this helps obscure the directory structure.
+        # While we usually use 128-bit nonces, here we're using full-length
+        # nonces. Additionally, we pick append/prepend pseudo-randomly. This
+        # helps obscure the directory structure, as a commitment for a git tree
+        # is indistinguishable from a inner node in the per-git-tree merkle
+        # tree.
         def deterministically_nonce_stamp(private_stamp):
-            nonce = tree_hash_op(private_stamp.msg + nonce_key)
-            nonce_added = private_stamp.ops.add(OpAppend(nonce))
+            nonce1 = tree_hash_op(private_stamp.msg + nonce_key)
+            nonce2 = tree_hash_op(nonce1)
+
+            side = OpPrepend if nonce1[0] & 0b1 else OpAppend
+            nonce_added = private_stamp.ops.add(side(nonce2))
             return nonce_added.ops.add(tree_hash_op)
+
         nonced_contents = (deterministically_nonce_stamp(stamp) for item, stamp in self.contents)
 
         # FIXME: note how make_merkle_tree() is consensus critical here...
