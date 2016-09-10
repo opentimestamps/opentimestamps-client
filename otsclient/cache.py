@@ -22,22 +22,23 @@ class TimestampCache:
     def __init__(self, path):
         self.path = path
 
-        # Simple version scheme
-        try:
-            with open(self.path + '/version', 'r') as fd:
-                try:
-                    major, minor = fd.read().strip().split('.')
-                    major = int(major)
-                    minor = int(minor)
-                    if major != 1:
-                        raise Exception
-                except Exception:
-                    raise Exception("Unknown timestamp cache version")
+        if path is not None:
+            # Simple version scheme
+            try:
+                with open(self.path + '/version', 'r') as fd:
+                    try:
+                        major, minor = fd.read().strip().split('.')
+                        major = int(major)
+                        minor = int(minor)
+                        if major != 1:
+                            raise Exception
+                    except Exception:
+                        raise Exception("Unknown timestamp cache version")
 
-        except FileNotFoundError:
-            os.makedirs(self.path, exist_ok=True)
-            with open(self.path + '/version', 'w') as fd:
-                fd.write('%d.%d\n' % (1,0))
+            except FileNotFoundError:
+                os.makedirs(self.path, exist_ok=True)
+                with open(self.path + '/version', 'w') as fd:
+                    fd.write('%d.%d\n' % (1,0))
 
     def __commitment_to_filename(self, commitment):
         assert len(commitment) >= 20
