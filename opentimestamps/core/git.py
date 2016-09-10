@@ -15,9 +15,8 @@ import dbm
 import git
 import os
 
-from opentimestamps.core.timestamp import Timestamp, DetachedTimestampFile
+from opentimestamps.core.timestamp import Timestamp, DetachedTimestampFile, make_merkle_tree
 from opentimestamps.core.op import OpAppend, OpPrepend, OpSHA256
-from opentimestamps.timestamp import make_merkle_tree
 
 class GitTreeTimestamper:
     """Efficient, privacy-preserving, git tree timestamping
@@ -128,8 +127,6 @@ class GitTreeTimestamper:
 
         nonced_contents = (deterministically_nonce_stamp(stamp) for item, stamp in self.contents)
 
-        # FIXME: note how make_merkle_tree() is consensus critical here...
-        #
         # Note how the current algorithm, if asked to timestamp a tree
         # with a single thing in it, will return the hash of that thing
         # directly. From the point of view of just commiting to the data that's

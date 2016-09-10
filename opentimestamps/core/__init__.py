@@ -8,3 +8,11 @@
 # No part of python-opentimestamps including this file, may be copied,
 # modified, propagated, or distributed except according to the terms contained
 # in the LICENSE file.
+
+"""Consensus-critical code
+
+Basically, everything under opentimestamps.core has the property that changes
+to it may break timestamp validation in non-backwards-compatible ways that are
+difficult to recover from. We keep such code separate as a reminder to
+ourselves to pay extra attention when making changes.
+"""

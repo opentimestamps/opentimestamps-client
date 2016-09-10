@@ -11,9 +11,8 @@
 
 from bitcoin.core import b2lx
 
-from opentimestamps.core.timestamp import Timestamp
+from opentimestamps.core.timestamp import Timestamp, cat_sha256d
 from opentimestamps.core.op import OpAppend, OpPrepend
-from opentimestamps.timestamp import cat_sha256d
 from opentimestamps.core.notary import BitcoinBlockHeaderAttestation
 
 
