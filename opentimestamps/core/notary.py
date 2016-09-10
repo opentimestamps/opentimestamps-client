@@ -104,7 +104,7 @@ class PendingAttestation(TimeAttestation):
         self.uri = uri
 
     def __repr__(self):
-        return 'PendingAttestation(%s)' % self.uri
+        return 'PendingAttestation(%r)' % self.uri
 
     def __eq__(self, other):
         if other.__class__ is PendingAttestation:
