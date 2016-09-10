@@ -115,8 +115,9 @@ def stamp_command(args):
     merkle_tip = make_merkle_tree(merkle_roots)
 
     if not args.calendar_urls:
-        # Neither calendar nor wallet specified; add default
-        args.calendar_urls.append('https://pool.opentimestamps.org')
+        # Neither calendar nor wallet specified; add defaults
+        args.calendar_urls.append('https://a.pool.opentimestamps.org')
+        args.calendar_urls.append('https://b.pool.opentimestamps.org')
 
     create_timestamp(merkle_tip, args.calendar_urls, args.setup_bitcoin if args.use_btc_wallet else False)
 
