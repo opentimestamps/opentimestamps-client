@@ -12,7 +12,7 @@
 import binascii
 import hashlib
 
-from opentimestamps.core.op import Op, UnaryOp, CryptOp, OpSHA256, OpAppend, OpPrepend
+from opentimestamps.core.op import Op, UnaryOp, CryptOp, OpSHA256, OpAppend, OpPrepend, MsgValueError
 from opentimestamps.core.notary import TimeAttestation
 
 import opentimestamps.core.serialize
@@ -61,6 +61,12 @@ class Timestamp:
         return self.__msg
 
     def __init__(self, msg):
+        if not isinstance(msg, bytes):
+            raise TypeError("Expected msg to be bytes; got %r" % msg.__class__)
+
+        elif len(msg) > Op.MAX_MSG_LENGTH:
+            raise ValueError("Message exceeds Op length limit; %d > %d" % (len(msg), Op.MAX_MSG_LENGTH))
+
         self.__msg = bytes(msg)
         self.attestations = set()
         self.ops = OpSet(lambda op: Timestamp(op(msg)))
@@ -127,7 +133,15 @@ class Timestamp:
         Because the serialization format doesn't include the message that the
         timestamp operates on, you have to provide it so that the correct
         operation results can be calculated.
+
+        The message you provide is assumed to be correct; if it causes a op to
+        raise MsgValueError when the results are being calculated (done
+        immediately, not lazily) DeserializationError is raised instead.
         """
+
+        # FIXME: note how a lazy implementation would have different behavior
+        # with respect to deserialization errors; is this a good design?
+
         self = cls(initial_msg)
 
         def do_tag_or_attestation(tag):
@@ -137,7 +151,13 @@ class Timestamp:
 
             else:
                 op = Op.deserialize_from_tag(ctx, tag)
-                stamp = Timestamp.deserialize(ctx, op(initial_msg))
+
+                try:
+                    result = op(initial_msg)
+                except MsgValueError as exp:
+                    raise opentimestamps.core.serialize.DeserializationError("Invalid timestamp; message invalid for op %r: %r" % (op, exp))
+
+                stamp = Timestamp.deserialize(ctx, result)
                 self.ops[op] = stamp
 
         tag = ctx.read_bytes(1)

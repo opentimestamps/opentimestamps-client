@@ -102,6 +102,18 @@ class Test_Timestamp(unittest.TestCase):
                  b'\xff' + (b'\x00' + bytes.fromhex('83dfe30d2ef90c8e' + '07' + '06') + b'foobaz') + \
                  b'\x08' + (b'\x00' + bytes.fromhex('83dfe30d2ef90c8e' + '07' + '06') + b'deeper'))
 
+    def test_deserialization_invalid_op_msg(self):
+        """Timestamp deserialization when message is invalid for op"""
+        serialized = (b'\xf0\x01\x00' + # OpAppend(b'\x00')
+                      b'\x00' + bytes.fromhex('83dfe30d2ef90c8e' + '07' + '06') + b'barfoo') # perfectly valid pending attestation
+
+        # Perfectly ok, results is 4096 bytes long
+        Timestamp.deserialize(BytesDeserializationContext(serialized), b'.'*4095)
+
+        with self.assertRaises(DeserializationError):
+            # Not ok, result would be 4097 bytes long
+            Timestamp.deserialize(BytesDeserializationContext(serialized), b'.'*4096)
+
 class Test_DetachedTimestampFile(unittest.TestCase):
     def test_create_from_file(self):
         file_stamp = DetachedTimestampFile.from_fd(OpSHA256(), io.BytesIO(b''))
