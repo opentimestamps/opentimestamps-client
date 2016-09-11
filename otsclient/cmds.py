@@ -410,7 +410,7 @@ def info_command(args):
 def git_extract_command(args):
     import git
     from otsclient.git import hash_signed_commit, deserialize_ascii_armored_timestamp, extract_sig_from_git_commit
-    from opentimestamps.git import GitTreeTimestamper
+    from opentimestamps.core.git import GitTreeTimestamper
 
     repo = git.Repo()
 

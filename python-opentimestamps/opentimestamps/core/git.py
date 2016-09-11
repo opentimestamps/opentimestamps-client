@@ -58,7 +58,7 @@ class GitTreeTimestamper:
 
             # WARNING: change the version number if any of the following is
             # changed; __init__() is consensus-critical!
-            db = dbm.open(tree.repo.git_dir + '/ots/tree-hash-cache-v2', 'c')
+            db = dbm.open(tree.repo.git_dir + '/ots/tree-hash-cache-v3', 'c')
 
         self.db = db
         self.file_hash_op = file_hash_op
@@ -81,7 +81,12 @@ class GitTreeTimestamper:
                     #
                     # Unfortunately we're not guaranteed to have the repo
                     # behind it, so all we can do is timestamp that SHA1 hash.
-                    timestamp = Timestamp(item.binsha)
+                    #
+                    # We do run it through the tree_hash_op to make it
+                    # indistinguishable from other things; consider the
+                    # degenerate case where the only thing in a git repo was a
+                    # submodule.
+                    timestamp = Timestamp(tree_hash_op(item.binsha))
 
                 else:
                     raise NotImplementedError("Don't know what to do with %r" % item)
@@ -91,48 +96,58 @@ class GitTreeTimestamper:
 
         self.contents = tuple(do_item(item) for item in self.tree)
 
-        # Deterministically nonce contents in an all-or-nothing transform. As
-        # mentioned in the class docstring, we want to ensure that the the
-        # siblings of any leaf in the merkle tree don't give the attacker any
-        # information about what else is in the tree, unless the attacker
-        # already knows (or can brute-force) the entire contents of the tree.
-        #
-        # While not perfect - a user-provided persistant key would prevent the
-        # attacker from being able to brute-force the contents - this option
-        # has the advantage of being possible to calculate deterministically
-        # using only the tree itself, removing the need to keep secret keys
-        # that can easily be lost.
-        #
-        # First, calculate a nonce_key that depends on the entire contents of
-        # the tree. The 8-byte tag ensures the key calculated is unique for
-        # this purpose.
-        contents_sum = b''.join(stamp.msg for item, stamp in self.contents)
-        nonce_key = tree_hash_op(contents_sum + b'\x01\x89\x08\x0c\xfb\xd0\xe8\x08')
+        if len(self.contents) > 1:
+            # Deterministically nonce contents in an all-or-nothing transform. As
+            # mentioned in the class docstring, we want to ensure that the the
+            # siblings of any leaf in the merkle tree don't give the attacker any
+            # information about what else is in the tree, unless the attacker
+            # already knows (or can brute-force) the entire contents of the tree.
+            #
+            # While not perfect - a user-provided persistant key would prevent the
+            # attacker from being able to brute-force the contents - this option
+            # has the advantage of being possible to calculate deterministically
+            # using only the tree itself, removing the need to keep secret keys
+            # that can easily be lost.
+            #
+            # First, calculate a nonce_key that depends on the entire contents of
+            # the tree. The 8-byte tag ensures the key calculated is unique for
+            # this purpose.
+            contents_sum = b''.join(stamp.msg for item, stamp in self.contents)
+            nonce_key = tree_hash_op(contents_sum + b'\x01\x89\x08\x0c\xfb\xd0\xe8\x08')
 
-        # Second, calculate per-item nonces deterministically from that key,
-        # and add those nonces to the timestamps of every item in the tree.
-        #
-        # While we usually use 128-bit nonces, here we're using full-length
-        # nonces. Additionally, we pick append/prepend pseudo-randomly. This
-        # helps obscure the directory structure, as a commitment for a git tree
-        # is indistinguishable from a inner node in the per-git-tree merkle
-        # tree.
-        def deterministically_nonce_stamp(private_stamp):
-            nonce1 = tree_hash_op(private_stamp.msg + nonce_key)
-            nonce2 = tree_hash_op(nonce1)
+            # Second, calculate per-item nonces deterministically from that key,
+            # and add those nonces to the timestamps of every item in the tree.
+            #
+            # While we usually use 128-bit nonces, here we're using full-length
+            # nonces. Additionally, we pick append/prepend pseudo-randomly. This
+            # helps obscure the directory structure, as a commitment for a git tree
+            # is indistinguishable from a inner node in the per-git-tree merkle
+            # tree.
+            def deterministically_nonce_stamp(private_stamp):
+                nonce1 = tree_hash_op(private_stamp.msg + nonce_key)
+                nonce2 = tree_hash_op(nonce1)
 
-            side = OpPrepend if nonce1[0] & 0b1 else OpAppend
-            nonce_added = private_stamp.ops.add(side(nonce2))
-            return nonce_added.ops.add(tree_hash_op)
+                side = OpPrepend if nonce1[0] & 0b1 else OpAppend
+                nonce_added = private_stamp.ops.add(side(nonce2))
+                return nonce_added.ops.add(tree_hash_op)
 
-        nonced_contents = (deterministically_nonce_stamp(stamp) for item, stamp in self.contents)
+            nonced_contents = (deterministically_nonce_stamp(stamp) for item, stamp in self.contents)
 
-        # Note how the current algorithm, if asked to timestamp a tree
-        # with a single thing in it, will return the hash of that thing
-        # directly. From the point of view of just commiting to the data that's
-        # perfectly fine, and probably (slightly) better as it reveals a little
-        # less information about directory structure.
-        self.timestamp = make_merkle_tree(nonced_stamp for nonced_stamp in nonced_contents)
+            # Note how the current algorithm, if asked to timestamp a tree
+            # with a single thing in it, will return the hash of that thing
+            # directly. From the point of view of just commiting to the data that's
+            # perfectly fine, and probably (slightly) better as it reveals a little
+            # less information about directory structure.
+            self.timestamp = make_merkle_tree(nonced_stamp for nonced_stamp in nonced_contents)
+
+        elif len(self.contents) == 1:
+            # If there's only one item in the tree, the fancy all-or-nothing
+            # transform above is just a waste of ops, so use the tree contents
+            # directly instead.
+            self.timestamp = tuple(self.contents)[0][1]
+
+        else:
+            raise AssertionError("Empty git tree")
 
     def __getitem__(self, path):
         """Get a DetachedTimestampFile for blob at path

@@ -19,7 +19,7 @@ import sys
 
 try:
     import git
-    from opentimestamps.git import GitTreeTimestamper
+    from opentimestamps.core.git import GitTreeTimestamper
     REHASH_TREES_SUPPORTED = True
 except ImportError:
     REHASH_TREES_SUPPORTED = False
