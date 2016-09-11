@@ -68,16 +68,17 @@ class Test_Op(unittest.TestCase):
 
     def test_hexlify(self):
         """Hexlify operation"""
-        for msg, expected in ((b'', b''),
-                              (b'\x00', b'00'),
+        for msg, expected in ((b'\x00', b'00'),
                               (b'\xde\xad\xbe\xef', b'deadbeef')):
             self.assertEqual(OpHexlify()(msg), expected)
 
-    def test_hexlify(self):
-        """Hexlify with too-long message"""
-        OpHexlify()(b'.'*128)
+    def test_hexlify_msg_length_limits(self):
+        """Hexlify message length limits"""
+        OpHexlify()(b'.'*2048)
         with self.assertRaises(MsgValueError):
-            OpHexlify()(b'.'*129)
+            OpHexlify()(b'.'*2049)
+        with self.assertRaises(MsgValueError):
+            OpHexlify()(b'')
 
     def test_sha256(self):
         """SHA256 operation"""

@@ -61,6 +61,12 @@ class Timestamp:
         return self.__msg
 
     def __init__(self, msg):
+        if not isinstance(msg, bytes):
+            raise TypeError("Expected msg to be bytes; got %r" % msg.__class__)
+
+        elif len(msg) > Op.MAX_MSG_LENGTH:
+            raise ValueError("Message exceeds Op length limit; %d > %d" % (len(msg), Op.MAX_MSG_LENGTH))
+
         self.__msg = bytes(msg)
         self.attestations = set()
         self.ops = OpSet(lambda op: Timestamp(op(msg)))
