@@ -72,9 +72,8 @@ class Test_GitTreeTimestamper(unittest.TestCase):
         nonce2 = OpSHA256()(nonce1)
 
         self.assertEqual(stamper.timestamp.msg,
-                         OpSHA256()(nonce2 + # per-file nonce, on the left side - chosen by nonce1
-                                    OpSHA256()(b''))) # the file itself
-        self.assertEqual(stamper.timestamp.msg, b'3(\xa2\xb5\xab\xc5\xe18\x18<\xf9\x83\xcb\xfd\xc5\x9b"\xac\xf5\x1b\xd3G\x04y!\xc5\x92\x88\x0c\xb3j\x1d')
+                         OpSHA256()(b''))
+        self.assertEqual(stamper.timestamp.msg, b"\xe3\xb0\xc4B\x98\xfc\x1c\x14\x9a\xfb\xf4\xc8\x99o\xb9$'\xaeA\xe4d\x9b\x93L\xa4\x95\x99\x1bxR\xb8U")
 
     def test_two_file_tree(self):
         """Git tree with a two files"""
@@ -106,21 +105,21 @@ class Test_GitTreeTimestamper(unittest.TestCase):
         # test_two_file_tree() test cases above; git git commit we're testing
         # has the trees associated with those test cases in the one/ and two/
         # directories respectively.
-        d_one = b'3(\xa2\xb5\xab\xc5\xe18\x18<\xf9\x83\xcb\xfd\xc5\x9b"\xac\xf5\x1b\xd3G\x04y!\xc5\x92\x88\x0c\xb3j\x1d'
+        d_one = b"\xe3\xb0\xc4B\x98\xfc\x1c\x14\x9a\xfb\xf4\xc8\x99o\xb9$'\xaeA\xe4d\x9b\x93L\xa4\x95\x99\x1bxR\xb8U"
         d_two = b's\x0e\xc2h\xd4\xb3\xa5\xd4\xe6\x0e\xe9\xb2t\x89@\x95\xc8c_F3\x81a=\xc2\xd4qy\xaf\x8e\xa0\x87'
 
         nonce_key = OpSHA256()(d_one + d_two +
                                b'\x01\x89\x08\x0c\xfb\xd0\xe8\x08') # tag
 
         n_one_nonce1 = OpSHA256()(d_one + nonce_key)
-        assert n_one_nonce1[0] & 0b1 == 1
+        assert n_one_nonce1[0] & 0b1 == 0
         n_one_nonce2 = OpSHA256()(n_one_nonce1)
-        n_one = OpSHA256()(n_one_nonce2 + d_one)
+        n_one = OpSHA256()(d_one + n_one_nonce2)
 
         n_two_nonce1 = OpSHA256()(d_two + nonce_key)
-        assert n_two_nonce1[0] & 0b1 == 1
+        assert n_two_nonce1[0] & 0b1 == 0
         n_two_nonce2 = OpSHA256()(n_two_nonce1)
-        n_two = OpSHA256()(n_two_nonce2 + d_two)
+        n_two = OpSHA256()(d_two + n_two_nonce2)
 
         self.assertEqual(stamper.timestamp.msg,
                          OpSHA256()(n_one + n_two))
@@ -135,26 +134,12 @@ class Test_GitTreeTimestamper(unittest.TestCase):
         """Git tree with submodule"""
         stamper = self.make_stamper("a3efe73f270866bc8d8f6ce01d22c02f14b21a1a")
 
-        nonce_key = OpSHA256()(bytes.fromhex('48b96efa66e2958e955a31a7d9b8f2ac8384b8b9') +
-                               b'\x01\x89\x08\x0c\xfb\xd0\xe8\x08') # tag
-
-        nonce1 = OpSHA256()(bytes.fromhex('48b96efa66e2958e955a31a7d9b8f2ac8384b8b9') + nonce_key)
-        assert nonce1[0] & 0b1 == 1
-        nonce2 = OpSHA256()(nonce1)
-
         self.assertEqual(stamper.timestamp.msg,
-                         OpSHA256()(nonce2 + bytes.fromhex('48b96efa66e2958e955a31a7d9b8f2ac8384b8b9')))
+                         OpSHA256()(bytes.fromhex('48b96efa66e2958e955a31a7d9b8f2ac8384b8b9')))
 
     def test_dangling_symlink(self):
         """Git tree with dangling symlink"""
         stamper = self.make_stamper("a59620c107a67c4b6323e6e96aed9929d6a89618")
 
-        nonce_key = OpSHA256()(OpSHA256()(b'does-not-exist') +
-                                b'\x01\x89\x08\x0c\xfb\xd0\xe8\x08') # tag
-
-        nonce1 = OpSHA256()(OpSHA256()(b'does-not-exist') + nonce_key)
-        assert nonce1[0] & 0b1 == 0
-        nonce2 = OpSHA256()(nonce1)
-
         self.assertEqual(stamper.timestamp.msg,
-                         OpSHA256()(OpSHA256()(b'does-not-exist') + nonce2))
+                         OpSHA256()(b'does-not-exist'))
