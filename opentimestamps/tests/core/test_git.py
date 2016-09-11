@@ -143,3 +143,12 @@ class Test_GitTreeTimestamper(unittest.TestCase):
 
         self.assertEqual(stamper.timestamp.msg,
                          OpSHA256()(b'does-not-exist'))
+
+    def test_huge_tree(self):
+        """Really big git tree"""
+        # would cause the OpSHA256 length limits to be exceeded if it were used
+        # directly
+        stamper = self.make_stamper("a52fe6e3d4b15057ff41df0509dd302bc5863c29")
+
+        self.assertEqual(stamper.timestamp.msg,
+                         b'\x1dW\x9c\xea\x94&`\xc2\xfb\xba \x19Q\x0f\xdb\xf0\x7f\x14\xe3\x14zb\t\xdb\xcf\xf93I\xe9h\xb9\x8d')

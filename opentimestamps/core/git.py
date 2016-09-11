@@ -13,6 +13,7 @@
 
 import dbm
 import git
+import io
 import os
 
 from opentimestamps.core.timestamp import Timestamp, DetachedTimestampFile, make_merkle_tree
@@ -112,8 +113,8 @@ class GitTreeTimestamper:
             # First, calculate a nonce_key that depends on the entire contents of
             # the tree. The 8-byte tag ensures the key calculated is unique for
             # this purpose.
-            contents_sum = b''.join(stamp.msg for item, stamp in self.contents)
-            nonce_key = tree_hash_op(contents_sum + b'\x01\x89\x08\x0c\xfb\xd0\xe8\x08')
+            contents_sum = b''.join(stamp.msg for item, stamp in self.contents) + b'\x01\x89\x08\x0c\xfb\xd0\xe8\x08'
+            nonce_key = tree_hash_op.hash_fd(io.BytesIO(contents_sum))
 
             # Second, calculate per-item nonces deterministically from that key,
             # and add those nonces to the timestamps of every item in the tree.
