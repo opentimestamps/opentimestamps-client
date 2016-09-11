@@ -14,6 +14,14 @@ import hashlib
 
 import opentimestamps.core.serialize
 
+class MsgValueError(ValueError):
+    """Raised when an operation can't be applied to the specified message.
+
+    For example, because OpHexlify doubles the size of it's input, we restrict
+    the size of the message it can be applied to to avoid running out of
+    memory; OpHexlify raises this exception when that happens.
+    """
+
 class Op(tuple):
     """Timestamp proof operations
 
@@ -184,7 +192,20 @@ class OpHexlify(UnaryOp):
     TAG = b'\xf3'
     TAG_NAME = 'hexlify'
 
+    MAX_MSG_LENGTH = 128
+    """Maximum length of message that we'll hexlify
+
+    Every invocation of hexlify doubles the size of its input, so unless we
+    limit the size of messages that we'll hexlify we make it easy to use up
+    memory quadratically.
+
+    128 bytes is plenty for commitments to digests, even if for some reason
+    they've been hexlified more than once.
+    """
+
     def __call__(self, msg):
+        if len(msg) > self.MAX_MSG_LENGTH:
+            raise MsgValueError("Message too long to hexlify; %d > %d" % (len(msg), self.MAX_MSG_LENGTH))
         return binascii.hexlify(msg)
 
 
