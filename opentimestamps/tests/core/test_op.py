@@ -18,9 +18,49 @@ class Test_Op(unittest.TestCase):
         """Append operation"""
         self.assertEqual(OpAppend(b'suffix')(b'msg'), b'msgsuffix')
 
+    def test_append_invalid_arg(self):
+        """Append op, invalid argument"""
+        with self.assertRaises(TypeError):
+            OpAppend('')
+        with self.assertRaises(OpArgValueError):
+            OpAppend(b'')
+        with self.assertRaises(OpArgValueError):
+            OpAppend(b'.'*4097)
+
+    def test_append_invalid_msg(self):
+        """Append op, invalid message"""
+        with self.assertRaises(TypeError):
+            OpAppend(b'.')(None)
+        with self.assertRaises(TypeError):
+            OpAppend(b'.')('')
+
+        OpAppend(b'.')(b'.'*4095)
+        with self.assertRaises(MsgValueError):
+            OpAppend(b'.')(b'.'*4096)
+
     def test_prepend(self):
         """Prepend operation"""
         self.assertEqual(OpPrepend(b'prefix')(b'msg'), b'prefixmsg')
+
+    def test_prepend_invalid_arg(self):
+        """Prepend op, invalid argument"""
+        with self.assertRaises(TypeError):
+            OpPrepend('')
+        with self.assertRaises(OpArgValueError):
+            OpPrepend(b'')
+        with self.assertRaises(OpArgValueError):
+            OpPrepend(b'.'*4097)
+
+    def test_prepend_invalid_msg(self):
+        """Prepend op, invalid message"""
+        with self.assertRaises(TypeError):
+            OpPrepend(b'.')(None)
+        with self.assertRaises(TypeError):
+            OpPrepend(b'.')('')
+
+        OpPrepend(b'.')(b'.'*4095)
+        with self.assertRaises(MsgValueError):
+            OpPrepend(b'.')(b'.'*4096)
 
 #    def test_reverse(self):
 #        """Reverse operation"""
@@ -38,7 +78,6 @@ class Test_Op(unittest.TestCase):
         OpHexlify()(b'.'*128)
         with self.assertRaises(MsgValueError):
             OpHexlify()(b'.'*129)
-
 
     def test_sha256(self):
         """SHA256 operation"""

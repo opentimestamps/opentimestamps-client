@@ -22,6 +22,12 @@ class MsgValueError(ValueError):
     memory; OpHexlify raises this exception when that happens.
     """
 
+class OpArgValueError(ValueError):
+    """Raised when an operation argument has an invalid value
+
+    For example, if OpAppend/OpPrepend's argument is too long.
+    """
+
 class Op(tuple):
     """Timestamp proof operations
 
@@ -134,10 +140,50 @@ class BinaryOp(Op):
     """Operations that act on a message and a single argument"""
     SUBCLS_BY_TAG = {}
 
+    MAX_RESULT_LENGTH = 4096
+    """Maximum length of a binary op result
+
+    For a verifier, this limit is what limits the maximum amount of memory you
+    need at any one time to verify a particular timestamp path; while verifying
+    a particular commitment operation path previously calculated results can be
+    discarded.
+
+    Of course, if everything was a merkle tree you never need to append/prepend
+    anything near 4KiB of data; 64 bytes would be plenty even with SHA512. The
+    main need for this is compatibility with existing systems like Bitcoin
+    timestamps and Certificate Transparency servers. While the pathological
+    limits required by both are quite large - 1MB and 16MiB respectively - 4KiB
+    is perfectly adequate in both cases for more reasonable usage.
+    """
+
     def __new__(cls, arg):
         if not isinstance(arg, bytes):
             raise TypeError("arg must be bytes")
+        elif not len(arg):
+            raise OpArgValueError("%s arg can't be empty" % cls.__name__)
+        elif len(arg) > cls.MAX_RESULT_LENGTH:
+            raise OpArgValueError("%s arg too long: %d > %d" % (cls.__name__, len(arg), cls.MAX_RESULT_LENGTH))
         return tuple.__new__(cls, (arg,))
+
+    def _calc_result(self, msg):
+        raise NotImplementedError
+
+    def __call__(self, msg):
+        """Apply the operation to the message and return the result
+
+        Raises MsgValueError if the message causes the result to be too long.
+        """
+        r = self._calc_result(msg)
+
+        # Since the argument has a minimum length, it shouldn't be possible for
+        # the result to be empty.
+        assert len(r)
+
+        if len(r) > self.MAX_RESULT_LENGTH:
+            raise MsgValueError("Result too long; %d > %d" % (len(r), self.MAX_RESULT_LENGTH))
+
+        else:
+            return r
 
     def __repr__(self):
         return '%s(%r)' % (self.__class__.__name__, self[0])
@@ -152,7 +198,7 @@ class BinaryOp(Op):
     @classmethod
     def deserialize_from_tag(cls, ctx, tag):
         if tag in cls.SUBCLS_BY_TAG:
-            arg = ctx.read_varbytes(2**16)
+            arg = ctx.read_varbytes(cls.MAX_RESULT_LENGTH, min_len=1)
             return cls.SUBCLS_BY_TAG[tag](arg)
         else:
             raise opentimestamps.core.serialize.DeserializationError("Unknown binary op tag 0x%0x" % tag[0])
@@ -164,15 +210,16 @@ class OpAppend(BinaryOp):
     TAG = b'\xf0'
     TAG_NAME = 'append'
 
-    def __call__(self, msg):
+    def _calc_result(self, msg):
         return msg + self[0]
 
 @BinaryOp._register_op
 class OpPrepend(BinaryOp):
+    """Prepend a prefix to a message"""
     TAG = b'\xf1'
     TAG_NAME = 'prepend'
 
-    def __call__(self, msg):
+    def _calc_result(self, msg):
         return self[0] + msg
 
 
