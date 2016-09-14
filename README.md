@@ -42,3 +42,44 @@ the repository; there's no system-wide installation process yet.
 ### Timestamping and Verifying PGP Signed Git Commits
 
 See `doc/git-integration.md`.
+
+
+## Compatibility Expectations
+
+OpenTimestamps is alpha software, so it's possible that timestamp formats may
+have to change in the future in non-backward-compatible ways. However it will
+almost certainly be possible to write conversion tools for any
+non-backwards-compatible changes.
+
+It's very likely that the REST protocol used to communicate with calendars will
+change, including in backwards incompatible ways. In the event happens you'll
+just need to upgrade your client; existing timestamps will be unaffected.
+
+
+## Known Issues
+
+* Need unit tests for the client.
+
+* While it's (hopefully!) not possible for a mallicious timestamp to cause the
+  verifier to use more than a few MB of RAM, or go into an infinite loop, it is
+  currently possible to make the verifier crash with a stack overflow.
+
+* Git tree re-hashing support fails on certain Unicode filenames; this appears
+  to be due to bugs in the underlying GitPython library.
+
+* Git annex support only works with the SHA256 and SHA256E backends.
+
+* Errors in the Bitcoin RPC communication aren't handled in a user-friendly
+  way.
+
+* It's unclear if SSL certificates for remote calendars are checked correctly,
+  probably not on most (all?) platforms.
+
+* We don't do a good job sanity checking timestamps given to us by remote
+  calendars. A malicious calendar could cause us to run out of RAM, as well as
+  corrupt timestamps in (recoverable) ways (stack overflow comes to mind). Note
+  the previous known issue!
+
+* Due to the timestamp cache, a malicious calendar could also cause unrelated
+  timestamps to fail validation. However it is _not_ possible for a malicious
+  calendar to create a false-positive.
