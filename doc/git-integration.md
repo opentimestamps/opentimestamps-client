@@ -123,7 +123,7 @@ Now try creating a test repository and signing a commit:
     $ echo "Hello World!" > greeting
     $ git add greeting
     $ git commit -S -m 'initial commit'
-    INFO:root:Submitting to remote calendar 'https://pool.opentimestamps.org'
+    ots: Submitting to remote calendar 'https://pool.opentimestamps.org'
     [master (root-commit) 6ccf07f] initial commit
      1 file changed, 1 insertion(+)
      create mode 100644 greeting
@@ -159,9 +159,9 @@ right away OpenTimestamps will tell you that the timestamp can't be verified:
 
     $ git log --show-signature
     commit 6ccf07f8dc003728d5366eb435b883057306f1d1
-    INFO:root:Calendar b'https://alice.btc.calendar.opentimestamps.org': No timestamp found
-    INFO:root:Pending attestation b'https://alice.btc.calendar.opentimestamps.org'
-    OpenTimestamps: Could not verify timestamp
+    ots: Calendar b'https://alice.btc.calendar.opentimestamps.org': No timestamp found
+    ots: Pending attestation b'https://alice.btc.calendar.opentimestamps.org'
+    ots: Could not verify timestamp
     gpg: Signature made Mon 05 Sep 2016 08:34:35 PM PDT
     gpg:                using RSA key 6399011044E8AFB2
     gpg: Good signature from "Peter Todd <pete@petertodd.org>" [ultimate]
@@ -176,9 +176,9 @@ verified:
 
     $ git log --show-signature
     commit 6ccf07f8dc003728d5366eb435b883057306f1d1
-    INFO:root:Got 1 new attestation(s) from b'https://alice.btc.calendar.opentimestamps.org'
-    INFO:root:Success! Bitcoin blockchain attests data existed prior to 2016-09-05 23:03:52
-    OpenTimestamps: Good timestamp
+    ots: Got 1 new attestation(s) from b'https://alice.btc.calendar.opentimestamps.org'
+    ots: Success! Bitcoin attests data existed as of Fri Sep  9 23:03:52 2016 UTC
+    ots: Good timestamp
     gpg: Signature made Mon 05 Sep 2016 08:34:35 PM PDT
     gpg:                using RSA key 6399011044E8AFB2
     gpg: Good signature from "Peter Todd <pete@petertodd.org>" [ultimate]
@@ -194,9 +194,9 @@ calendar server again:
 
     $ git log --show-signature
     commit 6ccf07f8dc003728d5366eb435b883057306f1d1
-    INFO:root:Got 1 attestation(s) from cache
-    INFO:root:Success! Bitcoin blockchain attests data existed prior to 2016-09-05 23:03:52
-    OpenTimestamps: Good timestamp
+    ots: Got 1 attestation(s) from cache
+    ots: Success! Bitcoin attests data existed as of Fri Sep  9 23:03:52 2016 UTC
+    ots: Good timestamp
     gpg: Signature made Mon 05 Sep 2016 08:34:35 PM PDT
     gpg:                using RSA key 6399011044E8AFB2
     gpg: Good signature from "Peter Todd <pete@petertodd.org>" [ultimate]
@@ -213,7 +213,7 @@ Signing and Timestamping Tags
 Under the hood, tags work much the same way as commits. Let's create one:
 
     $ git tag -s -m 'Hello World!' initial-commit HEAD
-    INFO:root:Submitting to remote calendar 'https://pool.opentimestamps.org'
+    ots: Submitting to remote calendar 'https://pool.opentimestamps.org'
 
 Similar to a commit, a signed tag is just a normal tag with a PGP signature; a
 timestamped tag is a normal signed tag with a timestamp:
@@ -250,9 +250,9 @@ Just like commits, you can verify them as you would any other tag:
     tagger Peter Todd <pete@petertodd.org> 1473148175 -0400
     
     Hello World!
-    INFO:root:Got 1 new attestation(s) from b'https://alice.btc.calendar.opentimestamps.org'
-    INFO:root:Success! Bitcoin blockchain attests data existed prior to 2016-09-06 01:20:11
-    OpenTimestamps: Good timestamp
+    ots: Got 1 new attestation(s) from b'https://alice.btc.calendar.opentimestamps.org'
+    ots: Success! Bitcoin attests data existed as of Tue Sep  6 01:20:11 2016 UTC
+    ots: Good timestamp
     gpg: Signature made Tue 06 Sep 2016 12:49:36 AM PDT
     gpg:                using RSA key 6399011044E8AFB2
     gpg: Good signature from "Peter Todd <pete@petertodd.org>"
@@ -276,15 +276,15 @@ that may not be a big deal. To use this you (currently) have to manually add
 `--wait` to the `git-gpg-wrapper.sh` script. Then sign the tag as usual:
 
     $ git tag -s -m 'Completed timestamp' full-timestamp HEAD
-    INFO:root:Submitting to remote calendar 'https://pool.opentimestamps.org'
-    INFO:root:Calendar b'https://alice.btc.calendar.opentimestamps.org': No timestamp found
-    INFO:root:Timestamp not complete; waiting 30 sec before trying again
+    ots: Submitting to remote calendar 'https://pool.opentimestamps.org'
+    ots: Calendar b'https://alice.btc.calendar.opentimestamps.org': No timestamp found
+    ots: Timestamp not complete; waiting 30 sec before trying again
     
     <snip>
     
-    INFO:root:Calendar b'https://alice.btc.calendar.opentimestamps.org': No timestamp found
-    INFO:root:Timestamp not complete; waiting 30 sec before trying again
-    INFO:root:Got 1 new attestation(s) from 'https://pool.opentimestamps.org'
+    ots: Calendar b'https://alice.btc.calendar.opentimestamps.org': No timestamp found
+    ots: Timestamp not complete; waiting 30 sec before trying again
+    ots: Got 1 new attestation(s) from 'https://pool.opentimestamps.org'
 
 If we inspect the contents of the tag, we see that the timestamp is quite a bit
 larger. That extra data is the transaction used to create the timestamp, and a
@@ -340,8 +340,8 @@ calendar servers:
     tagger Peter Todd <pete@petertodd.org> 1473148584 -0400
     
     Completed timestamp
-    INFO:root:Success! Bitcoin blockchain attests data existed prior to 2016-09-06 01:20:11
-    OpenTimestamps: Good timestamp
+    ots: Success! Bitcoin attests data existed as of Tue Sep  6 01:20:11 2016 UTC
+    ots: Good timestamp
     gpg: Signature made Tue 06 Sep 2016 12:56:24 AM PDT
     gpg:                using RSA key 6399011044E8AFB2
     gpg: Good signature from "Peter Todd <pete@petertodd.org>"
