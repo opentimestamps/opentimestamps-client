@@ -32,8 +32,15 @@ from opentimestamps.core.op import *
 from opentimestamps.core.serialize import *
 from opentimestamps.timestamp import *
 from opentimestamps.bitcoin import *
-from opentimestamps.calendar import *
 
+import opentimestamps.calendar
+
+import otsclient
+
+def remote_calendar(calendar_uri):
+    """Create a remote calendar with User-Agent set appropriately"""
+    return opentimestamps.calendar.RemoteCalendar(calendar_uri,
+                                                  user_agent="OpenTimestamps-Client/%s" % otsclient.__version__)
 
 def create_timestamp(timestamp, calendar_urls, setup_bitcoin=False):
     """Create a timestamp
@@ -85,7 +92,7 @@ def create_timestamp(timestamp, calendar_urls, setup_bitcoin=False):
         timestamp.merge(block_timestamp)
 
     for calendar_url in calendar_urls:
-        remote = RemoteCalendar(calendar_url)
+        remote = remote_calendar(calendar_url)
 
         logging.info('Submitting to remote calendar %s' % calendar_url)
         calendar_timestamp = remote.submit(timestamp.msg)
@@ -217,7 +224,7 @@ def upgrade_timestamp(timestamp, args):
                     commitment = sub_stamp.msg
                     for calendar_url in calendar_urls:
                         logging.debug("Checking calendar %s for %s" % (attestation.uri, b2x(commitment)))
-                        calendar = RemoteCalendar(calendar_url)
+                        calendar = remote_calendar(calendar_url)
 
                         try:
                             upgraded_stamp = calendar.get_timestamp(commitment)
