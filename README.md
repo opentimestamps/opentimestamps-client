@@ -102,6 +102,27 @@ commitment operations and attestations in it:
 See `doc/git-integration.md`
 
 
+## Privacy Security
+
+Timestamping inherently records potentially revealing metadata - the current
+time. If you create multiple timestamps in close succession it's quite likely
+that an adversary will be able to link those timestmaps as related simply on
+the basis of when they were created; if you make use of the timestamp multiple
+files in one command functionality (`./ots stamp <file1> <file2> ... <fileN>`)
+most of the commitment operations in the timestamps themselves will be
+identical, providing an adversary very strong evidence that the files were
+timestamped by the same person. Finally, the REST API used to communicate with
+remote calendars doesn't currently attempt to provide any privacy, although it
+could be modified to do so in the future (e.g. with prefix filters).
+
+File contents *are* protected with nonces: a remote calendar learns nothing
+about the contents of anything you timestamp as it only ever receives an opaque
+and meaningless digest. Equally, if multiple files are timestamped at once,
+each file is protected by an individual nonce; the timestamp for one file
+reveals nothing about the contents of another file timestamped at the same
+time.
+
+
 ## Compatibility Expectations
 
 OpenTimestamps is alpha software, so it's possible that timestamp formats may
