@@ -49,6 +49,8 @@ parser.add_argument("gpgargs", nargs=argparse.REMAINDER,
 
 args = otsclient.args.handle_common_options(parser.parse_args(), parser)
 
+logging.basicConfig(format='ots: %(message)s')
+
 args.verbosity = args.verbose - args.quiet
 if args.verbosity == 0:
     logging.root.setLevel(logging.INFO)
@@ -126,9 +128,9 @@ elif '--verify' in args.gpgargs and len(args.gpgargs) == 4:
             good = otsclient.cmds.verify_timestamp(timestamp, args)
 
             if good:
-                print("OpenTimestamps: Good timestamp", file=sys.stderr)
+                logging.info("Good timestamp")
             else:
-                print("OpenTimestamps: Could not verify timestamp", file=sys.stderr)
+                logging.warning("Could not verify timestamp!")
         sys.stderr.flush()
 
         logging.debug("Running GnuPG binary: %r" % ([args.gpg_program] + args.gpgargs))

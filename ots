@@ -17,6 +17,8 @@ import otsclient.args
 
 args = otsclient.args.parse_ots_args(sys.argv[1:])
 
+logging.basicConfig(format='%(message)s')
+
 if args.verbosity == 0:
     logging.root.setLevel(logging.INFO)
 elif args.verbosity > 0:
