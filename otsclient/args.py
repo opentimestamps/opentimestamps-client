@@ -15,6 +15,7 @@ import os
 
 import opentimestamps.calendar
 
+import otsclient
 import otsclient.cache
 import otsclient.cmds
 
@@ -22,6 +23,7 @@ DEFAULT_WHITELIST='https://*.calendar.opentimestamps.org'
 
 def make_common_options_arg_parser():
     parser = argparse.ArgumentParser(description="OpenTimestamps client.")
+    parser.add_argument('--version', action='version', version='v%s' % otsclient.__version__)
 
     parser.add_argument("-q", "--quiet", action="count", default=0,
                         help="Be more quiet.")
