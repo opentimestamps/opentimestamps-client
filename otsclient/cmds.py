@@ -314,8 +314,15 @@ def verify_timestamp(timestamp, args):
     args.calendar_urls = []
     upgrade_timestamp(timestamp, args)
 
+    def attestation_key(item):
+        (msg, attestation) = item
+        if attestation.__class__ == BitcoinBlockHeaderAttestation:
+            return attestation.height
+        else:
+            return 2**32-1
+
     good = False
-    for msg, attestation in timestamp.all_attestations():
+    for msg, attestation in sorted(timestamp.all_attestations(), key=attestation_key):
         if attestation.__class__ == PendingAttestation:
             # Handled by the upgrade_timestamp() call above.
             pass
@@ -350,6 +357,9 @@ def verify_timestamp(timestamp, args):
             logging.info("Success! Bitcoin attests data existed as of %s" %
                          time.strftime('%c %Z', time.localtime(attested_time)))
             good = True
+
+            # One Bitcoin attestation is enough
+            break
 
     return good
 
