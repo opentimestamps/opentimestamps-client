@@ -18,17 +18,21 @@ from opentimestamps.core.serialize import StreamDeserializationContext
 
 class RemoteCalendar:
     """Remote calendar server interface"""
-    def __init__(self, url):
+
+    def __init__(self, url, user_agent="python-opentimestamps"):
         if not isinstance(url, str):
             raise TypeError("URL must be a string")
         self.url = url
+
+        self.request_headers = {"Accept": "application/vnd.opentimestamps.v1",
+                                "User-Agent": user_agent}
 
     def submit(self, digest):
         """Submit a digest to the calendar
 
         Returns a Timestamp committing to that digest
         """
-        req = urllib.request.Request(self.url + '/digest', data=digest)
+        req = urllib.request.Request(self.url + '/digest', data=digest, headers=self.request_headers)
         with urllib.request.urlopen(req) as resp:
             if resp.status != 200:
                 raise Exception("Unknown response from calendar: %d" % resp.status)
@@ -41,7 +45,8 @@ class RemoteCalendar:
 
         Raises KeyError if the calendar doesn't have that commitment
         """
-        req = urllib.request.Request(self.url + '/timestamp/' + binascii.hexlify(commitment).decode('utf8'))
+        req = urllib.request.Request(self.url + '/timestamp/' + binascii.hexlify(commitment).decode('utf8'),
+                                     headers=self.request_headers)
         try:
             with urllib.request.urlopen(req) as resp:
                 if resp.status == 200:
