@@ -210,7 +210,10 @@ def upgrade_timestamp(timestamp, args):
                 if attestation.__class__ == PendingAttestation:
                     calendar_urls = args.calendar_urls
                     if calendar_urls:
-                        logging.debug("Attestation URI %s overridden by user-specified remote calendar(s)" % attestation.uri)
+                        # FIXME: this message is incorrectly displayed, disabling for now.
+                        #
+                        # logging.debug("Attestation URI %s overridden by user-specified remote calendar(s)" % attestation.uri)
+                        pass
                     else:
                         if args.whitelist is None:
                             logging.info("Ignoring attestation from calendar %s: remote calendars disabled" % attestation.uri)
