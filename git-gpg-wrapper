@@ -95,7 +95,16 @@ if '-bsau' in args.gpgargs:
             # CWD will be the git repo, so this should get us the right one
             repo = git.Repo()
 
-            hextree = git_commit[5:5 + 20*2].decode()
+            hextree_start = None
+            if git_commit.startswith(b'tree '):
+                hextree_start = 5
+            elif git_commit.startswith(b'object '):
+                # I believe this is always a git tag
+                hextree_start = 7
+            else:
+                raise AssertionError("Don't know what to do with %r" % git_commit)
+
+            hextree = git_commit[hextree_start:hextree_start + 20*2].decode()
             tree = repo.tree(hextree)
             tree.path = ''
 
