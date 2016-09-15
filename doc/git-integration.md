@@ -21,14 +21,15 @@ her blog:
 
 -http://blog.invisiblethings.org/keys/
 
-OpenTimestamps's git integration helps mitigate this problem by providing proof
-that code-signing signaturs existed prior to when a key expired or was revoked.
+OpenTimestamps Git integration helps mitigate this problem by providing proof
+that code-signing signatures existed prior to when a key expired or was
+revoked.
 
 
 How It Works
 ------------
 
-Under the hood a git commit is simply a few lines of text:
+Under the hood a Git commit is simply a few lines of text:
 
     $ git cat-file -p 7b94d37a71a236227c443e0f46e885101401020c
     tree 8faa3b9a240f4742d41b12fb62e95f8af25feb5e
@@ -37,7 +38,7 @@ Under the hood a git commit is simply a few lines of text:
     
     Initial commit
 
-A signed git commit adds a ASCII-armored PGP signature:
+A signed Git commit adds a ASCII-armored PGP signature:
 
     $ git cat-file -p a9d1ffc2e10dafcf17d31593a362b15c0a636bfc
     tree 548b1c88f537cd9939edeea094bfaff094f20874
@@ -189,7 +190,7 @@ verified:
         initial commit
 
 Additionally, since OpenTimestamps maintains a cache of known timestamps, after
-you successfully retreive a timestamp once you never need to rely on the remote
+you successfully retrieve a timestamp once you never need to rely on the remote
 calendar server again:
 
     $ git log --show-signature
