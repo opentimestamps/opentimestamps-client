@@ -139,27 +139,20 @@ class Test_DetachedTimestampFile(unittest.TestCase):
         file_stamp = DetachedTimestampFile.from_fd(OpSHA256(), io.BytesIO(b''))
         file_stamp.timestamp.attestations.add(PendingAttestation('foobar'))
 
-        T(file_stamp, (b'\x00OpenTimestamps\x00\x00Proof\x00\xbf\x89\xe2\xe8\x84\xe8\x92\x94\x00' +
-                       b'\x20' + bytes.fromhex('e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855') +
-                       b'\x08' +
+        T(file_stamp, (b'\x00OpenTimestamps\x00\x00Proof\x00\xbf\x89\xe2\xe8\x84\xe8\x92\x94' +
+                       b'\x01' + # major version
+                       b'\x08' + bytes.fromhex('e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855') +
                        b'\x00' + bytes.fromhex('83dfe30d2ef90c8e' + '07' + '06') + b'foobar'))
 
     def test_deserialization_failures(self):
         """Deserialization failures"""
 
         for serialized, expected_error in ((b'', TruncationError),
-                                           (b'\x00Not a OpenTimestamps Proof \x00\xbf\x89\xe2\xe8\x84\xe8\x92\x94\x00', BadMagicError),
-                                           (b'\x00OpenTimestamps\x00\x00Proof\x00\xbf\x89\xe2\xe8\x84\xe8\x92\x94\x00' +
-                                            b'\x00' + # Not a valid length for the digest, too short
-                                            b'\x08' +
-                                            b'\x00' + bytes.fromhex('83dfe30d2ef90c8e' + '07' + '06') + b'foobar', DeserializationError),
-                                           (b'\x00OpenTimestamps\x00\x00Proof\x00\xbf\x89\xe2\xe8\x84\xe8\x92\x94\x00' +
-                                            b'\x21' + b'\x00'*33 + # Not a valid length for the digest, too long
-                                            b'\x08' +
-                                            b'\x00' + bytes.fromhex('83dfe30d2ef90c8e' + '07' + '06') + b'foobar', DeserializationError),
-                                           (b'\x00OpenTimestamps\x00\x00Proof\x00\xbf\x89\xe2\xe8\x84\xe8\x92\x94\x00' +
-                                            b'\x20' + b'\x00'*32 +
+                                           (b'\x00Not a OpenTimestamps Proof \x00\xbf\x89\xe2\xe8\x84\xe8\x92\x94\x01', BadMagicError),
+                                           (b'\x00OpenTimestamps\x00\x00Proof\x00\xbf\x89\xe2\xe8\x84\xe8\x92\x94\x00', UnsupportedMajorVersion),
+                                           (b'\x00OpenTimestamps\x00\x00Proof\x00\xbf\x89\xe2\xe8\x84\xe8\x92\x94\x01' +
                                             b'\x42' + # Not a valid opcode
+                                            b'\x00'*32 +
                                             b'\x00' + bytes.fromhex('83dfe30d2ef90c8e' + '07' + '06') + b'foobar', DeserializationError)):
 
             with self.assertRaises(expected_error):

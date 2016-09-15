@@ -18,11 +18,17 @@ class DeserializationError(Exception):
 class BadMagicError(DeserializationError):
     """A magic number is incorrect
 
-    Raise this when a file format magic number is incorrect.
+    Raise this when the file format magic number is incorrect.
     """
     def __init__(self, expected_magic, actual_magic):
         super().__init__('Expected magic bytes 0x%s, but got 0x%s instead' % (binascii.hexlify(expected_magic).decode(),
                                                                               binascii.hexlify(actual_magic).decode()))
+
+class UnsupportedMajorVersion(DeserializationError):
+    """Unsupported major version
+
+    Raise this a major version is unsupported
+    """
 
 class TruncationError(DeserializationError):
     """Truncated data encountered while deserializing"""
