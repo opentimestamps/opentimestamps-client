@@ -29,19 +29,77 @@ the repository; there's no system-wide installation process yet.
 
 ## Usage
 
-### Timestamping a File
+Creating a timestamp:
 
-    ./ots stamp <file>
+    $ ./ots stamp README.md
+    INFO:root:Submitting to remote calendar https://a.pool.opentimestamps.org
+    INFO:root:Submitting to remote calendar https://b.pool.opentimestamps.org
 
+You'll see that `README.md.ots` has been created with the aid of two remote
+calendars. We can't verify it immediately however:
 
-### Verifying a Timestamp
+    $ ./ots verify README.md.ots
+    INFO:root:Assuming target filename is 'README.md'
+    INFO:root:Calendar https://alice.btc.calendar.opentimestamps.org: No timestamp found
+    INFO:root:Calendar https://bob.btc.calendar.opentimestamps.org: No timestamp found
 
-    ./ots verify <file>.ots
+It takes a few hours for the timestamp to get confirmed by the Bitcoin
+blockchain; we're not doing one transaction per timestamp.
+
+However, the client does come with a number of example timestamps which you can
+try verifying immediately. Here's a complete timestamp that can be verified
+locally:
+
+    $ ./ots verify examples/hello-world.txt.ots
+    INFO:root:Assuming target filename is 'examples/hello-world.txt'
+    INFO:root:Success! Bitcoin attests data existed as of Thu May 28 15:41:18 2015 UTC
+
+Incomplete timestamps are ones that require the assistance of a remote calendar
+to verify; the calendar provides the path to the Bitcoin block header:
+
+    $ ./ots verify examples/incomplete.txt.ots
+    INFO:root:Assuming target filename is 'examples/incomplete.txt'
+    INFO:root:Got 1 new attestation(s) from https://alice.btc.calendar.opentimestamps.org
+    INFO:root:Success! Bitcoin attests data existed as of Wed Sep  7 05:56:43 2016 UTC
+
+The client maintains a cache of timestamps it obtains from remote calendars, so
+if you verify the same file again it'll use the cache:
+
+    $ ./ots verify examples/incomplete.txt.ots
+    INFO:root:Assuming target filename is 'examples/incomplete.txt'
+    INFO:root:Got 1 attestation(s) from cache
+    INFO:root:Success! Bitcoin attests data existed as of Wed Sep  7 05:56:43 2016 UTC
+
+You can also upgrade an incomplete timestamp, which adds the path to the
+Bitcoin blockchain to the timestamp itself:
+
+    $ ./ots upgrade examples/incomplete.txt.ots
+    INFO:root:Got 1 attestation(s) from cache
+    INFO:root:Success! Timestamp is complete
+
+Finally, you can get information on a timestamp, including the actual
+commitment operations and attestations in it:
+
+    $ ./ots info examples/two-calendars.txt.ots
+    File sha256 hash: efaa174f68e59705757460f4f7d204bd2b535cfd194d9d945418732129404ddb
+    Timestamp:
+    append 839037eef449dec6dac322ca97347c45
+    sha256
+     -> append 6b4023b6edd3a0eeeb09e5d718723b9e
+        sha256
+        prepend 57d46515
+        append eadd66b1688d5574
+        verify PendingAttestation('https://alice.btc.calendar.opentimestamps.org')
+     -> append a3ad701ef9f10535a84968b5a99d8580
+        sha256
+        prepend 57d46516
+        append 647b90ea1b270a97
+        verify PendingAttestation('https://bob.btc.calendar.opentimestamps.org')
 
 
 ### Timestamping and Verifying PGP Signed Git Commits
 
-See `doc/git-integration.md`.
+See `doc/git-integration.md`
 
 
 ## Compatibility Expectations
@@ -57,6 +115,14 @@ just need to upgrade your client; existing timestamps will be unaffected.
 
 
 ## Known Issues
+
+* Displaying Bitcoin timestamps down to the second is false precision, and
+  misleading. But rounding off to the nearest day is over-doing it in the other
+  direction.
+
+* We should consider using the median time past + an offset instead of
+  displaying Bitcoin block times directly (more generally, need to rigorously
+  analyse what exactly a Bitcoin timestamp means, under what assumptions).
 
 * Need unit tests for the client.
 
