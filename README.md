@@ -102,6 +102,13 @@ commitment operations and attestations in it:
 See `doc/git-integration.md`
 
 
+### Timestamping Git Trees
+
+Read the source code: `python-opentimestamps/opentimestamps/core/git.py`
+
+This functionality needs more peer review before using it can be recommended.
+
+
 ## Privacy Security
 
 Timestamping inherently records potentially revealing metadata - the current
