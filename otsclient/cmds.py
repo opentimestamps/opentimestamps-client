@@ -13,7 +13,6 @@ import sys
 
 import argparse
 import binascii
-import datetime
 import logging
 import os
 import time
@@ -341,8 +340,8 @@ def verify_timestamp(timestamp, args):
                 continue
 
             logging.debug("Attested time: %d", attested_time)
-            logging.info("Success! Bitcoin blockchain attests data existed prior to %s" %
-                         datetime.datetime.fromtimestamp(attested_time).isoformat(' '))
+            logging.info("Success! Bitcoin attests data existed as of %s" %
+                         time.strftime('%c %Z', time.localtime(attested_time)))
             good = True
 
     return good
