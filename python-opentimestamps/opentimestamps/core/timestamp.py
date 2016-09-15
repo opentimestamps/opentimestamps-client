@@ -206,7 +206,7 @@ class DetachedTimestampFile:
     Contains a timestamp, along with a header and the digest of the file.
     """
 
-    HEADER_MAGIC = b'\x00OpenTimestamps\x00\x00Proof\x00\xbf\x89\xe2\xe8\x84\xe8\x92\x94\x00'
+    HEADER_MAGIC = b'\x00OpenTimestamps\x00\x00Proof\x00\xbf\x89\xe2\xe8\x84\xe8\x92\x94'
     """Header magic bytes
 
     Designed to be give the user some information in a hexdump, while being
@@ -216,6 +216,13 @@ class DetachedTimestampFile:
     MIN_FILE_DIGEST_LENGTH = 20 # 160-bit hash
     MAX_FILE_DIGEST_LENGTH = 32 # 256-bit hash
 
+    MAJOR_VERSION = 1
+
+    # While the git commit timestamps have a minor version, probably better to
+    # leave it out here: unlike Git commits round-tripping is an issue when
+    # timestamps are upgraded, and we could end up with bugs related to not
+    # saving/updating minor version numbers correctly.
+
     @property
     def file_digest(self):
         """The digest of the file that was timestamped"""
@@ -223,6 +230,10 @@ class DetachedTimestampFile:
 
     def __init__(self, file_hash_op, timestamp):
         self.file_hash_op = file_hash_op
+
+        if len(timestamp.msg) != file_hash_op.DIGEST_LENGTH:
+            raise ValueError("Timestamp message length and file_hash_op digest length differ")
+
         self.timestamp = timestamp
 
     def __repr__(self):
@@ -241,8 +252,12 @@ class DetachedTimestampFile:
     def serialize(self, ctx):
         ctx.write_bytes(self.HEADER_MAGIC)
 
-        ctx.write_varbytes(self.timestamp.msg)
+        ctx.write_varuint(self.MAJOR_VERSION)
+
         self.file_hash_op.serialize(ctx)
+        assert self.file_hash_op.DIGEST_LENGTH == len(self.timestamp.msg)
+        ctx.write_bytes(self.timestamp.msg)
+
         self.timestamp.serialize(ctx)
 
     @classmethod
@@ -252,8 +267,12 @@ class DetachedTimestampFile:
         if header_magic != cls.HEADER_MAGIC:
             raise opentimestamps.core.serialize.BadMagicError(cls.HEADER_MAGIC, header_magic)
 
-        file_hash = ctx.read_varbytes(cls.MAX_FILE_DIGEST_LENGTH, cls.MIN_FILE_DIGEST_LENGTH)
+        major = ctx.read_varuint() # FIXME: max-int limit
+        if major != cls.MAJOR_VERSION:
+            raise opentimestamps.core.serialize.UnsupportedMajorVersion("Version %d detached timestamp files are not supported" % major)
+
         file_hash_op = CryptOp.deserialize(ctx)
+        file_hash = ctx.read_bytes(file_hash_op.DIGEST_LENGTH)
         timestamp = Timestamp.deserialize(ctx, file_hash)
 
         return DetachedTimestampFile(file_hash_op, timestamp)
