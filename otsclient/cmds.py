@@ -428,7 +428,7 @@ def info_command(args):
 
 def git_extract_command(args):
     import git
-    from otsclient.git import hash_signed_commit, deserialize_ascii_armored_timestamp, extract_sig_from_git_commit
+    from otsclient.git import deserialize_ascii_armored_timestamp, extract_sig_from_git_commit
     from opentimestamps.core.git import GitTreeTimestamper
 
     repo = git.Repo()
@@ -501,7 +501,7 @@ def git_extract_command(args):
     # Second, splice it to the commit timestamp.
     #
     # Remember that the commit timestamp was on SHA256(SHA256(git_commit) +
-    # SHA256(git_hash)), and the commitment to the tree is in the first op - an
+    # SHA256(gpg_sig)), and the commitment to the tree is in the first op - an
     # OpAppend - so we have to create an OpPrepend:
     append_commit_stamp = tip.ops.add(OpPrepend(commit_stamp.msg))
     append_commit_stamp.merge(tuple(commit_stamp.ops.values())[0])

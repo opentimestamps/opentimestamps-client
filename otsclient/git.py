@@ -101,4 +101,4 @@ def extract_sig_from_git_commit(signed_git_commit):
         else:
             unsigned_git_commit.append(l)
 
-    return (b'\n'.join(unsigned_git_commit) + b'\n', b'\n'.join(gpg_sig) + b'\n')
+    return (b'\n'.join(unsigned_git_commit), b'\n'.join(gpg_sig) + b'\n')
