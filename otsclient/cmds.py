@@ -238,14 +238,16 @@ def upgrade_timestamp(timestamp, args):
                             logging.info("Calendar %s: %r" % (attestation.uri, exp))
                             continue
 
-                        new_attestations = get_attestations(upgraded_stamp).difference(existing_attestations)
+                        atts_from_remote = get_attestations(upgraded_stamp)
+                        if atts_from_remote:
+                            logging.info("Got %d attestation(s) from %s" % (len(atts_from_remote), calendar_url))
+                            for att in get_attestations(upgraded_stamp):
+                                logging.debug("    %r" % att)
 
+                        new_attestations = get_attestations(upgraded_stamp).difference(existing_attestations)
                         if new_attestations:
                             changed = True
                             found_new_attestations = True
-                            logging.info("Got %d new attestation(s) from %s" % (len(new_attestations), calendar_url))
-                            for new_att in new_attestations:
-                                logging.debug("    %r" % new_att)
                             existing_attestations.update(new_attestations)
 
                             # FIXME: need to think about DoS attacks here
