@@ -69,7 +69,7 @@ class Test_PendingAttestation(unittest.TestCase):
 
     def test_invalid_uri_deserialization(self):
         # illegal character
-        ctx = BytesDeserializationContext(bytes.fromhex('83dfe30d2ef90c8e' + '07' + '06') + b'fo%obar')
+        ctx = BytesDeserializationContext(bytes.fromhex('83dfe30d2ef90c8e' + '07' + '06') + b'fo%bar')
         with self.assertRaises(DeserializationError):
             TimeAttestation.deserialize(ctx)
 
@@ -82,4 +82,18 @@ class Test_PendingAttestation(unittest.TestCase):
         # But 1001 isn't
         ctx = BytesDeserializationContext(bytes.fromhex('83dfe30d2ef90c8e' + 'eb07' + 'e907') + b'x'*1001)
         with self.assertRaises(DeserializationError):
+            TimeAttestation.deserialize(ctx)
+
+    def test_deserialization_trailing_garbage(self):
+        ctx = BytesDeserializationContext(bytes.fromhex('83dfe30d2ef90c8e' + '08' + '06') + b'foobarx')
+        with self.assertRaises(TrailingGarbageError):
+            TimeAttestation.deserialize(ctx)
+
+class Test_BitcoinBlockHeaderAttestation(unittest.TestCase):
+    def test_deserialization_trailing_garbage(self):
+        ctx = BytesDeserializationContext(bytes.fromhex('0588960d73d71901' +
+                                                        '02' + # two bytes of payload
+                                                        '00' + # genesis block!
+                                                        'ff')) # one byte of trailing garbage
+        with self.assertRaises(TrailingGarbageError):
             TimeAttestation.deserialize(ctx)

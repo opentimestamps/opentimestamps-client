@@ -72,16 +72,16 @@ class TimeAttestation:
         payload_ctx = opentimestamps.core.serialize.BytesDeserializationContext(serialized_attestation)
 
         if tag == PendingAttestation.TAG:
-            return PendingAttestation.deserialize(payload_ctx)
+            r = PendingAttestation.deserialize(payload_ctx)
         elif tag == BitcoinBlockHeaderAttestation.TAG:
-            return BitcoinBlockHeaderAttestation.deserialize(payload_ctx)
+            r = BitcoinBlockHeaderAttestation.deserialize(payload_ctx)
         else:
             return UnknownAttestation(tag, serialized_attestation)
 
-        # FIXME: need to either make sure extra junk at end causes failure, or
-        # come up with an upgrade scheme.
-
-        assert False
+        # If attestations want to have unspecified fields for future
+        # upgradability they should do so explicitly.
+        payload_ctx.assert_eof()
+        return r
 
 class UnknownAttestation(TimeAttestation):
     """Placeholder for attestations that don't support"""
@@ -132,8 +132,24 @@ class UnknownAttestation(TimeAttestation):
 class PendingAttestation(TimeAttestation):
     """Pending attestation
 
-    Commitment has been submitted for future attestation, and we have a URI to
-    use to try to find out more information.
+    Commitment has been recorded in a remote calendar for future attestation,
+    and we have a URI to find a more complete timestamp in the future.
+
+    Nothing other than the URI is recorded, nor is there provision made to add
+    extra metadata (other than the URI) in future upgrades. The rational here
+    is that remote calendars promise to keep commitments indefinitely, so from
+    the moment they are created it should be possible to find the commitment in
+    the calendar. Thus if you're not satisfied with the local verifiability of
+    a timestamp, the correct thing to do is just ask the remote calendar if
+    additional attestations are available and/or when they'll be available.
+
+    While we could additional metadata like what types of attestations the
+    remote calendar expects to be able to provide in the future, that metadata
+    can easily change in the future too. Given that we don't expect timestamps
+    to normally have more than a small number of remote calendar attestations,
+    it'd be better to have verifiers get the most recent status of such
+    information (possibly with appropriate negative response caching).
+
     """
 
     TAG = bytes.fromhex('83dfe30d2ef90c8e')
@@ -203,12 +219,29 @@ class PendingAttestation(TimeAttestation):
 class BitcoinBlockHeaderAttestation(TimeAttestation):
     """Signed by the Bitcoin blockchain
 
-    The commitment digest will be the merkleroot of the blockheader; the block
-    height is recorded so that looking up the correct block header in an
-    external block header database doesn't require every header to be stored
+    The commitment digest will be the merkleroot of the blockheader.
+
+    The block height is recorded so that looking up the correct block header in
+    an external block header database doesn't require every header to be stored
     locally (33MB and counting). (remember that a memory-constrained local
-    client can save an MMR that commits to all blocks, and use an external service
-    to fill in pruned details).
+    client can save an MMR that commits to all blocks, and use an external service to fill
+    in pruned details).
+
+    Otherwise no additional redundant data about the block header is recorded.
+    This is very intentional: since the attestation contains (nearly) the
+    absolute bare minimum amount of data, we encourage implementations to do
+    the correct thing and get the block header from a by-height index, check
+    that the merkleroots match, and then calculate the time from the header
+    information. Providing more data would encourage implementations to cheat.
+
+    Remember that the only thing that would invalidate the block height is a
+    reorg, but in the event of a reorg the merkleroot will be invalid anyway,
+    so there's no point to recording data in the attestation like the header
+    itself. At best that would just give us extra confirmation that a reorg
+    made the attestation invalid; reorgs deep enough to invalidate timestamps are
+    exceptionally rare events anyway, so better to just tell the user the timestamp
+    can't be verified rather than add almost-never tested code to handle that case
+    more gracefully.
     """
 
     TAG = bytes.fromhex('0588960d73d71901')
