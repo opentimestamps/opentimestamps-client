@@ -104,8 +104,21 @@ def stamp_command(args):
     file_timestamps = []
     merkle_roots = []
     for fd in args.files:
-        # FIXME: handle file IO errors
-        file_timestamp = DetachedTimestampFile.from_fd(OpSHA256(), fd)
+        try:
+            file_timestamp = DetachedTimestampFile.from_fd(OpSHA256(), fd)
+        except OSError as exp:
+            # Most IO errors such as a missing file or bad permissions are
+            # caught by argparse; we'll only get to this point if we can open
+            # the file, yet there's still an IO error reading the contents of
+            # it, which is a tricky thing to test.
+            #
+            # A neat trick is to try to timestamp a /proc/<pid>/mem file that
+            # you have permissions for. On Linux at least, actually reading the
+            # contents of these files is still not allowed, as you need the
+            # correct magic sysctls or something, which gives us a nice OSError
+            # to test with.
+            logging.error("Could not read %r: %s" % (fd.name, exp))
+            sys.exit(1)
 
         # Add nonce
         #
