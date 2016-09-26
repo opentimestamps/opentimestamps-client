@@ -155,7 +155,7 @@ class Test_DetachedTimestampFile(unittest.TestCase):
     def test_deserialization_failures(self):
         """Deserialization failures"""
 
-        for serialized, expected_error in ((b'', TruncationError),
+        for serialized, expected_error in ((b'', BadMagicError),
                                            (b'\x00Not a OpenTimestamps Proof \x00\xbf\x89\xe2\xe8\x84\xe8\x92\x94\x01', BadMagicError),
                                            (b'\x00OpenTimestamps\x00\x00Proof\x00\xbf\x89\xe2\xe8\x84\xe8\x92\x94\x00', UnsupportedMajorVersion),
                                            (b'\x00OpenTimestamps\x00\x00Proof\x00\xbf\x89\xe2\xe8\x84\xe8\x92\x94\x01' +
