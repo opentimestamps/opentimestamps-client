@@ -273,10 +273,7 @@ class DetachedTimestampFile:
 
     @classmethod
     def deserialize(cls, ctx):
-        header_magic = ctx.read_bytes(len(cls.HEADER_MAGIC))
-
-        if header_magic != cls.HEADER_MAGIC:
-            raise opentimestamps.core.serialize.BadMagicError(cls.HEADER_MAGIC, header_magic)
+        ctx.assert_magic(cls.HEADER_MAGIC)
 
         major = ctx.read_varuint() # FIXME: max-int limit
         if major != cls.MAJOR_VERSION:
