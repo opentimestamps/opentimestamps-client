@@ -127,7 +127,7 @@ class Timestamp:
             last_stamp.serialize(ctx)
 
     @classmethod
-    def deserialize(cls, ctx, initial_msg):
+    def deserialize(cls, ctx, initial_msg, _recursion_limit=256):
         """Deserialize
 
         Because the serialization format doesn't include the message that the
@@ -138,6 +138,17 @@ class Timestamp:
         raise MsgValueError when the results are being calculated (done
         immediately, not lazily) DeserializationError is raised instead.
         """
+
+        # FIXME: The recursion limit is arguably a bit of a hack given that
+        # it's relatively easily avoided with a different implementation. On
+        # the other hand, it has the advantage of being a very simple
+        # solution to the problem, and the limit isn't likely to be reached by
+        # nearly all timestamps anyway.
+        #
+        # FIXME: Corresponding code to detect this condition is missing from
+        # the serialization/__init__() code.
+        if not _recursion_limit:
+            raise opentimestamps.core.serialize.RecursionLimitError("Reached timestamp recursion depth limit while deserializing")
 
         # FIXME: note how a lazy implementation would have different behavior
         # with respect to deserialization errors; is this a good design?
@@ -157,7 +168,7 @@ class Timestamp:
                 except MsgValueError as exp:
                     raise opentimestamps.core.serialize.DeserializationError("Invalid timestamp; message invalid for op %r: %r" % (op, exp))
 
-                stamp = Timestamp.deserialize(ctx, result)
+                stamp = Timestamp.deserialize(ctx, result, _recursion_limit=_recursion_limit-1)
                 self.ops[op] = stamp
 
         tag = ctx.read_bytes(1)
@@ -274,6 +285,8 @@ class DetachedTimestampFile:
         file_hash_op = CryptOp.deserialize(ctx)
         file_hash = ctx.read_bytes(file_hash_op.DIGEST_LENGTH)
         timestamp = Timestamp.deserialize(ctx, file_hash)
+
+        ctx.assert_eof()
 
         return DetachedTimestampFile(file_hash_op, timestamp)
 

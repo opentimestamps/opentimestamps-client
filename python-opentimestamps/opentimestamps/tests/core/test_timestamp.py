@@ -114,6 +114,14 @@ class Test_Timestamp(unittest.TestCase):
             # Not ok, result would be 4097 bytes long
             Timestamp.deserialize(BytesDeserializationContext(serialized), b'.'*4096)
 
+    def test_deserialization_invalid_op_msg(self):
+        """Deserialization of a timestamp that exceeds the recursion limit"""
+        serialized = (b'\x08'*256 + # OpSHA256, 256 times
+                      b'\x00' + bytes.fromhex('83dfe30d2ef90c8e' + '07' + '06') + b'barfoo') # perfectly valid pending attestation
+
+        with self.assertRaises(RecursionLimitError):
+            Timestamp.deserialize(BytesDeserializationContext(serialized), b'')
+
 class Test_DetachedTimestampFile(unittest.TestCase):
     def test_create_from_file(self):
         file_stamp = DetachedTimestampFile.from_fd(OpSHA256(), io.BytesIO(b''))
@@ -153,7 +161,11 @@ class Test_DetachedTimestampFile(unittest.TestCase):
                                            (b'\x00OpenTimestamps\x00\x00Proof\x00\xbf\x89\xe2\xe8\x84\xe8\x92\x94\x01' +
                                             b'\x42' + # Not a valid opcode
                                             b'\x00'*32 +
-                                            b'\x00' + bytes.fromhex('83dfe30d2ef90c8e' + '07' + '06') + b'foobar', DeserializationError)):
+                                            b'\x00' + bytes.fromhex('83dfe30d2ef90c8e' + '07' + '06') + b'foobar', DeserializationError),
+                                           (b'\x00OpenTimestamps\x00\x00Proof\x00\xbf\x89\xe2\xe8\x84\xe8\x92\x94\x01' +
+                                             b'\x08' + bytes.fromhex('e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855') +
+                                             b'\x00' + bytes.fromhex('83dfe30d2ef90c8e' + '07' + '06') + b'foobar' +
+                                             b'trailing garbage', TrailingGarbageError)):
 
             with self.assertRaises(expected_error):
                 ctx = BytesDeserializationContext(serialized)
