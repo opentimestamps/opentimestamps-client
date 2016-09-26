@@ -104,7 +104,7 @@ class DeserializationContext:
         """
         raise NotImplementedError
 
-    def assert_eof(self, msg):
+    def assert_eof(self):
         """Assert that we have reached the end of the data
 
         Raises TrailingGarbageError(msg) if the end of file has not been reached.
