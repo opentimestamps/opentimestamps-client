@@ -146,11 +146,8 @@ just need to upgrade your client; existing timestamps will be unaffected.
 
 * Displaying Bitcoin timestamps down to the second is false precision, and
   misleading. But rounding off to the nearest day is over-doing it in the other
-  direction.
-
-* We should consider using the median time past + an offset instead of
-  displaying Bitcoin block times directly (more generally, need to rigorously
-  analyse what exactly a Bitcoin timestamp means, under what assumptions).
+  direction. See https://lists.linuxfoundation.org/pipermail/bitcoin-dev/2016-September/013120.html
+  for more information on this issue.
 
 * Need unit tests for the client.
 
