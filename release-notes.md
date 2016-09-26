@@ -2,6 +2,7 @@
 
 ## v0.2.1-PENDING
 
+* Improve UX when given invalid timestamp files.
 * Support for attestations by unknown notaries (forward compatibility).
 * Improved handling of corrupt timestamps: It should not be possible for
   a malicious remote calendar to do anything other than make us think a
