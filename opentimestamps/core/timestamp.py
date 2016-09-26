@@ -275,6 +275,8 @@ class DetachedTimestampFile:
         file_hash = ctx.read_bytes(file_hash_op.DIGEST_LENGTH)
         timestamp = Timestamp.deserialize(ctx, file_hash)
 
+        ctx.assert_eof()
+
         return DetachedTimestampFile(file_hash_op, timestamp)
 
 

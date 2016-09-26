@@ -153,7 +153,11 @@ class Test_DetachedTimestampFile(unittest.TestCase):
                                            (b'\x00OpenTimestamps\x00\x00Proof\x00\xbf\x89\xe2\xe8\x84\xe8\x92\x94\x01' +
                                             b'\x42' + # Not a valid opcode
                                             b'\x00'*32 +
-                                            b'\x00' + bytes.fromhex('83dfe30d2ef90c8e' + '07' + '06') + b'foobar', DeserializationError)):
+                                            b'\x00' + bytes.fromhex('83dfe30d2ef90c8e' + '07' + '06') + b'foobar', DeserializationError),
+                                           (b'\x00OpenTimestamps\x00\x00Proof\x00\xbf\x89\xe2\xe8\x84\xe8\x92\x94\x01' +
+                                             b'\x08' + bytes.fromhex('e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855') +
+                                             b'\x00' + bytes.fromhex('83dfe30d2ef90c8e' + '07' + '06') + b'foobar' +
+                                             b'trailing garbage', TrailingGarbageError)):
 
             with self.assertRaises(expected_error):
                 ctx = BytesDeserializationContext(serialized)
