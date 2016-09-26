@@ -163,13 +163,6 @@ just need to upgrade your client; existing timestamps will be unaffected.
   way.
 
 * It's unclear if SSL certificates for remote calendars are checked correctly,
-  probably not on most (all?) platforms.
-
-* We don't do a good job sanity checking timestamps given to us by remote
-  calendars. A malicious calendar could cause us to run out of RAM, as well as
-  corrupt timestamps in (recoverable) ways (stack overflow comes to mind). Note
-  the previous known issue!
-
-* Due to the timestamp cache, a malicious calendar could also cause unrelated
-  timestamps to fail validation. However it is _not_ possible for a malicious
-  calendar to create a false-positive.
+  probably not on most (all?) platforms. That said, it shouldn't be possible
+  for a malicious remote calendar, or MITM attacker, to do anything worse than
+  give us a timestamp that fails validation, an easily fixed problem.
