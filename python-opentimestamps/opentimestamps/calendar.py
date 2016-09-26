@@ -14,7 +14,7 @@ import urllib.request
 import fnmatch
 
 from opentimestamps.core.timestamp import Timestamp
-from opentimestamps.core.serialize import StreamDeserializationContext
+from opentimestamps.core.serialize import BytesDeserializationContext
 
 class RemoteCalendar:
     """Remote calendar server interface"""
@@ -37,7 +37,13 @@ class RemoteCalendar:
             if resp.status != 200:
                 raise Exception("Unknown response from calendar: %d" % resp.status)
 
-            ctx = StreamDeserializationContext(resp)
+            # FIXME: Not a particularly nice way of handling this, but it'll do
+            # the job for now.
+            resp_bytes = resp.read(10000)
+            if len(resp_bytes) > 10000:
+                raise Exception("Calendar response exceeded size limit")
+
+            ctx = BytesDeserializationContext(resp_bytes)
             return Timestamp.deserialize(ctx, digest)
 
     def get_timestamp(self, commitment):
@@ -50,7 +56,14 @@ class RemoteCalendar:
         try:
             with urllib.request.urlopen(req) as resp:
                 if resp.status == 200:
-                    ctx = StreamDeserializationContext(resp)
+
+                    # FIXME: Not a particularly nice way of handling this, but it'll do
+                    # the job for now.
+                    resp_bytes = resp.read(10000)
+                    if len(resp_bytes) > 10000:
+                        raise Exception("Calendar response exceeded size limit")
+
+                    ctx = BytesDeserializationContext(resp_bytes)
                     return Timestamp.deserialize(ctx, commitment)
 
                 else:
