@@ -154,10 +154,6 @@ just need to upgrade your client; existing timestamps will be unaffected.
 
 * Need unit tests for the client.
 
-* While it's (hopefully!) not possible for a malicious timestamp to cause the
-  verifier to use more than a few MB of RAM, or go into an infinite loop, it is
-  currently possible to make the verifier crash with a stack overflow.
-
 * Git tree re-hashing support fails on certain Unicode filenames; this appears
   to be due to bugs in the underlying GitPython library.
 
