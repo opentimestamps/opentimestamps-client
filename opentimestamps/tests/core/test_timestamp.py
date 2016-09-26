@@ -114,6 +114,14 @@ class Test_Timestamp(unittest.TestCase):
             # Not ok, result would be 4097 bytes long
             Timestamp.deserialize(BytesDeserializationContext(serialized), b'.'*4096)
 
+    def test_deserialization_invalid_op_msg(self):
+        """Deserialization of a timestamp that exceeds the recursion limit"""
+        serialized = (b'\x08'*256 + # OpSHA256, 256 times
+                      b'\x00' + bytes.fromhex('83dfe30d2ef90c8e' + '07' + '06') + b'barfoo') # perfectly valid pending attestation
+
+        with self.assertRaises(RecursionLimitError):
+            Timestamp.deserialize(BytesDeserializationContext(serialized), b'')
+
 class Test_DetachedTimestampFile(unittest.TestCase):
     def test_create_from_file(self):
         file_stamp = DetachedTimestampFile.from_fd(OpSHA256(), io.BytesIO(b''))

@@ -42,6 +42,13 @@ class TrailingGarbageError(DeserializationError):
     data is present after the data we expected to get.
     """
 
+class RecursionLimitError(DeserializationError):
+    """Data is too deeply nested to be deserialized
+
+    Raised when deserializing recursively defined data structures that exceed
+    the recursion limit for that particular data structure.
+    """
+
 class SerializerTypeError(TypeError):
     """Wrong type for specified serializer"""
 
