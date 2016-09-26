@@ -11,7 +11,9 @@
 
 import argparse
 import bitcoin
+import logging
 import os
+import sys
 
 import opentimestamps.calendar
 
@@ -100,7 +102,15 @@ def handle_common_options(args, parser):
         else:
             assert False
 
-        return bitcoin.rpc.Proxy()
+        try:
+            return bitcoin.rpc.Proxy()
+        except Exception as exp:
+            # FIXME: Note that due to a bug in pythonb-bitcoinlib v0.6.1, an
+            # AttributeError will be raised in the __del__() method of the
+            # proxy object; this will be fixed in the next python-bitcoinlib
+            # release.
+            logging.error("Could not connect to local Bitcoin node: %s" % exp)
+            sys.exit(1)
 
     args.setup_bitcoin = setup_bitcoin
 
