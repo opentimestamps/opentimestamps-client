@@ -1,0 +1,2 @@
+This file's timestamp has two attestations, one from a known notary, and one
+from an unknown notary.
