@@ -119,7 +119,7 @@ class UnknownAttestation(TimeAttestation):
             super().__eq__(other)
 
     def __hash__(self):
-        return hash((self.tag, self.payload))
+        return hash((self.TAG, self.payload))
 
     def _serialize_payload(self, ctx):
         # Notice how this is write_bytes, not write_varbytes - the latter would
