@@ -19,6 +19,13 @@ class VerificationError(Exception):
 class TimeAttestation:
     """Time-attesting signature"""
 
+    TAG = None
+    TAG_SIZE = 8
+
+    # FIXME: What should this be?
+    MAX_PAYLOAD_SIZE = 8192
+    """Maximum size of a attestation payload"""
+
     def _serialize_payload(self, ctx):
         raise NotImplementedError
 
@@ -31,6 +38,11 @@ class TimeAttestation:
         ctx.write_varbytes(payload_ctx.getbytes())
 
     def __eq__(self, other):
+        """Implementation of equality operator
+
+        WARNING: The exact behavior of this isn't yet well-defined enough to be
+        used for consensus-critical applications.
+        """
         if isinstance(other, TimeAttestation):
             assert self.__class__ is not other.__class__ # should be implemented by subclass
             return False
@@ -39,6 +51,11 @@ class TimeAttestation:
             return NotImplemented
 
     def __lt__(self, other):
+        """Implementation of less than operator
+
+        WARNING: The exact behavior of this isn't yet well-defined enough to be
+        used for consensus-critical applications.
+        """
         if isinstance(other, TimeAttestation):
             assert self.__class__ is not other.__class__ # should be implemented by subclass
             return self.TAG < other.TAG
@@ -48,9 +65,9 @@ class TimeAttestation:
 
     @classmethod
     def deserialize(cls, ctx):
-        tag = ctx.read_bytes(8)
+        tag = ctx.read_bytes(cls.TAG_SIZE)
 
-        serialized_attestation = ctx.read_varbytes(8192) # FIXME: what should max length be?
+        serialized_attestation = ctx.read_varbytes(cls.MAX_PAYLOAD_SIZE)
 
         payload_ctx = opentimestamps.core.serialize.BytesDeserializationContext(serialized_attestation)
 
@@ -58,10 +75,57 @@ class TimeAttestation:
             return PendingAttestation.deserialize(payload_ctx)
         elif tag == BitcoinBlockHeaderAttestation.TAG:
             return BitcoinBlockHeaderAttestation.deserialize(payload_ctx)
+        else:
+            return UnknownAttestation(tag, serialized_attestation)
 
-        # FIXME: need to make sure extra junk at end causes failure...
+        # FIXME: need to either make sure extra junk at end causes failure, or
+        # come up with an upgrade scheme.
 
         assert False
+
+class UnknownAttestation(TimeAttestation):
+    """Placeholder for attestations that don't support"""
+
+    def __init__(self, tag, payload):
+        if tag.__class__ != bytes:
+            raise TypeError("tag must be bytes instance; got %r" % tag.__class__)
+        elif len(tag) != self.TAG_SIZE:
+            raise ValueError("tag must be exactly %d bytes long; got %d" % (self.TAG_SIZE, len(tag)))
+
+        if payload.__class__ != bytes:
+            raise TypeError("payload must be bytes instance; got %r" % tag.__class__)
+        elif len(payload) > self.MAX_PAYLOAD_SIZE:
+            raise ValueError("payload must be <= %d bytes long; got %d" % (self.MAX_PAYLOAD_SIZE, len(payload)))
+
+        # FIXME: we should check that tag != one of the tags that we do know
+        # about; if it does the operators < and =, and hash() will likely act
+        # strangely
+        self.TAG = tag
+        self.payload = payload
+
+    def __repr__(self):
+        return 'UnknownAttestation(%r, %r)' % (self.TAG, self.payload)
+
+    def __eq__(self, other):
+        if other.__class__ is UnknownAttestation:
+            return self.TAG == other.TAG and self.payload == other.payload
+        else:
+            super().__eq__(other)
+
+    def __lt__(self, other):
+        if other.__class__ is UnknownAttestation:
+            return (self.tag, self.payload) < (other.tag, other.payload)
+        else:
+            super().__eq__(other)
+
+    def __hash__(self):
+        return hash((self.tag, self.payload))
+
+    def _serialize_payload(self, ctx):
+        # Notice how this is write_bytes, not write_varbytes - the latter would
+        # incorrectly add a length header to the actual payload.
+        ctx.write_bytes(self.payload)
+
 
 # Note how neither of these signatures actually has the time...
 

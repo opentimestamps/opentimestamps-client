@@ -14,6 +14,37 @@ import unittest
 from opentimestamps.core.serialize import *
 from opentimestamps.core.notary import *
 
+class Test_UnknownAttestation(unittest.TestCase):
+    def test_repr(self):
+        """repr(UnknownAttestation)"""
+        a = UnknownAttestation(bytes.fromhex('0102030405060708'), b'Hello World!')
+        self.assertEqual(repr(a), "UnknownAttestation(b'\\x01\\x02\\x03\\x04\\x05\\x06\\x07\\x08', b'Hello World!')")
+
+    def test_serialization(self):
+        """"Serialization/deserialization of unknown attestations"""
+        expected_serialized = bytes.fromhex('0102030405060708') + b'\x0c' + b'Hello World!'
+        ctx = BytesDeserializationContext(expected_serialized)
+        a = TimeAttestation.deserialize(ctx)
+
+        self.assertEqual(a.TAG, bytes.fromhex('0102030405060708'))
+        self.assertEqual(a.payload, b'Hello World!')
+
+        # Test round trip
+        ctx = BytesSerializationContext()
+        a.serialize(ctx)
+        self.assertEqual(expected_serialized, ctx.getbytes())
+
+    def test_deserialize_too_long(self):
+        """Deserialization of attestations with oversized payloads"""
+        ctx = BytesDeserializationContext(bytes.fromhex('0102030405060708') + b'\x81\x40' + b'x'*8193)
+        with self.assertRaises(DeserializationError):
+            TimeAttestation.deserialize(ctx)
+
+        # pending attestation
+        ctx = BytesDeserializationContext(bytes.fromhex('83dfe30d2ef90c8e') + b'\x81\x40' + b'x'*8193)
+        with self.assertRaises(DeserializationError):
+            TimeAttestation.deserialize(ctx)
+
 class Test_PendingAttestation(unittest.TestCase):
     def test_serialize(self):
         pending_attestation = PendingAttestation('foobar')
