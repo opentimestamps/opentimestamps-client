@@ -1,6 +1,6 @@
 # OpenTimestamps Client Release Notes
 
-## v0.2.1-PENDING
+## v0.2.1
 
 * Improved error messages when ~/.bitcoin/bitcoin.conf can't be read.
 * Improved error messages for IO errors.
