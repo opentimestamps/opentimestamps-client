@@ -1,5 +1,11 @@
 # OpenTimestamps Client Release Notes
 
+## v0.2.2-SNAPSHOT
+
+* Display reason given from calendar when a timestamp commitment isn't found,
+  e.g. because the timestamp is pending confirmation in the Bitcoin blockchain.
+
+
 ## v0.2.1
 
 * Improved error messages when ~/.bitcoin/bitcoin.conf can't be read.

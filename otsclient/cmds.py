@@ -244,11 +244,11 @@ def upgrade_timestamp(timestamp, args):
 
                         try:
                             upgraded_stamp = calendar.get_timestamp(commitment)
-                        except KeyError:
-                            logging.info("Calendar %s: No timestamp found" % attestation.uri)
+                        except opentimestamps.calendar.CommitmentNotFoundError as exp:
+                            logging.info("Calendar %s: %s" % (attestation.uri, exp.reason))
                             continue
-                        except Exception as exp:
-                            logging.info("Calendar %s: %r" % (attestation.uri, exp))
+                        except urllib.error.URLError as exp:
+                            logging.info("Calendar %s: %s" % (attestation.uri, exp.reason))
                             continue
 
                         atts_from_remote = get_attestations(upgraded_stamp)
