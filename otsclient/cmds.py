@@ -229,12 +229,12 @@ def upgrade_timestamp(timestamp, args):
                         pass
                     else:
                         if args.whitelist is None:
-                            logging.info("Ignoring attestation from calendar %s: remote calendars disabled" % attestation.uri)
+                            logging.warning("Ignoring attestation from calendar %s: Remote calendars disabled" % attestation.uri)
                             continue
                         elif attestation.uri in args.whitelist:
                             calendar_urls = [attestation.uri]
                         else:
-                            logging.info("Ignoring attestation from calendar %s: not whitelisted" % attestation.uri)
+                            logging.warning("Ignoring attestation from calendar %s: Calendar not in whitelist" % attestation.uri)
                             continue
 
                     commitment = sub_stamp.msg
@@ -245,10 +245,10 @@ def upgrade_timestamp(timestamp, args):
                         try:
                             upgraded_stamp = calendar.get_timestamp(commitment)
                         except opentimestamps.calendar.CommitmentNotFoundError as exp:
-                            logging.info("Calendar %s: %s" % (attestation.uri, exp.reason))
+                            logging.warning("Calendar %s: %s" % (attestation.uri, exp.reason))
                             continue
                         except urllib.error.URLError as exp:
-                            logging.info("Calendar %s: %s" % (attestation.uri, exp.reason))
+                            logging.warning("Calendar %s: %s" % (attestation.uri, exp.reason))
                             continue
 
                         atts_from_remote = get_attestations(upgraded_stamp)
@@ -293,7 +293,7 @@ def upgrade_command(args):
 
         # IOError's are already handled by argparse
         except BadMagicError:
-            logging.error("Error! %r is not a timestamp file." % old_stamp_fd.name)
+            logging.error("Error! %r is not a timestamp file" % old_stamp_fd.name)
             sys.exit(1)
         except DeserializationError as exp:
             logging.error("Invalid timestamp file %r: %s" % (old_stamp_fd.name, exp))
@@ -306,13 +306,13 @@ def upgrade_command(args):
             logging.debug("Got new timestamp data; renaming existing timestamp to %r" % backup_name)
 
             if os.path.exists(backup_name):
-                logging.error("Can't backup timestamp: %r already exists" % backup_name)
+                logging.error("Could not backup timestamp: %r already exists" % backup_name)
                 sys.exit(1)
 
             try:
                 os.rename(old_stamp_fd.name, backup_name)
             except IOError as exp:
-                logging.error("Couldn't backup exiting timestamp, rename failed: %s" % exp)
+                logging.error("Could not backup timestamp: %s" % exp)
                 sys.exit(1)
 
             try:
@@ -321,13 +321,13 @@ def upgrade_command(args):
                     detached_timestamp.serialize(ctx)
             except IOError as exp:
                 # FIXME: should we try to restore the old file here?
-                logging.error("Couldn't upgrade timestamp %s: %s" % (old_stamp_fd.name, exp))
+                logging.error("Could not upgrade timestamp %s: %s" % (old_stamp_fd.name, exp))
                 sys.exit(1)
 
         if is_timestamp_complete(detached_timestamp.timestamp, args):
-            logging.info("Success! Timestamp is complete")
+            logging.info("Success! Timestamp complete")
         else:
-            logging.info("Failed; timestamp is not complete")
+            logging.warning("Failed! Timestamp not complete")
             sys.exit(1)
 
 
@@ -350,15 +350,16 @@ def verify_timestamp(timestamp, args):
 
         elif attestation.__class__ == BitcoinBlockHeaderAttestation:
             if not args.use_bitcoin:
-                logging.info("Not checking Bitcoin attestation; disabled")
+                logging.warning("Not checking Bitcoin attestation; Bitcoin disabled")
                 continue
 
             proxy = args.setup_bitcoin()
 
             try:
+                block_count = proxy.getblockcount()
                 blockhash = proxy.getblockhash(attestation.height)
             except IndexError:
-                logging.error("Can't find Bitcoin block! Height %d" % attestation.height)
+                logging.error("Bitcoin block height %d not found; %d is highest known block" % (attestation.height, block_count))
                 continue
             except ConnectionError as exp:
                 logging.error("Could not connect to local Bitcoin node: %s" % exp)
@@ -374,7 +375,6 @@ def verify_timestamp(timestamp, args):
                 logging.error("Bitcoin verification failed: %s" % str(err))
                 continue
 
-            logging.debug("Attested time: %d", attested_time)
             logging.info("Success! Bitcoin attests data existed as of %s" %
                          time.strftime('%c %Z', time.localtime(attested_time)))
             good = True

@@ -4,6 +4,7 @@
 
 * Display reason given from calendar when a timestamp commitment isn't found,
   e.g. because the timestamp is pending confirmation in the Bitcoin blockchain.
+* Improved error messages.
 
 
 ## v0.2.1
