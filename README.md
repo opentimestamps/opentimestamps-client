@@ -159,7 +159,8 @@ just need to upgrade your client; existing timestamps will be unaffected.
 * Errors in the Bitcoin RPC communication aren't handled in a user-friendly
   way.
 
-* It's unclear if SSL certificates for remote calendars are checked correctly,
-  probably not on most (all?) platforms. That said, it shouldn't be possible
-  for a malicious remote calendar, or MITM attacker, to do anything worse than
-  give us a timestamp that fails validation, an easily fixed problem.
+* Not Python platforms check the SSL certificates correctly. This means that on
+  some platforms, it would be possible for a MITM attacker to intercept
+  connections to remote calendars. That said, it shouldn't be possible for such
+  an attacker to do anything worse than give us a timestamp that fails
+  validation, an easily fixed problem.
