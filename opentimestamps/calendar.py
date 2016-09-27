@@ -16,6 +16,30 @@ import fnmatch
 from opentimestamps.core.timestamp import Timestamp
 from opentimestamps.core.serialize import BytesDeserializationContext
 
+def get_sanitised_resp_msg(exp):
+    """Get the sanitise response messages from a calendar response
+
+    Returns the sanitised message, with any character not in the whitelist replaced by '_'
+    """
+
+    # Note how new lines are _not_ allowed: this is important, as otherwise the
+    # message could include a second line pretending to be something else.
+    WHITELIST = b'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789#-.,; '
+
+    # Two lines of text
+    raw_msg = bytearray(exp.read(160))
+
+    for i in range(len(raw_msg)):
+        if raw_msg[i] not in WHITELIST:
+            raw_msg[i] = ord('_')
+
+    return raw_msg.decode()
+
+class CommitmentNotFoundError(KeyError):
+    def __init__(self, reason):
+        super().__init__(reason)
+        self.reason = reason
+
 class RemoteCalendar:
     """Remote calendar server interface"""
 
@@ -70,7 +94,7 @@ class RemoteCalendar:
                     raise Exception("Unknown response from calendar: %d" % resp.status)
         except urllib.error.HTTPError as exp:
             if exp.code == 404:
-                raise KeyError("Commitment not found")
+                raise CommitmentNotFoundError(get_sanitised_resp_msg(exp))
             else:
                 raise exp
 
