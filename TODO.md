@@ -14,3 +14,12 @@ be a big improvement for availability.
 
 Currently commitments are submitted to remote calendars sequentially; this
 should be done in parallel.
+
+
+## Tor Support
+
+Need to add an option to route all remote calendar queries through your local
+Tor proxy; see https://github.com/petertodd/dust-b-gone for an example
+implementation.
+
+Equally, it'd be good if remote calendars were accessible via onion addresses.
