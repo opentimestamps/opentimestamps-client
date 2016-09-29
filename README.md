@@ -164,3 +164,6 @@ just need to upgrade your client; existing timestamps will be unaffected.
   connections to remote calendars. That said, it shouldn't be possible for such
   an attacker to do anything worse than give us a timestamp that fails
   validation, an easily fixed problem.
+
+* git-gpg-wrapper doesn't yet check for you if the timestamp on the git commit
+  makes sense.
