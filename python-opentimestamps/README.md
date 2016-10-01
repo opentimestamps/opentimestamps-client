@@ -6,8 +6,12 @@ Python3 library for working with the OpenTimestamps protocol.
 
 ## Requirements
 
-* python-bitcoinlib v0.6.1
+* Python3 3.4.2
+* python-bitcoinlib v0.7.0
 * GitPython 2.0.8 (optional: required only by `opentimestamps.core.git`)
+
+Note that the version numbers represent what this library has been tested with;
+newer versions will probably work as well.
 
 
 ## Installation
