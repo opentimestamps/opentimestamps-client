@@ -10,7 +10,7 @@ files within a Git repository.
 ## Requirements and Installation
 
 * Python3 >= 3.4.2
-* python-bitcoinlib >= 0.6.1
+* python-bitcoinlib >= 0.7.0
 * GitPython >= 2.0.8 (optional, required only for Git commit rehashing support)
 
 Additionally while OpenTimestamps can *create* timestamps without a local

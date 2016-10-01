@@ -105,10 +105,6 @@ def handle_common_options(args, parser):
         try:
             return bitcoin.rpc.Proxy()
         except Exception as exp:
-            # FIXME: Note that due to a bug in pythonb-bitcoinlib v0.6.1, an
-            # AttributeError will be raised in the __del__() method of the
-            # proxy object; this will be fixed in the next python-bitcoinlib
-            # release.
             logging.error("Could not connect to local Bitcoin node: %s" % exp)
             sys.exit(1)
 

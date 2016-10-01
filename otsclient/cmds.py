@@ -80,10 +80,7 @@ def create_timestamp(timestamp, calendar_urls, setup_bitcoin=False):
 
         block = proxy.getblock(blockhash)
 
-        # FIXME: as of v0.6.0 python-bitcoinlib doesn't support the verbose option
-        # for getblock(header), so we have to go a bit low-level to get the block
-        # height.
-        r = proxy._call('getblock', b2lx(blockhash), True)
+        r = proxy.getblockheader(blockhash, True)
         blockheight = r['height']
 
         # We have a block hash! We can now generate the attestation from the block.
