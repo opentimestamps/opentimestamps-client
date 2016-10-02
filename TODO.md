@@ -23,3 +23,15 @@ Tor proxy; see https://github.com/petertodd/dust-b-gone for an example
 implementation.
 
 Equally, it'd be good if remote calendars were accessible via onion addresses.
+
+
+## "Sums" mode
+
+Useful to have a special mode for sha256sum output that built a tree of the
+hashes, and allowed for later extraction - not unlike Git tree mode.
+
+
+## Digest stamping
+
+Should be able to specify a digest to timestamp, rather than being limited to
+timestamping files.
