@@ -137,9 +137,10 @@ have to change in the future in non-backward-compatible ways. However it will
 almost certainly be possible to write conversion tools for any
 non-backwards-compatible changes.
 
-It's very likely that the REST protocol used to communicate with calendars will
-change, including in backwards incompatible ways. If this happens you'll
-just need to upgrade your client; existing timestamps will be unaffected.
+It's very likely that the REST protocol used to communicate with remote
+calendars will change, including in backwards incompatible ways. If this
+happens you'll just need to upgrade your client; existing timestamps will be
+unaffected.
 
 
 ## Known Issues
