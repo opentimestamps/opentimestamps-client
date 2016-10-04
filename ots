@@ -10,8 +10,10 @@
 # modified, propagated, or distributed except according to the terms contained
 # in the LICENSE file.
 
-import logging
 import sys
+sys.path.insert(1, sys.path[0] + '/python-opentimestamps/')
+
+import logging
 
 import otsclient.args
 

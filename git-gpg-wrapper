@@ -10,12 +10,14 @@
 # modified, propagated, or distributed except according to the terms contained
 # in the LICENSE file.
 
+import sys
+sys.path.insert(1, sys.path[0] + '/python-opentimestamps/')
+
 import argparse
 import base64
 import bitcoin
 import logging
 import subprocess
-import sys
 
 try:
     import git
