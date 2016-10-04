@@ -1,5 +1,10 @@
 # OpenTimestamps Client Release Notes
 
+## v0.2.3-PENDING
+
+* Use dynamic path insert rather than symlink for compatibility with Windows.
+
+
 ## v0.2.2
 
 * Display reason given from calendar when a timestamp commitment isn't found,
