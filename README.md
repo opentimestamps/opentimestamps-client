@@ -138,7 +138,7 @@ almost certainly be possible to write conversion tools for any
 non-backwards-compatible changes.
 
 It's very likely that the REST protocol used to communicate with calendars will
-change, including in backwards incompatible ways. In the event happens you'll
+change, including in backwards incompatible ways. If this happens you'll
 just need to upgrade your client; existing timestamps will be unaffected.
 
 
