@@ -68,7 +68,12 @@ if len(args.gpgargs) == 0 or args.gpgargs[0] != '--':
 
 args.gpgargs = args.gpgargs[1:]
 
-if '-bsau' in args.gpgargs:
+parser = argparse.ArgumentParser()
+parser.add_argument("-bsau", action="store")
+parser.add_argument("--verify", action="store")
+gpgargs = parser.parse_known_args(args.gpgargs)[0]
+
+if gpgargs.bsau:
     with subprocess.Popen([args.gpg_program] + args.gpgargs, stdin=subprocess.PIPE, stdout=subprocess.PIPE) as gpg_proc:
         logging.debug("Reading Git commit")
         git_commit = sys.stdin.buffer.read()
@@ -126,9 +131,9 @@ if '-bsau' in args.gpgargs:
         sys.stdout.buffer.write(gpg_sig)
         write_ascii_armored(signed_commit_timestamp, sys.stdout.buffer, minor_version)
 
-elif '--verify' in args.gpgargs and len(args.gpgargs) == 4:
+elif gpgargs.verify:
     # Verify
-    with open(args.gpgargs[2], 'rb') as gpg_sig_fd:
+    with open(gpgargs.verify, 'rb') as gpg_sig_fd:
         gpg_sig = gpg_sig_fd.read()
         git_commit = sys.stdin.buffer.read()
 
@@ -148,8 +153,5 @@ elif '--verify' in args.gpgargs and len(args.gpgargs) == 4:
         with subprocess.Popen([args.gpg_program] + args.gpgargs, stdin=subprocess.PIPE) as gpg_proc:
             gpg_proc.stdin.write(git_commit)
             gpg_proc.stdin.close()
-
-else:
-    parser.error("Unexpected GnuPG command line arguments! Don't know what to do with '%s'" % ' '.join(args.gpgargs))
 
 # vim:syntax=python filetype=python
