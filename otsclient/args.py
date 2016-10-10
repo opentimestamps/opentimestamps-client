@@ -22,6 +22,8 @@ import otsclient
 import otsclient.cache
 import otsclient.cmds
 
+from importlib import import_module
+
 DEFAULT_WHITELIST='https://*.calendar.opentimestamps.org'
 
 def make_common_options_arg_parser():
@@ -58,6 +60,10 @@ def make_common_options_arg_parser():
     btc_net_group.add_argument('--btc-regtest', dest='btc_net', action='store_const',
                                const='regtest',
                                help='Use Bitcoin regtest rather than mainnet')
+    btc_net_group.add_argument('--btc-plugin', dest='plugin_name', type=str,
+                               default=None,
+                               choices=["rpc", "blockchain"],
+                               help='Use 3rd party API to get access Bitcoin')
     btc_net_group.add_argument('--no-bitcoin', dest='use_bitcoin', action='store_false',
                                default=True,
                                help='Disable Bitcoin entirely')
@@ -128,22 +134,27 @@ def handle_common_options(args, parser):
     def setup_bitcoin():
         """Setup Bitcoin-related functionality
 
-        Sets mainnet/testnet and returns a RPC proxy.
+        Sets mainnet/testnet and returns a plugin wrapper.
         """
-        if args.btc_net == 'testnet':
-           bitcoin.SelectParams('testnet')
-        elif args.btc_net == 'regtest':
-           bitcoin.SelectParams('regtest')
-        elif args.btc_net == 'mainnet':
-           bitcoin.SelectParams('mainnet')
+        Plugin = None
+        if not args.plugin_name or args.plugin_name == 'rpc':
+            Plugin = import_module('plugins.rpc').RpcPlugin
+        elif args.plugin_name == 'blockchain':
+            Plugin = import_module('plugins.blockchain').BlockchainPlugin
         else:
             assert False
 
-        try:
-            return bitcoin.rpc.Proxy()
-        except Exception as exp:
-            logging.error("Could not connect to local Bitcoin node: %s" % exp)
-            sys.exit(1)
+        network = None
+        if args.btc_net == 'testnet':
+           network = 'testnet'
+        elif args.btc_net == 'regtest':
+           network = 'regtest'
+        elif args.btc_net == 'mainnet':
+           network = 'mainnet'
+        else:
+            assert False
+
+        return Plugin(network)
 
     args.setup_bitcoin = setup_bitcoin
 

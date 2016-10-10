@@ -363,21 +363,9 @@ def verify_timestamp(timestamp, args):
                 logging.warning("Not checking Bitcoin attestation; Bitcoin disabled")
                 continue
 
-            proxy = args.setup_bitcoin()
+            plugin = args.setup_bitcoin()
 
-            try:
-                block_count = proxy.getblockcount()
-                blockhash = proxy.getblockhash(attestation.height)
-            except IndexError:
-                logging.error("Bitcoin block height %d not found; %d is highest known block" % (attestation.height, block_count))
-                continue
-            except ConnectionError as exp:
-                logging.error("Could not connect to local Bitcoin node: %s" % exp)
-                continue
-
-            block_header = proxy.getblockheader(blockhash)
-
-            logging.debug("Attestation block hash: %s" % b2lx(blockhash))
+            block_header = plugin.get_block_header(attestation.height)
 
             try:
                 attested_time = attestation.verify_against_blockheader(msg, block_header)
