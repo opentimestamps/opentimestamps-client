@@ -1,5 +1,10 @@
 # OpenTimestamps Client Release Notes
 
+## v0.2.4-PENDING
+
+* Submit timestamps to multiple calendars in parallel.
+
+
 ## v0.2.3
 
 Note that the the required version of python-bitcoinlib has been increased in
