@@ -1,8 +1,13 @@
 # OpenTimestamps Client Release Notes
 
-## v0.2.3-PENDING
+## v0.2.3
+
+Note that the the required version of python-bitcoinlib has been increased in
+this release.
 
 * Use dynamic path insert rather than symlink for compatibility with Windows.
+* Fix an incompatibility with newer Git versions
+* Improve GPG wrapper
 
 
 ## v0.2.2
