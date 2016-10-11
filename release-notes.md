@@ -3,6 +3,7 @@
 ## v0.2.4-PENDING
 
 * Submit timestamps to multiple calendars in parallel.
+* git-extract subcommand now works with relative paths.
 
 
 ## v0.2.3
