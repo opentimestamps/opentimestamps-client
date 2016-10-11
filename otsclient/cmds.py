@@ -465,7 +465,8 @@ def git_extract_command(args):
     from otsclient.git import deserialize_ascii_armored_timestamp, extract_sig_from_git_commit
     from opentimestamps.core.git import GitTreeTimestamper
 
-    repo = git.Repo()
+    repo = git.Repo(search_parent_directories=True)
+    repo_base_path = repo.working_tree_dir
 
     commit = repo.commit(args.commit)
     serialized_signed_commit = commit.data_stream[3].read()
@@ -484,14 +485,22 @@ def git_extract_command(args):
 
     stamper = GitTreeTimestamper(commit.tree)
 
+    path = args.path
+
+    # Use a relative path when the user is not in the current git repository
+    # top-level working directory and the user also provided a relative path to
+    # a file.
+    if not os.path.exists(os.path.join(repo_base_path, path)):
+        path = os.path.relpath(path, start=repo_base_path)
+
     try:
-        file_stamp = stamper[args.path]
+        file_stamp = stamper[path]
     except Exception as exp:
         # FIXME
         logging.error("%r", exp)
         sys.exit(1)
 
-    blob = commit.tree[args.path]
+    blob = commit.tree[path]
     if args.annex and blob.mode == 0o120000:
         fd = io.BytesIO()
         blob.stream_data(fd)
