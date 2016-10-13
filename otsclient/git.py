@@ -44,11 +44,11 @@ def write_ascii_armored(timestamp, fd, minor_version):
 def deserialize_ascii_armored_timestamp(git_commit, gpg_sig):
     stamp_start = gpg_sig.find(ASCII_ARMOR_HEADER)
     if stamp_start == -1:
-        return None
+        return (None, None, None)
 
     stamp_end = gpg_sig.find(b'\n' + ASCII_ARMOR_FOOTER)
     if stamp_end == -1:
-        return None
+        return (None, None, None)
 
     base64_encoded_stamp = gpg_sig[stamp_start + len(ASCII_ARMOR_HEADER):stamp_end]
 

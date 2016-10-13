@@ -1,5 +1,10 @@
 # OpenTimestamps Client Release Notes
 
+## v0.3.1
+
+* Fixed crash when verifying non-timestamped Git commits.
+
+
 ## v0.3.0
 
 (Minor) breaking change: `git-gpg-wrapper` has been renamed to
