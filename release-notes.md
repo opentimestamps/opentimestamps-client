@@ -8,6 +8,7 @@
 * Submit timestamps to multiple calendars in parallel.
 * git-extract subcommand now works with relative paths.
 * Improve error message when git-extract used on a non-rehash-trees commit.
+* git-extract no longer clobbers existing timestamp files.
 
 
 ## v0.2.3

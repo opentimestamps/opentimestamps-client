@@ -559,9 +559,19 @@ def git_extract_command(args):
     append_commit_stamp = tip.ops.add(OpPrepend(commit_stamp.msg))
     append_commit_stamp.merge(tuple(commit_stamp.ops.values())[0])
 
-    if args.timestamp_file is None:
-        args.timestamp_file = open(args.path + '.ots', 'xb')
+    timestamp_file_path = None
+    try:
+        if args.timestamp_file is None:
+            timestamp_file_path = args.path + '.ots'
+            args.timestamp_file = open(timestamp_file_path, 'xb')
 
-    with args.timestamp_file as fd:
-        ctx = StreamSerializationContext(fd)
-        file_stamp.serialize(ctx)
+        else:
+            timestamp_file_path = args.timestamp_file.name
+
+        with args.timestamp_file as fd:
+            ctx = StreamSerializationContext(fd)
+            file_stamp.serialize(ctx)
+
+    except IOError as exp:
+        logging.error("Failed to create timestamp %r: %s" % (timestamp_file_path, exp))
+        sys.exit(1)

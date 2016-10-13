@@ -180,7 +180,7 @@ def parse_ots_args(raw_args):
                                         help='Enable git-annex symlink support')
         parser_git_extract.add_argument('path', metavar='PATH', type=str,
                                         help='Path to file, from root of the git repo')
-        parser_git_extract.add_argument('timestamp_file', metavar='TIMESTAMP', type=argparse.FileType('wb'), nargs='?',
+        parser_git_extract.add_argument('timestamp_file', metavar='TIMESTAMP', type=argparse.FileType('xb'), nargs='?',
                                         help='Filename to write timestamp to. Default: PATH.ots')
         parser_git_extract.add_argument('commit', metavar='COMMIT', type=str, nargs='?',
                                         default='HEAD',
