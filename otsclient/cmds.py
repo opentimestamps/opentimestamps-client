@@ -485,22 +485,27 @@ def git_extract_command(args):
 
     stamper = GitTreeTimestamper(commit.tree)
 
-    path = args.path
+    # args.path is relative to the CWD, but for git we need a path relative to
+    # the repo base.
+    #
+    # FIXME: Does this work with bare repos?
+    # FIXME: Does this always work when the user has specified a different
+    # commit than HEAD?
+    git_tree_path = os.path.relpath(args.path, start=repo_base_path)
 
-    # Use a relative path when the user is not in the current git repository
-    # top-level working directory and the user also provided a relative path to
-    # a file.
-    if not os.path.exists(os.path.join(repo_base_path, path)):
-        path = os.path.relpath(path, start=repo_base_path)
-
-    try:
-        file_stamp = stamper[path]
-    except Exception as exp:
-        # FIXME
-        logging.error("%r", exp)
+    if git_tree_path.startswith('..'):
+        logging.error("%r is outside repository" % args.path)
         sys.exit(1)
 
-    blob = commit.tree[path]
+    try:
+        file_stamp = stamper[git_tree_path]
+
+    # FIXME: better if these were ots-git-specific exceptions
+    except (FileNotFoundError, ValueError) as exp:
+        logging.error("%s", exp)
+        sys.exit(1)
+
+    blob = commit.tree[git_tree_path]
     if args.annex and blob.mode == 0o120000:
         fd = io.BytesIO()
         blob.stream_data(fd)
