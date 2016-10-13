@@ -5,10 +5,11 @@
 (Minor) breaking change: `git-gpg-wrapper` has been renamed to
 `ots-git-gpg-wrapper` to make the name unique to OpenTimestamps.
 
-* Submit timestamps to multiple calendars in parallel.
-* git-extract subcommand now works with relative paths.
-* Improve error message when git-extract used on a non-rehash-trees commit.
-* git-extract no longer clobbers existing timestamp files.
+* Timestamps are now submitted to multiple calendars in parallel.
+* `ots git-extract` now works with relative paths.
+* Improved error message when `ots git-extract` used on a non-rehash-trees commit.
+* `ots git-extract` no longer clobbers existing timestamp files.
+* `ots info` output is now ordered consistently across multiple invocations.
 
 
 ## v0.2.3
