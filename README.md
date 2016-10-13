@@ -166,5 +166,5 @@ unaffected.
   an attacker to do anything worse than give us a timestamp that fails
   validation, an easily fixed problem.
 
-* git-gpg-wrapper doesn't yet check for you if the timestamp on the git commit
+* ots-git-gpg-wrapper doesn't yet check for you if the timestamp on the git commit
   makes sense.

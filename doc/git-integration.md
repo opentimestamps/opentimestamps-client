@@ -109,13 +109,13 @@ Usage
 -----
 
 To create and verify these signatures we simply wrap the gpg binary with our
-own code, `git-gpg-wrapper`. Git allows you to override the default GnuPG
+own code, `ots-git-gpg-wrapper`. Git allows you to override the default GnuPG
 binary (`/usr/bin/gpg`) with your own using the `gpg.program` config option.
 Unfortunately that option doesn't let you set additional command line flags, so
-we use one more wrapper, `git-gpg-wrapper.sh`. You can set all this up with the
+we use one more wrapper, `ots-git-gpg-wrapper.sh`. You can set all this up with the
 following:
 
-    git config --global gpg.program <path to git-gpg-wrapper.sh>
+    git config --global gpg.program <path to ots-git-gpg-wrapper.sh>
 
 Now try creating a test repository and signing a commit:
 
@@ -274,7 +274,7 @@ initial timestamp has been created it waits until the timestamp has been
 completed by the Bitcoin blockchain, and saves the completed timestamp. This
 may take up to a few hours, but in the case of an important software release
 that may not be a big deal. To use this you (currently) have to manually add
-`--wait` to the `git-gpg-wrapper.sh` script. Then sign the tag as usual:
+`--wait` to the `ots-git-gpg-wrapper.sh` script. Then sign the tag as usual:
 
     $ git tag -s -m 'Completed timestamp' full-timestamp HEAD
     ots: Submitting to remote calendar 'https://pool.opentimestamps.org'
