@@ -137,7 +137,7 @@ elif gpgargs.verify:
         gpg_sig = gpg_sig_fd.read()
         git_commit = sys.stdin.buffer.read()
 
-        timestamp = deserialize_ascii_armored_timestamp(git_commit, gpg_sig)
+        (major_version, minor_version, timestamp) = deserialize_ascii_armored_timestamp(git_commit, gpg_sig)
         if timestamp is None:
             print("OpenTimestamps: No timestamp found", file=sys.stderr)
         else:

@@ -67,11 +67,11 @@ def deserialize_ascii_armored_timestamp(git_commit, gpg_sig):
 
         ctx = BytesDeserializationContext(serialized_stamp[2:])
         timestamp = Timestamp.deserialize(ctx, initial_msg)
+
+        return (major_version, minor_version, timestamp)
     except Exception as err:
         logging.error("Bad timestamp: %r" % err)
-        return None
-
-    return timestamp
+        return (None, None, None)
 
 def extract_sig_from_git_commit(signed_git_commit):
     """Extract signature (if any) from a signed git commit

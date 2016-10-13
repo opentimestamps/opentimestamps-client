@@ -477,11 +477,16 @@ def git_extract_command(args):
         logging.error("%s is not signed" % args.commit)
         sys.exit(1)
 
-    commit_stamp = deserialize_ascii_armored_timestamp(git_commit, gpg_sig)
+    (major_version, minor_version, commit_stamp) = deserialize_ascii_armored_timestamp(git_commit, gpg_sig)
 
     if commit_stamp is None:
         logging.error("%s is signed, but not timestamped" % args.commit)
         sys.exit(1)
+
+    elif minor_version != 1:
+        logging.error("Commit was timestamped, but --rehash-trees was not used; can't extract per-file timestamp.")
+        sys.exit(1)
+
 
     stamper = GitTreeTimestamper(commit.tree)
 
