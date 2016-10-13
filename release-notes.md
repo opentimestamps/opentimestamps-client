@@ -1,6 +1,6 @@
 # OpenTimestamps Client Release Notes
 
-## v0.3.0-PENDING
+## v0.3.0
 
 (Minor) breaking change: `git-gpg-wrapper` has been renamed to
 `ots-git-gpg-wrapper` to make the name unique to OpenTimestamps.
