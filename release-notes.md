@@ -1,6 +1,9 @@
 # OpenTimestamps Client Release Notes
 
-## v0.2.4-PENDING
+## v0.3.0-PENDING
+
+(Minor) breaking change: `git-gpg-wrapper` has been renamed to
+`ots-git-gpg-wrapper` to make the name unique to OpenTimestamps.
 
 * Submit timestamps to multiple calendars in parallel.
 * git-extract subcommand now works with relative paths.
