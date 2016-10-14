@@ -14,6 +14,8 @@ import bitcoin
 import logging
 import os
 import sys
+import socks
+import socket
 
 import opentimestamps.calendar
 
@@ -71,7 +73,8 @@ def make_common_options_arg_parser():
 
     parser.add_argument("--socks5-proxy", dest="socks5_proxy",
                         help="Route all traffic through a socks5 proxy, "
-                              "including DNS queries. The default port is 1080. Format: domain[:port] (ej localhost:9050)")
+                              "including DNS queries. The default port is 1080. "
+                              "Format: domain[:port] (ej localhost:9050)")
 
     return parser
 
@@ -91,6 +94,31 @@ def handle_common_options(args, parser):
         for url in args.whitelist:
             whitelist.add(url)
         args.whitelist = whitelist
+
+    if isinstance(args.socks5_proxy, str):
+        e = args.socks5_proxy.split(':')
+        s5_hostname = e[0]
+        if len(e) > 1:
+            if e[1].isdigit():
+                s5_port = int(e[1])
+            else:
+                args.parser.error("Proxy's port must be an integer")
+        else:
+            s5_port = 1080
+        if not len(s5_hostname) > 0:
+            args.parser.error('Wrong proxy format')
+
+        socks.set_default_proxy(socks.SOCKS5,
+                                s5_hostname,
+                                s5_port)
+        # Monkey patch socket to use SOCKS5 proxy
+        socket.socket = socks.socksocket
+        # This should prevent DNS leaks
+        def create_connection(address, timeout=None, source_address=None):
+            sock = socks.socksocket()
+            sock.connect(address)
+            return sock
+        socket.create_connection = create_connection
 
     def setup_bitcoin():
         """Setup Bitcoin-related functionality
