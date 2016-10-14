@@ -12,6 +12,7 @@ files within a Git repository.
 * Python3 >= 3.4.2
 * python-bitcoinlib >= 0.7.0
 * GitPython >= 2.0.8 (optional, required only for Git commit rehashing support)
+* PySocks >= 1.5.0 (optional, required for SOCK5 proxy/Tor support)
 
 Additionally while OpenTimestamps can *create* timestamps without a local
 Bitcoin node, to *verify* timestamps you need a local Bitcoin Core node (a

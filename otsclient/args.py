@@ -14,7 +14,6 @@ import bitcoin
 import logging
 import os
 import sys
-import socks
 import socket
 
 import opentimestamps.calendar
@@ -96,6 +95,12 @@ def handle_common_options(args, parser):
         args.whitelist = whitelist
 
     if isinstance(args.socks5_proxy, str):
+        try:
+            import socks
+        except ImportError as exp:
+            logging.error("Can not use SOCKS5 proxy: %s" % exp)
+            sys.exit(1)
+
         e = args.socks5_proxy.split(':')
         s5_hostname = e[0]
         if len(e) > 1:

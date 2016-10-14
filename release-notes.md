@@ -1,5 +1,10 @@
 # OpenTimestamps Client Release Notes
 
+## v0.3.2-PENDING
+
+* SOCKS5 proxy now supported, e.g. to route remote calendar requests through Tor.
+
+
 ## v0.3.1
 
 * Fixed crash when verifying non-timestamped Git commits.
