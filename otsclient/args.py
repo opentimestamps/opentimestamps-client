@@ -73,7 +73,7 @@ def make_common_options_arg_parser():
     parser.add_argument("--socks5-proxy", dest="socks5_proxy",
                         help="Route all traffic through a socks5 proxy, "
                               "including DNS queries. The default port is 1080. "
-                              "Format: domain[:port] (ej localhost:9050)")
+                              "Format: domain[:port] (e.g. localhost:9050)")
 
     return parser
 
@@ -107,7 +107,7 @@ def handle_common_options(args, parser):
             if e[1].isdigit():
                 s5_port = int(e[1])
             else:
-                args.parser.error("Proxy's port must be an integer")
+                args.parser.error("SOCKS5 proxy port must be an integer; got %s" % e[1])
         else:
             s5_port = 1080
         if not len(s5_hostname) > 0:
