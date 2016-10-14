@@ -152,8 +152,10 @@ unaffected.
 
 * Need unit tests for the client.
 
-* Git tree re-hashing support fails on certain Unicode filenames; this appears
-  to be due to bugs in the underlying GitPython library.
+* Git tree re-hashing support fails on certain filenames with invalid unicode
+  encodings; this appears to be due to bugs in the underlying GitPython
+  library. As a work-around, you may find the `convmv` tool useful to find and
+  rename these files.
 
 * Git annex support only works with the SHA256 and SHA256E backends.
 
