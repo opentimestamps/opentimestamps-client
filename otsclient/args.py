@@ -69,6 +69,10 @@ def make_common_options_arg_parser():
     parser.add_argument("--wait-interval", action="store", type=int, default=30,
                         help=argparse.SUPPRESS) # best if users don't change this and DoS attack the calendars...
 
+    parser.add_argument("--socks5-proxy", dest="socks5_proxy",
+                        help="Route all traffic through a socks5 proxy, "
+                              "including DNS queries. The default port is 1080. Format: domain[:port] (ej localhost:9050)")
+
     return parser
 
 def handle_common_options(args, parser):

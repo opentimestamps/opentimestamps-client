@@ -16,6 +16,17 @@ import binascii
 import logging
 import os
 import time
+import socks
+import socket
+
+# Monkey patching create_connection too. This should prevent DNS leaks
+def create_connection(address, timeout=None, source_address=None):
+    sock = socks.socksocket()
+    sock.connect(address)
+    return sock
+
+socket.create_connection = create_connection
+
 import urllib.request
 import threading
 import bitcoin
@@ -37,6 +48,24 @@ from opentimestamps.bitcoin import *
 import opentimestamps.calendar
 
 import otsclient
+
+def install_socks5(proxy_url):
+    """Monkey patching socket library to redirect via SOCKS5"""
+    if isinstance(proxy_url, str):
+        e = proxy_url.split(':')
+        s5_hostname = e[0]
+        if len(e) > 1 and e[1].isdigit():
+            s5_port = int(e[1])
+        else:
+            s5_port = 1080
+        if not len(s5_hostname) > 0:
+            raise Exception("Malformed SOCKS5 proxy")
+        logging.info("Setting up SOCKS5 proxy: %s:%d" %
+                     (s5_hostname, s5_port))
+        socks.set_default_proxy(socks.SOCKS5,
+                                s5_hostname,
+                                s5_port)
+        socket.socket = socks.socksocket
 
 def remote_calendar(calendar_uri):
     """Create a remote calendar with User-Agent set appropriately"""
@@ -96,7 +125,7 @@ def create_timestamp(timestamp, calendar_urls, setup_bitcoin=False):
     for calendar_url in calendar_urls:
         timestamp.merge(q.get())
 
-
+# FIXME Async errors are not properly handled
 def submit_async(calendar_url, msg, q):
 
     def submit_async_thread(remote, msg, q):
@@ -110,6 +139,8 @@ def submit_async(calendar_url, msg, q):
 
 
 def stamp_command(args):
+    install_socks5(args.socks5_proxy)
+
     # Create initial commitment ops for all files
     file_timestamps = []
     merkle_roots = []
