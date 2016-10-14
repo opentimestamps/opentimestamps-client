@@ -70,7 +70,7 @@ def make_common_options_arg_parser():
     parser.add_argument("--wait-interval", action="store", type=int, default=30,
                         help=argparse.SUPPRESS) # best if users don't change this and DoS attack the calendars...
 
-    parser.add_argument("--socks5-proxy", dest="socks5_proxy",
+    parser.add_argument("--socks5-proxy", type=str,
                         help="Route all traffic through a socks5 proxy, "
                               "including DNS queries. The default port is 1080. "
                               "Format: domain[:port] (e.g. localhost:9050)")
@@ -94,7 +94,7 @@ def handle_common_options(args, parser):
             whitelist.add(url)
         args.whitelist = whitelist
 
-    if isinstance(args.socks5_proxy, str):
+    if args.socks5_proxy is not None:
         try:
             import socks
         except ImportError as exp:
@@ -110,14 +110,14 @@ def handle_common_options(args, parser):
                 args.parser.error("SOCKS5 proxy port must be an integer; got %s" % e[1])
         else:
             s5_port = 1080
-        if not len(s5_hostname) > 0:
-            args.parser.error('Wrong proxy format')
 
         socks.set_default_proxy(socks.SOCKS5,
                                 s5_hostname,
                                 s5_port)
+
         # Monkey patch socket to use SOCKS5 proxy
         socket.socket = socks.socksocket
+
         # This should prevent DNS leaks
         def create_connection(address, timeout=None, source_address=None):
             sock = socks.socksocket()
