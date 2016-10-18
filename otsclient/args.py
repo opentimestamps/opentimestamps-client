@@ -170,6 +170,16 @@ def parse_ots_args(raw_args):
                               nargs='+',
                               help='Filename')
 
+    parser_stamp.add_argument("--timeout", type=int, default=5,
+                              help="Timeout before giving up on a calendar. "
+                                   "Default: %(default)d")
+
+    parser_stamp.add_argument("-m", type=int, default="2",
+                              help="Commitments are sent to remote calendars,"
+                                   "in the event of timeout the timestamp is considered "
+                                   "done if at least M calendars replied. "
+                                   "Default: %(default)s")
+
     # ----- upgrade -----
     parser_upgrade = subparsers.add_parser('upgrade', aliases=['u'],
                                            help='Upgrade remote calendar timestamps to be locally verifiable')
