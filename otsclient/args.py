@@ -75,6 +75,7 @@ def make_common_options_arg_parser():
                               "including DNS queries. The default port is 1080. "
                               "Format: domain[:port] (e.g. localhost:9050)")
 
+
     return parser
 
 def handle_common_options(args, parser):
@@ -169,6 +170,17 @@ def parse_ots_args(raw_args):
     parser_stamp.add_argument('files', metavar='FILE', type=argparse.FileType('rb'),
                               nargs='+',
                               help='Filename')
+
+    parser_stamp.add_argument("--timeout", type=int, default=5,
+                              help="Default maximum timeout for stamp request. "
+                                   "Default: %(default)d")
+
+    parser_stamp.add_argument("--m-of-n", type=str, default="2of2",
+                              help="Commitments are sent to n remote calendars,"
+                                   "in the event of timeout the timestamp is considered "
+                                   "done if at least m calendars replied. "
+                                   "Default: %(default)s")
+
 
     # ----- upgrade -----
     parser_upgrade = subparsers.add_parser('upgrade', aliases=['u'],

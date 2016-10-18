@@ -43,7 +43,7 @@ def remote_calendar(calendar_uri):
     return opentimestamps.calendar.RemoteCalendar(calendar_uri,
                                                   user_agent="OpenTimestamps-Client/%s" % otsclient.__version__)
 
-def create_timestamp(timestamp, calendar_urls, setup_bitcoin=False):
+def create_timestamp(timestamp, calendar_urls, args, setup_bitcoin=False):
     """Create a timestamp
 
     calendar_urls - List of calendar's to use
@@ -89,12 +89,42 @@ def create_timestamp(timestamp, calendar_urls, setup_bitcoin=False):
         assert block_timestamp is not None
         timestamp.merge(block_timestamp)
 
+    (m, n) = args.m_of_n.split(sep="of")
+    (m, n) = (int(m), int(n))
+    logging.debug("m-of-n is %d-of-%d", m, n)  # TODO remove
+    if n != len(calendar_urls):
+        logging.error("Cannot do %s with %d calendar(s)", args.m_of_n, len(calendar_urls))
+        raise Exception
+
     q = Queue()
     for calendar_url in calendar_urls:
         submit_async(calendar_url, timestamp.msg, q)
 
-    for calendar_url in calendar_urls:
-        timestamp.merge(q.get())
+    remaining = args.timeout
+    logging.debug("timeout " + str(args.timeout))  # TODO remove
+    results = []
+
+    for i in range(n):
+        try:
+            start = time.time()
+            logging.debug("starting " + str(start))  # TODO remove
+            result = q.get(block=True, timeout=remaining)
+            results.append(result)
+            elapsed = time.time() - start
+            logging.debug("elapsed " + str(elapsed))  # TODO remove
+            remaining -= elapsed
+            logging.debug("remaining " + str(remaining))
+            if remaining < 0 or len(results) >= m:
+                break
+        except:
+            logging.debug("Timeout reached during request to calendar(s)")
+            break
+
+    if len(results) >= m:
+        for result in results:
+            timestamp.merge(result)
+    else:
+        raise TimeoutError
 
 
 def submit_async(calendar_url, msg, q):
@@ -148,7 +178,7 @@ def stamp_command(args):
         args.calendar_urls.append('https://a.pool.opentimestamps.org')
         args.calendar_urls.append('https://b.pool.opentimestamps.org')
 
-    create_timestamp(merkle_tip, args.calendar_urls, args.setup_bitcoin if args.use_btc_wallet else False)
+    create_timestamp(merkle_tip, args.calendar_urls, args, args.setup_bitcoin if args.use_btc_wallet else False)
 
     if args.wait:
         upgrade_timestamp(merkle_tip, args)
