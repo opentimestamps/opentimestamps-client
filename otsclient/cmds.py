@@ -89,11 +89,11 @@ def create_timestamp(timestamp, calendar_urls, args, setup_bitcoin=False):
         assert block_timestamp is not None
         timestamp.merge(block_timestamp)
 
-    (m, n) = args.m_of_n.split(sep="of")
-    (m, n) = (int(m), int(n))
+    m = args.m
+    n = len(calendar_urls)
     logging.debug("m-of-n is %d-of-%d", m, n)  # TODO remove
-    if n != len(calendar_urls):
-        logging.error("Cannot do %s with %d calendar(s)", args.m_of_n, len(calendar_urls))
+    if m > n or m <= 0:
+        logging.error("m cannot be greater than available calendars neither less or equal 0")
         raise Exception
 
     q = Queue()
