@@ -75,7 +75,6 @@ def make_common_options_arg_parser():
                               "including DNS queries. The default port is 1080. "
                               "Format: domain[:port] (e.g. localhost:9050)")
 
-
     return parser
 
 def handle_common_options(args, parser):
