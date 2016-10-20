@@ -113,6 +113,9 @@ def stamp_command(args):
     # Create initial commitment ops for all files
     file_timestamps = []
     merkle_roots = []
+    if not args.files:
+        args.files = [sys.stdin.buffer]
+
     for fd in args.files:
         try:
             file_timestamp = DetachedTimestampFile.from_fd(OpSHA256(), fd)
@@ -156,9 +159,12 @@ def stamp_command(args):
 
     for (in_file, file_timestamp) in zip(args.files, file_timestamps):
         timestamp_file_path = in_file.name + '.ots'
+        special_output_fd = None
+        if in_file == sys.stdin.buffer:
+            special_output_fd = sys.stdout.buffer
 
         try:
-            with open(timestamp_file_path, 'xb') as timestamp_fd:
+            with special_output_fd or open(timestamp_file_path, 'xb') as timestamp_fd:
                 ctx = StreamSerializationContext(timestamp_fd)
                 file_timestamp.serialize(ctx)
         except IOError as exp:

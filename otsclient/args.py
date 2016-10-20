@@ -167,7 +167,7 @@ def parse_ots_args(raw_args):
                               help='Create timestamp locally with the local Bitcoin wallet.')
 
     parser_stamp.add_argument('files', metavar='FILE', type=argparse.FileType('rb'),
-                              nargs='+',
+                              nargs='*',
                               help='Filename')
 
     # ----- upgrade -----
