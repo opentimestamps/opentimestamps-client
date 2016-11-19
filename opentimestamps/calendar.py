@@ -16,6 +16,7 @@ import fnmatch
 from opentimestamps.core.timestamp import Timestamp
 from opentimestamps.core.serialize import BytesDeserializationContext
 
+
 def get_sanitised_resp_msg(exp):
     """Get the sanitise response messages from a calendar response
 
@@ -35,10 +36,12 @@ def get_sanitised_resp_msg(exp):
 
     return raw_msg.decode()
 
+
 class CommitmentNotFoundError(KeyError):
     def __init__(self, reason):
         super().__init__(reason)
         self.reason = reason
+
 
 class RemoteCalendar:
     """Remote calendar server interface"""
@@ -51,13 +54,13 @@ class RemoteCalendar:
         self.request_headers = {"Accept": "application/vnd.opentimestamps.v1",
                                 "User-Agent": user_agent}
 
-    def submit(self, digest):
+    def submit(self, digest, timeout=None):
         """Submit a digest to the calendar
 
         Returns a Timestamp committing to that digest
         """
         req = urllib.request.Request(self.url + '/digest', data=digest, headers=self.request_headers)
-        with urllib.request.urlopen(req) as resp:
+        with urllib.request.urlopen(req, timeout) as resp:
             if resp.status != 200:
                 raise Exception("Unknown response from calendar: %d" % resp.status)
 
@@ -70,7 +73,7 @@ class RemoteCalendar:
             ctx = BytesDeserializationContext(resp_bytes)
             return Timestamp.deserialize(ctx, digest)
 
-    def get_timestamp(self, commitment):
+    def get_timestamp(self, commitment, timeout=None):
         """Get a timestamp for a given commitment
 
         Raises KeyError if the calendar doesn't have that commitment
@@ -78,7 +81,7 @@ class RemoteCalendar:
         req = urllib.request.Request(self.url + '/timestamp/' + binascii.hexlify(commitment).decode('utf8'),
                                      headers=self.request_headers)
         try:
-            with urllib.request.urlopen(req) as resp:
+            with urllib.request.urlopen(req, timeout) as resp:
                 if resp.status == 200:
 
                     # FIXME: Not a particularly nice way of handling this, but it'll do
@@ -97,6 +100,7 @@ class RemoteCalendar:
                 raise CommitmentNotFoundError(get_sanitised_resp_msg(exp))
             else:
                 raise exp
+
 
 class UrlWhitelist(set):
     """Glob-matching whitelist for URL's"""
