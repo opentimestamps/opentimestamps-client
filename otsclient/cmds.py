@@ -20,7 +20,7 @@ import urllib.request
 import threading
 import bitcoin
 import bitcoin.rpc
-from queue import Queue
+from queue import Queue, Empty
 
 from bitcoin.core import b2x, b2lx, lx, CTxOut, CTransaction
 from bitcoin.core.script import CScript, OP_RETURN
@@ -43,7 +43,8 @@ def remote_calendar(calendar_uri):
     return opentimestamps.calendar.RemoteCalendar(calendar_uri,
                                                   user_agent="OpenTimestamps-Client/%s" % otsclient.__version__)
 
-def create_timestamp(timestamp, calendar_urls, setup_bitcoin=False):
+
+def create_timestamp(timestamp, calendar_urls, args):
     """Create a timestamp
 
     calendar_urls - List of calendar's to use
@@ -51,6 +52,7 @@ def create_timestamp(timestamp, calendar_urls, setup_bitcoin=False):
                     args.setup_bitcoin() otherwise.
     """
 
+    setup_bitcoin = args.setup_bitcoin if args.use_btc_wallet else False
     if setup_bitcoin:
         proxy = setup_bitcoin()
 
@@ -89,19 +91,54 @@ def create_timestamp(timestamp, calendar_urls, setup_bitcoin=False):
         assert block_timestamp is not None
         timestamp.merge(block_timestamp)
 
+    m = args.m
+    n = len(calendar_urls)
+    if m > n or m <= 0:
+        logging.error("m (%d) cannot be greater than available calendar%s (%d) neither less or equal 0" % (m,  "" if n == 1 else "s", n))
+        sys.exit(1)
+
+    logging.debug("Doing %d-of-%d request, timeout is %d second%s" % (m, n, args.timeout, "" if n == 1 else "s"))
+
     q = Queue()
     for calendar_url in calendar_urls:
-        submit_async(calendar_url, timestamp.msg, q)
+        submit_async(calendar_url, timestamp.msg, q)  # FIXME add timeout parameter to url request, require update of python-opentimestamps library
 
-    for calendar_url in calendar_urls:
-        timestamp.merge(q.get())
+    start = time.time()
+    merged = 0
+    for i in range(n):
+        try:
+            remaining = args.timeout - (time.time() - start)
+            result = q.get(block=True, timeout=remaining)
+            try:
+                if isinstance(result, Timestamp):
+                    timestamp.merge(result)
+                    merged += 1
+                else:
+                    logging.debug(str(result))
+            except Exception as error:
+                logging.debug(str(error))
+
+            if merged >= m:
+                break
+        except Empty:
+            logging.error("Failed to create timestamp: %d second%s timeout reached during request to calendar%s"
+                          % (args.timeout, "" if args.timeout == 1 else "s", "" if n == 1 else "s"))
+            sys.exit(1)
+
+    if merged < m:
+        logging.error("Failed to create timestamp: requested %d attestation%s but received only %s" % (m, "" if m == 1 else "s", merged))
+        sys.exit(1)
+    logging.debug("%.2f seconds elapsed" % (args.timeout-remaining))
 
 
 def submit_async(calendar_url, msg, q):
 
     def submit_async_thread(remote, msg, q):
-        calendar_timestamp = remote.submit(msg)
-        q.put(calendar_timestamp)
+        try:
+            calendar_timestamp = remote.submit(msg)
+            q.put(calendar_timestamp)
+        except Exception as exc:
+            q.put(exc)
 
     logging.info('Submitting to remote calendar %s' % calendar_url)
     remote = remote_calendar(calendar_url)
@@ -148,7 +185,7 @@ def stamp_command(args):
         args.calendar_urls.append('https://a.pool.opentimestamps.org')
         args.calendar_urls.append('https://b.pool.opentimestamps.org')
 
-    create_timestamp(merkle_tip, args.calendar_urls, args.setup_bitcoin if args.use_btc_wallet else False)
+    create_timestamp(merkle_tip, args.calendar_urls, args)
 
     if args.wait:
         upgrade_timestamp(merkle_tip, args)
