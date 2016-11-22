@@ -128,7 +128,7 @@ def create_timestamp(timestamp, calendar_urls, args):
     if merged < m:
         logging.error("Failed to create timestamp: requested %d attestation%s but received only %s" % (m, "" if m == 1 else "s", merged))
         sys.exit(1)
-    logging.debug("%.2f seconds elapsed" % (args.timeout-remaining))
+    logging.debug("%.2f seconds elapsed" % (time.time()-start))
 
 
 def submit_async(calendar_url, msg, q, timeout):
