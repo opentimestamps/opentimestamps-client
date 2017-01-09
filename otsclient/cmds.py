@@ -343,6 +343,7 @@ def upgrade_command(args):
         ctx = StreamDeserializationContext(old_stamp_fd)
         try:
             detached_timestamp = DetachedTimestampFile.deserialize(ctx)
+            old_stamp_fd.close()
 
         # IOError's are already handled by argparse
         except BadMagicError:
