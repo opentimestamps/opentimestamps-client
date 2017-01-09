@@ -49,6 +49,16 @@ parser.add_argument('--rehash-trees', action='store_true',
 parser.add_argument("gpgargs", nargs=argparse.REMAINDER,
                     help='Arguments passed to GnuPG binary')
 
+parser.add_argument("--timeout", type=int, default=5,
+                              help="Timeout before giving up on a calendar. "
+                                   "Default: %(default)d")
+
+parser.add_argument("-m", type=int, default="2",
+                              help="Commitments are sent to remote calendars,"
+                                   "in the event of timeout the timestamp is considered "
+                                   "done if at least M calendars replied. "
+                                   "Default: %(default)s")
+
 args = otsclient.args.handle_common_options(parser.parse_args(), parser)
 
 logging.basicConfig(format='ots: %(message)s')
@@ -120,7 +130,7 @@ if gpgargs.bsau:
             final_timestamp = signed_commit_timestamp.ops.add(OpAppend(tree_stamper.timestamp.msg)).ops.add(OpSHA256())
             minor_version = 1
 
-        otsclient.cmds.create_timestamp(final_timestamp, args.calendar_urls, args.setup_bitcoin if args.use_btc_wallet else False)
+        otsclient.cmds.create_timestamp(final_timestamp, args.calendar_urls, args)
 
         if args.wait:
             # Interpreted as override by the upgrade command
