@@ -101,7 +101,7 @@ def create_timestamp(timestamp, calendar_urls, args):
 
     q = Queue()
     for calendar_url in calendar_urls:
-        submit_async(calendar_url, timestamp.msg, q)  # FIXME add timeout parameter to url request, require update of python-opentimestamps library
+        submit_async(calendar_url, timestamp.msg, q, args.timeout)
 
     start = time.time()
     merged = 0
@@ -128,21 +128,21 @@ def create_timestamp(timestamp, calendar_urls, args):
     if merged < m:
         logging.error("Failed to create timestamp: requested %d attestation%s but received only %s" % (m, "" if m == 1 else "s", merged))
         sys.exit(1)
-    logging.debug("%.2f seconds elapsed" % (args.timeout-remaining))
+    logging.debug("%.2f seconds elapsed" % (time.time()-start))
 
 
-def submit_async(calendar_url, msg, q):
+def submit_async(calendar_url, msg, q, timeout):
 
-    def submit_async_thread(remote, msg, q):
+    def submit_async_thread(remote, msg, q, timeout):
         try:
-            calendar_timestamp = remote.submit(msg)
+            calendar_timestamp = remote.submit(msg, timeout=timeout)
             q.put(calendar_timestamp)
         except Exception as exc:
             q.put(exc)
 
     logging.info('Submitting to remote calendar %s' % calendar_url)
     remote = remote_calendar(calendar_url)
-    t = threading.Thread(target=submit_async_thread, args=(remote, msg, q))
+    t = threading.Thread(target=submit_async_thread, args=(remote, msg, q, timeout))
     t.start()
 
 
