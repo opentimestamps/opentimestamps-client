@@ -1,0 +1,2 @@
+python-bitcoinlib>=0.7.0
+GitPython>=2.0.8
