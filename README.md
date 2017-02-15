@@ -46,3 +46,4 @@ https://github.com/opentimestamps/opentimestamps-server
 
 python3 -m unittest discover -v
 
+Also, Travis support has been added.
