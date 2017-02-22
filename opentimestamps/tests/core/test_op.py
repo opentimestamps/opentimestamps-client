@@ -101,3 +101,8 @@ class Test_Op(unittest.TestCase):
         """Operation ordering"""
         self.assertTrue(OpSHA1() < OpRIPEMD160())
         # FIXME: more tests
+
+    def test_keccak256(self):
+        """KECCAK256 operation"""
+        self.assertEqual(OpKECCAK256()(b''), bytes.fromhex('c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470'))
+        self.assertEqual(OpKECCAK256()(b'\x80'), bytes.fromhex('56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421'))
