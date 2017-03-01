@@ -336,22 +336,10 @@ class OpSHA256(CryptOp):
     DIGEST_LENGTH = 32
 
 
-# https://tools.ietf.org/html/draft-jivsov-openpgp-sha3-01
-#
-#                 ID   Algorithm                   Text Name
-#               ------ --------------------------- ----------
-#                 13   SHA-3 with 256 bit output   "SHA3-256"
-#                 14   SHA-3 with 384 bit output   "SHA3-384"
-#                 15   SHA-3 with 512 bit output   "SHA3-512"
-#
-#                100 to 110 - Private/Experimental algorithm 
-
-
 @CryptOp._register_op
 class OpKECCAK256(UnaryOp):
     __slots__ = []
-    SUBCLS_BY_TAG = {}
-    TAG = b'\x69'  # TODO define, use experimental
+    TAG = b'\x67'
     TAG_NAME = 'keccak256'
     DIGEST_LENGTH = 32
 
