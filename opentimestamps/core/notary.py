@@ -75,6 +75,8 @@ class TimeAttestation:
             r = PendingAttestation.deserialize(payload_ctx)
         elif tag == BitcoinBlockHeaderAttestation.TAG:
             r = BitcoinBlockHeaderAttestation.deserialize(payload_ctx)
+        elif tag == EthereumBlockHeaderAttestation.TAG:
+            r = EthereumBlockHeaderAttestation.deserialize(payload_ctx)
         else:
             return UnknownAttestation(tag, serialized_attestation)
 
@@ -326,7 +328,7 @@ class EthereumBlockHeaderAttestation(TimeAttestation):
 
         if len(digest) != 32:
             raise VerificationError("Expected digest with length 32 bytes; got %d bytes" % len(digest))
-        elif digest != bytes.fromhex(block['transactionsRoot']):
+        elif digest != bytes.fromhex(block['transactionsRoot'][2:]):
             raise VerificationError("Digest does not match merkleroot")
 
         return block['timestamp']
