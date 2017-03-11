@@ -11,7 +11,7 @@
 
 import binascii
 import hashlib
-
+import sha3
 import opentimestamps.core.serialize
 
 class MsgValueError(ValueError):
@@ -334,3 +334,16 @@ class OpSHA256(CryptOp):
     TAG_NAME = 'sha256'
     HASHLIB_NAME = "sha256"
     DIGEST_LENGTH = 32
+
+
+@CryptOp._register_op
+class OpKECCAK256(UnaryOp):
+    __slots__ = []
+    TAG = b'\x67'
+    TAG_NAME = 'keccak256'
+    DIGEST_LENGTH = 32
+
+    def _do_op_call(self, msg):
+        r = sha3.keccak_256(bytes(msg)).digest()
+        assert len(r) == self.DIGEST_LENGTH
+        return r

@@ -345,7 +345,7 @@ def make_merkle_tree(timestamps, binop=cat_sha256):
         next_stamps = []
         for stamp in stamps:
             if prev_stamp is not None:
-                next_stamps.append(cat_sha256(prev_stamp, stamp))
+                next_stamps.append(binop(prev_stamp, stamp))
                 prev_stamp = None
             else:
                 prev_stamp = stamp

@@ -75,6 +75,8 @@ class TimeAttestation:
             r = PendingAttestation.deserialize(payload_ctx)
         elif tag == BitcoinBlockHeaderAttestation.TAG:
             r = BitcoinBlockHeaderAttestation.deserialize(payload_ctx)
+        elif tag == EthereumBlockHeaderAttestation.TAG:
+            r = EthereumBlockHeaderAttestation.deserialize(payload_ctx)
         else:
             return UnknownAttestation(tag, serialized_attestation)
 
@@ -288,3 +290,56 @@ class BitcoinBlockHeaderAttestation(TimeAttestation):
     def deserialize(cls, ctx):
         height = ctx.read_varuint()
         return BitcoinBlockHeaderAttestation(height)
+
+
+
+class EthereumBlockHeaderAttestation(TimeAttestation):
+    """Signed by the Ethereum blockchain
+
+    The commitment digest will be the merkleroot of the blockheader.
+    """
+
+    TAG = bytes.fromhex('30fe8087b5c7ead7')
+
+    def __init__(self, height):
+        self.height = height
+
+    def __eq__(self, other):
+        if other.__class__ is EthereumBlockHeaderAttestation:
+            return self.height == other.height
+        else:
+            super().__eq__(other)
+
+    def __lt__(self, other):
+        if other.__class__ is EthereumBlockHeaderAttestation:
+            return self.height < other.height
+
+        else:
+            super().__lt__(other)
+
+    def __hash__(self):
+        return hash(self.height)
+
+    def verify_against_blockheader(self, digest, block):
+        """Verify attestation against a block header
+
+        Returns the block time on success; raises VerificationError on failure.
+        """
+
+        if len(digest) != 32:
+            raise VerificationError("Expected digest with length 32 bytes; got %d bytes" % len(digest))
+        elif digest != bytes.fromhex(block['transactionsRoot'][2:]):
+            raise VerificationError("Digest does not match merkleroot")
+
+        return block['timestamp']
+
+    def __repr__(self):
+        return 'EthereumBlockHeaderAttestation(%r)' % self.height
+
+    def _serialize_payload(self, ctx):
+        ctx.write_varuint(self.height)
+
+    @classmethod
+    def deserialize(cls, ctx):
+        height = ctx.read_varuint()
+        return EthereumBlockHeaderAttestation(height)
