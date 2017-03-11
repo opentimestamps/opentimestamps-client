@@ -11,13 +11,7 @@
 
 import binascii
 import hashlib
-
-# PySHA3 monkey-patches hashlib, but not needed >=3.6 as SHA3 support has been
-# added to python natively.
-import sys
-if sys.version_info < (3, 6):
-    import sha3
-
+import sha3
 import opentimestamps.core.serialize
 
 class MsgValueError(ValueError):
