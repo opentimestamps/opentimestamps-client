@@ -186,6 +186,8 @@ def parse_ots_args(raw_args):
     parser_upgrade.add_argument('-c', '--calendar', metavar='URL', dest='calendar_urls', action='append', type=str,
                                 default=[],
                                 help='Override calendars in timestamp')
+    parser_upgrade.add_argument('-n', '--dry-run', action='store_true', default=False,
+                                help='Perform a trial upgrade without modifying the existing timestamp.')
     parser_upgrade.add_argument('files', metavar='FILE', type=argparse.FileType('rb'),
                                 nargs='+',
                                 help='Existing timestamp(s); moved to FILE.bak')

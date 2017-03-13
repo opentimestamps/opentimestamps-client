@@ -355,7 +355,7 @@ def upgrade_command(args):
 
         changed = upgrade_timestamp(detached_timestamp.timestamp, args)
 
-        if changed:
+        if changed and not args.dry_run:
             backup_name = old_stamp_fd.name + '.bak'
             logging.debug("Got new timestamp data; renaming existing timestamp to %r" % backup_name)
 
