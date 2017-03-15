@@ -5,7 +5,7 @@
 * SOCKS5 proxy now supported, e.g. to route remote calendar requests through Tor.
 * `ots upgrade` now works on Windows.
 * `ots upgrade` now supports `--dry-run`
-* n-of-m timeouts now used when creating timestamps.
+* n-of-m w/ timeouts now used when creating timestamps.
 
 
 ## v0.3.1
