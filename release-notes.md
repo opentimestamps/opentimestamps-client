@@ -1,6 +1,6 @@
 # OpenTimestamps Client Release Notes
 
-## v0.3.2-PENDING
+## v0.3.2
 
 * SOCKS5 proxy now supported, e.g. to route remote calendar requests through Tor.
 * `ots upgrade` now works on Windows.
