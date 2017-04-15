@@ -112,7 +112,7 @@ This functionality needs more peer review before using it can be recommended.
 
 ## Privacy Security
 
-Timestamping inherently records potentially revealing metadata - the current
+Timestamping inherently records potentially revealing metadata: the current
 time. If you create multiple timestamps in close succession it's quite likely
 that an adversary will be able to link those timestmaps as related simply on
 the basis of when they were created; if you make use of the timestamp multiple
