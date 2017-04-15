@@ -144,6 +144,23 @@ happens you'll just need to upgrade your client; existing timestamps will be
 unaffected.
 
 
+## Calendar Backups
+
+As a short-term measure, the raw calendar data for the two calendar servers in
+operation at this time can be downloaded directly:
+
+    wget -r https://alice.btc.calendar.opentimestamps.org/calendar/
+    wget -r https://bob.btc.calendar.opentimestamps.org/calendar/
+
+These files are usable with the `opentimestamps-server` package, allowing
+calendar-using timestamps to be validated even without the help of the
+centralized calendar servers. The files are simply the actual journal and
+calendar databases used by the server, exported via a nginx alias.
+
+In addition to this quick hack there is longer-term work being done to create a
+formal calendar backup/mirroring mechanism.
+
+
 ## Known Issues
 
 * Displaying Bitcoin timestamps down to the second is false precision, and
