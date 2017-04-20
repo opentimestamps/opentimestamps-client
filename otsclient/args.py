@@ -22,7 +22,8 @@ import otsclient
 import otsclient.cache
 import otsclient.cmds
 
-DEFAULT_WHITELIST='https://*.calendar.opentimestamps.org'
+DEFAULT_WHITELIST = ['https://*.calendar.opentimestamps.org', 'https://*.calendar.eternitywall.com']
+
 
 def make_common_options_arg_parser():
     parser = argparse.ArgumentParser(description="OpenTimestamps client.")
@@ -87,7 +88,7 @@ def handle_common_options(args, parser):
 
     if args.whitelist is not None:
         if not args.whitelist:
-            args.whitelist = [DEFAULT_WHITELIST]
+            args.whitelist = DEFAULT_WHITELIST
 
         whitelist = opentimestamps.calendar.UrlWhitelist()
         for url in args.whitelist:

@@ -187,6 +187,7 @@ def stamp_command(args):
         # Neither calendar nor wallet specified; add defaults
         args.calendar_urls.append('https://a.pool.opentimestamps.org')
         args.calendar_urls.append('https://b.pool.opentimestamps.org')
+        args.calendar_urls.append('https://a.pool.eternitywall.com')
 
     create_timestamp(merkle_tip, args.calendar_urls, args)
 
