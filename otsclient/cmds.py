@@ -118,15 +118,12 @@ def create_timestamp(timestamp, calendar_urls, args):
             except Exception as error:
                 logging.debug(str(error))
 
-            if merged >= m:
-                break
         except Empty:
-            logging.error("Failed to create timestamp: %d second%s timeout reached during request to calendar%s"
-                          % (args.timeout, "" if args.timeout == 1 else "s", "" if n == 1 else "s"))
-            sys.exit(1)
+            # Timeout
+            continue
 
     if merged < m:
-        logging.error("Failed to create timestamp: requested %d attestation%s but received only %s" % (m, "" if m == 1 else "s", merged))
+        logging.error("Failed to create timestamp: need at least %d attestation%s but received %s within timeout" % (m, "" if m == 1 else "s", merged))
         sys.exit(1)
     logging.debug("%.2f seconds elapsed" % (time.time()-start))
 
