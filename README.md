@@ -35,14 +35,16 @@ Creating a timestamp:
     $ ./ots stamp README.md
     Submitting to remote calendar https://a.pool.opentimestamps.org
     Submitting to remote calendar https://b.pool.opentimestamps.org
+    Submitting to remote calendar https://a.pool.eternitywall.com
 
-You'll see that `README.md.ots` has been created with the aid of two remote
+You'll see that `README.md.ots` has been created with the aid of three remote
 calendars. We can't verify it immediately however:
 
     $ ./ots verify README.md.ots
     Assuming target filename is 'README.md'
-    Calendar https://alice.btc.calendar.opentimestamps.org: No timestamp found
-    Calendar https://bob.btc.calendar.opentimestamps.org: No timestamp found
+    Calendar https://alice.btc.calendar.opentimestamps.org: Pending confirmation in Bitcoin blockchain
+    Calendar https://bob.btc.calendar.opentimestamps.org: Pending confirmation in Bitcoin blockchain
+    Calendar https://finney.calendar.eternitywall.com: Pending confirmation in Bitcoin blockchain
 
 It takes a few hours for the timestamp to get confirmed by the Bitcoin
 blockchain; we're not doing one transaction per timestamp.
@@ -146,11 +148,12 @@ unaffected.
 
 ## Calendar Backups
 
-As a short-term measure, the raw calendar data for the two calendar servers in
-operation at this time can be downloaded directly:
+As a short-term measure, the raw calendar data for the three calendar servers
+in operation at this time can be downloaded directly:
 
     wget -r https://alice.btc.calendar.opentimestamps.org/calendar/
     wget -r https://bob.btc.calendar.opentimestamps.org/calendar/
+    wget -r https://finney.calendar.eternitywall.com/calendar/
 
 These files are usable with the `opentimestamps-server` package, allowing
 calendar-using timestamps to be validated even without the help of the
