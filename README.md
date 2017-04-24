@@ -151,9 +151,9 @@ unaffected.
 As a short-term measure, the raw calendar data for the three calendar servers
 in operation at this time can be downloaded directly:
 
-    wget -r https://alice.btc.calendar.opentimestamps.org/calendar/
-    wget -r https://bob.btc.calendar.opentimestamps.org/calendar/
-    wget -r https://finney.calendar.eternitywall.com/calendar/
+    wget --no-parent -Nr https://alice.btc.calendar.opentimestamps.org/calendar/
+    wget --no-parent -Nr https://bob.btc.calendar.opentimestamps.org/calendar/
+    wget --no-parent -Nr https://finney.calendar.eternitywall.com/calendar/
 
 These files are usable with the `opentimestamps-server` package, allowing
 calendar-using timestamps to be validated even without the help of the
