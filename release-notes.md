@@ -1,5 +1,30 @@
 # OpenTimestamps Client Release Notes
 
+## v0.3.3
+
+While the actual code changes are pretty minor, this release is an important
+step forward for the OpenTimestamps project in terms of robustness.
+
+First of all, we've added a new calendar: https://finney.calendar.eternitywall.com/
+
+The new calendar is run by Eternity Wall, which means it's both separate
+infrastructure, and separate administration, to the existing two calendars run
+by Peter Todd. By default the OpenTimestamps client requires at least two
+calendars to reply within five seconds for a timestamp to be created; if less
+than two reply the stamp command returns an error (also true for the Git
+support). If all three calendars reply within five seconds, all three
+attestations are saved in the timestamp proof.
+
+The upshot of this is availability: the default configuration can now tolerate
+downtime on any one calendar with no problems. Secondly, all three calendars
+would have to fail for a timestamp to fail to be committed to Bitcoin in a
+timely manner.
+
+Secondly, all three calendars now allow you to download a full copy of their
+calendar data; with that data you can verify any timestamp ever created by
+them. See the README for details on how this works.
+
+
 ## v0.3.2
 
 * SOCKS5 proxy now supported, e.g. to route remote calendar requests through Tor.
