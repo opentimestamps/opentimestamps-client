@@ -12,7 +12,7 @@
 import binascii
 import hashlib
 
-from bitcoin.core import CTransaction, SerializationTruncationError
+from bitcoin.core import CTransaction, SerializationError, b2lx, b2x
 
 from opentimestamps.core.op import Op, UnaryOp, CryptOp, OpSHA256, OpAppend, OpPrepend, MsgValueError
 from opentimestamps.core.notary import TimeAttestation, BitcoinBlockHeaderAttestation
@@ -211,9 +211,9 @@ class Timestamp:
             rr = ""
             if verb > 0 and result is not None:
                 rr += " == "
-                result_hex = bytes.hex(result)
+                result_hex = b2x(result)
                 if parameter is not None:
-                    parameter_hex = bytes.hex(parameter)
+                    parameter_hex = b2x(parameter)
                     try:
                         index = result_hex.index(parameter_hex)
                         parameter_hex_highlight = bcolors.BOLD + parameter_hex + bcolors.ENDC
@@ -233,15 +233,15 @@ class Timestamp:
             for attestation in sorted(self.attestations):
                 r += " "*indent + "verify %s" % str(attestation) + str_result(verbosity, self.msg, None) + "\n"
                 if attestation.__class__ == BitcoinBlockHeaderAttestation:
-                    r += " "*indent + "# Bitcoin block merkle root " + bytes.hex(self.msg[::-1]) + "\n"
+                    r += " "*indent + "# Bitcoin block merkle root " + b2lx(self.msg) + "\n"
 
         if len(self.ops) > 1:
             for op, timestamp in sorted(self.ops.items()):
                 try:
                     CTransaction.deserialize(self.msg)
-                    r += " " * indent + "* Bitcoin transaction id " + bytes.hex(
-                        OpSHA256()(OpSHA256()(self.msg))[::-1]) + "\n"
-                except SerializationTruncationError:
+                    r += " " * indent + "* Bitcoin transaction id " + b2lx(
+                        OpSHA256()(OpSHA256()(self.msg))) + "\n"
+                except SerializationError:
                     pass
                 cur_res = op(self.msg)
                 cur_par = op[0]
@@ -251,8 +251,8 @@ class Timestamp:
             try:
                 CTransaction.deserialize(self.msg)
                 r += " " * indent + "# Bitcoin transaction id " + \
-                     bytes.hex(OpSHA256()(OpSHA256()(self.msg))[::-1]) + "\n"
-            except SerializationTruncationError:
+                     b2lx(OpSHA256()(OpSHA256()(self.msg))) + "\n"
+            except SerializationError:
                 pass
             op = tuple(self.ops.keys())[0]
             cur_res = op(self.msg)
