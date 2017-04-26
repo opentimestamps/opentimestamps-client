@@ -20,7 +20,7 @@ downtime on any one calendar with no problems. Secondly, all three calendars
 would have to fail for a timestamp to fail to be committed to Bitcoin in a
 timely manner.
 
-Secondly, all three calendars now allow you to download a full copy of their
+Finally all three calendars now allow you to download a full copy of their
 calendar data; with that data you can verify any timestamp ever created by
 them. See the README for details on how this works.
 
