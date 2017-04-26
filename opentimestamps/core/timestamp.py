@@ -12,8 +12,10 @@
 import binascii
 import hashlib
 
+from bitcoin.core import CTransaction, SerializationTruncationError
+
 from opentimestamps.core.op import Op, UnaryOp, CryptOp, OpSHA256, OpAppend, OpPrepend, MsgValueError
-from opentimestamps.core.notary import TimeAttestation
+from opentimestamps.core.notary import TimeAttestation, BitcoinBlockHeaderAttestation
 
 import opentimestamps.core.serialize
 
@@ -192,21 +194,71 @@ class Timestamp:
         for op_stamp in self.ops.values():
             yield from op_stamp.all_attestations()
 
-    def str_tree(self, indent=0):
+    def str_tree(self, indent=0, verbosity=0):
         """Convert to tree (for debugging)"""
+
+        class bcolors:
+            HEADER = '\033[95m'
+            OKBLUE = '\033[94m'
+            OKGREEN = '\033[92m'
+            WARNING = '\033[93m'
+            FAIL = '\033[91m'
+            ENDC = '\033[0m'
+            BOLD = '\033[1m'
+            UNDERLINE = '\033[4m'
+
+        def str_result(verb, parameter, result):
+            rr = ""
+            if verb > 0 and result is not None:
+                rr += " == "
+                result_hex = bytes.hex(result)
+                if parameter is not None:
+                    parameter_hex = bytes.hex(parameter)
+                    try:
+                        index = result_hex.index(parameter_hex)
+                        parameter_hex_highlight = bcolors.BOLD + parameter_hex + bcolors.ENDC
+                        if index == 0:
+                            rr += parameter_hex_highlight + result_hex[index+len(parameter_hex):]
+                        else:
+                            rr += result_hex[0:index] + parameter_hex_highlight
+                    except ValueError:
+                        rr += result_hex
+                else:
+                    rr += result_hex
+
+            return rr
 
         r = ""
         if len(self.attestations) > 0:
             for attestation in sorted(self.attestations):
-                r += " "*indent + "verify %s" % str(attestation) + "\n"
+                r += " "*indent + "verify %s" % str(attestation) + str_result(verbosity, self.msg, None) + "\n"
+                if attestation.__class__ == BitcoinBlockHeaderAttestation:
+                    r += " "*indent + "# Bitcoin block merkle root " + bytes.hex(self.msg[::-1]) + "\n"
 
         if len(self.ops) > 1:
             for op, timestamp in sorted(self.ops.items()):
-                r += " "*indent + " -> " + "%s"%str(op) + "\n"
-                r += timestamp.str_tree(indent+4)
+                try:
+                    CTransaction.deserialize(self.msg)
+                    r += " " * indent + "* Bitcoin transaction id " + bytes.hex(
+                        OpSHA256()(OpSHA256()(self.msg))[::-1]) + "\n"
+                except SerializationTruncationError:
+                    pass
+                cur_res = op(self.msg)
+                cur_par = op[0]
+                r += " " * indent + " -> " + "%s" % str(op) + str_result(verbosity, cur_par, cur_res) + "\n"
+                r += timestamp.str_tree(indent+4, verbosity=verbosity)
         elif len(self.ops) > 0:
-            r += " "*indent + "%s\n" % str(tuple(self.ops.keys())[0])
-            r += tuple(self.ops.values())[0].str_tree(indent)
+            try:
+                CTransaction.deserialize(self.msg)
+                r += " " * indent + "# Bitcoin transaction id " + \
+                     bytes.hex(OpSHA256()(OpSHA256()(self.msg))[::-1]) + "\n"
+            except SerializationTruncationError:
+                pass
+            op = tuple(self.ops.keys())[0]
+            cur_res = op(self.msg)
+            cur_par = op[0] if len(op) > 0 else None
+            r += " " * indent + "%s" % str(op) + str_result(verbosity, cur_par, cur_res) + "\n"
+            r += tuple(self.ops.values())[0].str_tree(indent, verbosity=verbosity)
 
         return r
 
