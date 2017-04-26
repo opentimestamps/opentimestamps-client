@@ -498,7 +498,7 @@ def info_command(args):
     print("File %s hash: %s" % (detached_timestamp.file_hash_op.HASHLIB_NAME, hexlify(detached_timestamp.file_digest).decode('utf8')))
 
     print("Timestamp:")
-    print(detached_timestamp.timestamp.str_tree())
+    print(detached_timestamp.timestamp.str_tree(verbosity=args.verbosity))
 
 
 
