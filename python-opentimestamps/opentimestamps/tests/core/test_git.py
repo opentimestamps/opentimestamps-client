@@ -24,17 +24,19 @@ from opentimestamps.core.git import *
 class Test_GitTreeTimestamper(unittest.TestCase):
 
     def setUp(self):
-        self.db_dir = tempfile.TemporaryDirectory()
+        self.db_dirs = []
 
     def tearDown(self):
-        self.db_dir.cleanup()
-        del self.db_dir
+        for d in self.db_dirs:
+            d.cleanup()
+        del self.db_dirs
 
     def make_stamper(self, commit):
         # Yes, we're using our own git repo as the test data!
         repo = git.Repo(__file__ + '../../../../../')
-
-        db = dbm.open(self.db_dir.name + '/db', 'c')
+        db_dir = tempfile.TemporaryDirectory()
+        self.db_dirs.append(db_dir)
+        db = dbm.open(db_dir.name + '/db', 'c')
         tree = repo.commit(commit).tree
         return GitTreeTimestamper(tree, db=db)
 

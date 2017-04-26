@@ -69,12 +69,18 @@ class TimeAttestation:
 
         serialized_attestation = ctx.read_varbytes(cls.MAX_PAYLOAD_SIZE)
 
+        import opentimestamps.core.serialize
         payload_ctx = opentimestamps.core.serialize.BytesDeserializationContext(serialized_attestation)
+
+        # FIXME: probably a better way to do this...
+        import opentimestamps.core.dubious.notary
 
         if tag == PendingAttestation.TAG:
             r = PendingAttestation.deserialize(payload_ctx)
         elif tag == BitcoinBlockHeaderAttestation.TAG:
             r = BitcoinBlockHeaderAttestation.deserialize(payload_ctx)
+        elif tag == opentimestamps.core.dubious.notary.EthereumBlockHeaderAttestation.TAG:
+            r = opentimestamps.core.dubious.notary.EthereumBlockHeaderAttestation.deserialize(payload_ctx)
         else:
             return UnknownAttestation(tag, serialized_attestation)
 
@@ -288,3 +294,4 @@ class BitcoinBlockHeaderAttestation(TimeAttestation):
     def deserialize(cls, ctx):
         height = ctx.read_varuint()
         return BitcoinBlockHeaderAttestation(height)
+
