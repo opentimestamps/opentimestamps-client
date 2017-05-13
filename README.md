@@ -146,22 +146,11 @@ happens you'll just need to upgrade your client; existing timestamps will be
 unaffected.
 
 
-## Calendar Backups
+## Calendar Mirroring
 
 As a short-term measure, the raw calendar data for the three calendar servers
-in operation at this time can be downloaded directly:
-
-    wget --no-parent -Nr https://alice.btc.calendar.opentimestamps.org/calendar/
-    wget --no-parent -Nr https://bob.btc.calendar.opentimestamps.org/calendar/
-    wget --no-parent -Nr https://finney.calendar.eternitywall.com/calendar/
-
-These files are usable with the `opentimestamps-server` package, allowing
-calendar-using timestamps to be validated even without the help of the
-centralized calendar servers. The files are simply the actual journal and
-calendar databases used by the server, exported via a nginx alias.
-
-In addition to this quick hack there is longer-term work being done to create a
-formal calendar backup/mirroring mechanism.
+in operation at this time can be downloaded directly. See
+the `contrib/calendar-mirror.sh` script for details.
 
 
 ## Known Issues
