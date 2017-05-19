@@ -10,11 +10,10 @@
 # in the LICENSE file.
 
 import binascii
-import hashlib
 
 from bitcoin.core import CTransaction, SerializationError, b2lx, b2x
 
-from opentimestamps.core.op import Op, UnaryOp, CryptOp, OpSHA256, OpAppend, OpPrepend, MsgValueError
+from opentimestamps.core.op import Op, CryptOp, OpSHA256, OpAppend, OpPrepend, MsgValueError
 from opentimestamps.core.notary import TimeAttestation, BitcoinBlockHeaderAttestation
 
 import opentimestamps.core.serialize
