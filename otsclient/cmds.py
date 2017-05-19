@@ -469,7 +469,11 @@ def verify_command(args):
             target_filename = args.timestamp_fd.name[:-4]
             logging.info("Assuming target filename is %r" % target_filename)
 
-            args.target_fd = open(target_filename, 'rb')
+            try:
+                args.target_fd = open(target_filename, 'rb')
+            except IOError as exp:
+                logging.error('Could not open target: %s' % exp)
+                sys.exit(1)
 
         logging.debug("Hashing file, algorithm %s" % detached_timestamp.file_hash_op.TAG_NAME)
         actual_file_digest = detached_timestamp.file_hash_op.hash_fd(args.target_fd)
