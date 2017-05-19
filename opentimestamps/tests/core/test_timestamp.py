@@ -114,7 +114,7 @@ class Test_Timestamp(unittest.TestCase):
             # Not ok, result would be 4097 bytes long
             Timestamp.deserialize(BytesDeserializationContext(serialized), b'.'*4096)
 
-    def test_deserialization_invalid_op_msg(self):
+    def test_deserialization_invalid_op_msg_2(self):
         """Deserialization of a timestamp that exceeds the recursion limit"""
         serialized = (b'\x08'*256 + # OpSHA256, 256 times
                       b'\x00' + bytes.fromhex('83dfe30d2ef90c8e' + '07' + '06') + b'barfoo') # perfectly valid pending attestation
