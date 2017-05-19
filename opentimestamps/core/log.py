@@ -9,12 +9,10 @@
 # modified, propagated, or distributed except according to the terms contained
 # in the LICENSE file.
 
-import binascii
-import hashlib
-
 from opentimestamps.core.op import CryptOp
-from opentimestamps.core.serialize import StreamSerializationContext, StreamDeserializationContext
-
+from opentimestamps.core.serialize import (
+    BadMagicError, DeserializationError, StreamSerializationContext, StreamDeserializationContext
+)
 from opentimestamps.core.packetstream import PacketReader, PacketWriter, PacketMissingError
 
 
@@ -48,7 +46,7 @@ class TimestampLogReader(TimestampLog):
         actual_magic = ctx.read_bytes(len(cls.HEADER_MAGIC))
 
         if cls.HEADER_MAGIC != actual_magic:
-            raise opentimestamps.core.serialize.BadMagicError(cls.HEADER_MAGIC, actual_magic)
+            raise BadMagicError(cls.HEADER_MAGIC, actual_magic)
 
         file_hash_op = CryptOp.deserialize(ctx)
 

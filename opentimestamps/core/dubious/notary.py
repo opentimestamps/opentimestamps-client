@@ -14,7 +14,8 @@
 import opentimestamps.core.serialize
 import opentimestamps.core.notary as notary
 
-class EthereumBlockHeaderAttestation(opentimestamps.core.notary.TimeAttestation):
+
+class EthereumBlockHeaderAttestation(notary.TimeAttestation):
     """Signed by the Ethereum blockchain
 
     The commitment digest will be the merkleroot of the blockheader.
