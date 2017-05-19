@@ -13,6 +13,7 @@ import sys
 
 import argparse
 import binascii
+import io
 import logging
 import os
 import time

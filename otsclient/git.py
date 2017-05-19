@@ -11,6 +11,7 @@
 
 import base64
 import logging
+import sys
 
 from opentimestamps.core.timestamp import Timestamp
 from opentimestamps.core.op import OpAppend, OpSHA256
