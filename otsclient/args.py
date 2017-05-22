@@ -76,6 +76,10 @@ def make_common_options_arg_parser():
                               "including DNS queries. The default port is 1080. "
                               "Format: domain[:port] (e.g. localhost:9050)")
 
+    parser.add_argument("--bitcoin-node", dest="bitcoin_node", type=str,
+                        help="Bitcoin node URL to connect to (defaults to local "
+                             "configuration)")
+
     return parser
 
 def handle_common_options(args, parser):
@@ -141,9 +145,9 @@ def handle_common_options(args, parser):
             assert False
 
         try:
-            return bitcoin.rpc.Proxy()
+            return bitcoin.rpc.Proxy(service_url=args.bitcoin_node)
         except Exception as exp:
-            logging.error("Could not connect to local Bitcoin node: %s" % exp)
+            logging.error("Could not connect to Bitcoin node: %s" % exp)
             sys.exit(1)
 
     args.setup_bitcoin = setup_bitcoin
