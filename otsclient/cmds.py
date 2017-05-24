@@ -452,7 +452,7 @@ def verify_command(args):
         try:
             digest = binascii.unhexlify(args.hex_digest.encode('utf8'))
         except ValueError:
-            args.parser.error('Digest must be hexidecimal')
+            args.parser.error('Digest must be hexadecimal')
 
         if not digest == detached_timestamp.file_digest:
             logging.error("Digest provided does not match digest in timestamp, %s (%s)" %
