@@ -1,5 +1,11 @@
 # OpenTimestamps Client Release Notes
 
+## v0.4.0-PENDING
+
+Minor breaking change: `git-gpg-wrapper` now throws an error if
+`--rehash-trees` is used when GitPython isn't installed.
+
+
 ## v0.3.3
 
 While the actual code changes are pretty minor, this release is an important
