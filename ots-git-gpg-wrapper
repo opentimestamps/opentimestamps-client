@@ -83,6 +83,9 @@ parser.add_argument("-bsau", action="store")
 parser.add_argument("--verify", action="store")
 gpgargs = parser.parse_known_args(args.gpgargs)[0]
 
+if args.rehash_trees and not REHASH_TREES_SUPPORTED:
+    parser.error("--rehash-trees requires GitPython to be installed")
+
 if gpgargs.bsau:
     with subprocess.Popen([args.gpg_program] + args.gpgargs, stdin=subprocess.PIPE, stdout=subprocess.PIPE) as gpg_proc:
         logging.debug("Reading Git commit")
@@ -108,7 +111,8 @@ if gpgargs.bsau:
         final_timestamp = signed_commit_timestamp
 
         minor_version = 0
-        if REHASH_TREES_SUPPORTED and args.rehash_trees:
+        if args.rehash_trees:
+
             # CWD will be the git repo, so this should get us the right one
             repo = git.Repo()
 
