@@ -108,7 +108,7 @@ def create_timestamp(timestamp, calendar_urls, args):
     merged = 0
     for i in range(n):
         try:
-            remaining = args.timeout - (time.time() - start)
+            remaining = max(0, args.timeout - (time.time() - start))
             result = q.get(block=True, timeout=remaining)
             try:
                 if isinstance(result, Timestamp):
