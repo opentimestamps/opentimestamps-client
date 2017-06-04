@@ -28,7 +28,7 @@ Other distros should be similiar. After that you can install the remaining libra
 
     pip3 install -r requirements.txt
 
-Once those libraries are installed, you can run the utilities directory out of
+Once those libraries are installed, you can run the utilities directly out of
 the repository; there's no system-wide installation process yet.
 
 
