@@ -20,7 +20,11 @@ pruned node is fine). You also need to set the `rpcuser` and `rpcpassword`
 options in `~/.bitcoin/bitcoin.conf` to allow the OpenTimestamps client to
 connect to your node via the RPC interface.
 
-The two required libraries are available via PyPI, and can be installed with:
+On Debian (Stretch) you can install the necessary system dependencies with:
+
+    sudo apt-get install python3 python3-dev python3-pip3 python3-setuptools python3-wheel
+
+Other distros should be similiar. After that you can install the remaining libraries which are available via PyPI with:
 
     pip3 install -r requirements.txt
 
