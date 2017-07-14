@@ -184,3 +184,19 @@ the `contrib/calendar-mirror.sh` script for details.
 
 * ots-git-gpg-wrapper doesn't yet check for you if the timestamp on the git commit
   makes sense.
+
+* `bitcoin` package can cause issues, with ots confusing it with the
+  required `python-bitcoinlib` package. A symptom of this issue is the
+  message `AttributeError: module 'bitcoin' has no attribute
+  'SelectParams'`. To remedy this issue, one must do the following:
+
+```bash
+# uninstall the packages through pip
+pip3 uninstall bitcoin python-bitcoinlib
+
+# remove the bitcoin directory manually from your dist-packages folder
+rm /usr/local/lib/python3.5/dist-packages/bitcoin
+
+# reinstall the required package
+pip3 install python-bitcoinlib 
+```
