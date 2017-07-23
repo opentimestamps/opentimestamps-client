@@ -11,6 +11,7 @@ files within a Git repository.
 
 * Python3 >= 3.4.2
 * python-bitcoinlib >= 0.7.0
+* pysha3 >= 1.0.2
 * GitPython >= 2.0.8 (optional, required only for Git commit rehashing support)
 * PySocks >= 1.5.0 (optional, required for SOCK5 proxy/Tor support)
 

@@ -5,10 +5,14 @@
 Minor breaking change: `git-gpg-wrapper` now throws an error if
 `--rehash-trees` is used when GitPython isn't installed.
 
+Note that the `pysha3` library is now a required dependency.
+
 * Remote Bitcoin nodes are now supported.
 * New SHA1 collision example.
 * Better error handling.
 * `ots info` now shows the results of operations in verbose mode.
+* Support for decoding, but not verifying, Ethereum block header attestations.
+* Support for the `keccak256` opcode (required for Ethereum-using proofs).
 
 
 ## v0.3.3
