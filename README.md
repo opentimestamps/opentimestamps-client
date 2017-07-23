@@ -199,5 +199,5 @@ pip3 uninstall bitcoin python-bitcoinlib
 rm /usr/local/lib/python3.5/dist-packages/bitcoin
 
 # reinstall the required package
-pip3 install python-bitcoinlib 
+pip3 install python-bitcoinlib
 ```
