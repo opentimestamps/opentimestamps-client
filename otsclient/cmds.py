@@ -280,10 +280,7 @@ def upgrade_timestamp(timestamp, args):
                         # logging.debug("Attestation URI %s overridden by user-specified remote calendar(s)" % attestation.uri)
                         pass
                     else:
-                        if args.whitelist is None:
-                            logging.warning("Ignoring attestation from calendar %s: Remote calendars disabled" % attestation.uri)
-                            continue
-                        elif attestation.uri in args.whitelist:
+                        if attestation.uri in args.whitelist:
                             calendar_urls = [attestation.uri]
                         else:
                             logging.warning("Ignoring attestation from calendar %s: Calendar not in whitelist" % attestation.uri)
