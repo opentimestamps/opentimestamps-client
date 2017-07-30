@@ -140,3 +140,16 @@ class UrlWhitelist(set):
 
         else:
             return False
+
+    def __repr__(self):
+       return 'UrlWhitelist([%s])' % ','.join("'%s'" % url.geturl() for url in self)
+
+DEFAULT_CALENDAR_WHITELIST = \
+    UrlWhitelist(['https://*.calendar.opentimestamps.org', # Run by Peter Todd
+                  'https://*.calendar.eternitywall.com',   # Run by Riccardo Casatta of Eternity Wall
+                 ])
+
+DEFAULT_AGGREGATORS = \
+    ('https://a.pool.opentimestamps.org',
+     'https://b.pool.opentimestamps.org',
+     'https://a.pool.eternitywall.com')
