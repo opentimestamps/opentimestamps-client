@@ -160,9 +160,13 @@ def parse_ots_args(raw_args):
     parser_stamp = subparsers.add_parser('stamp', aliases=['s'],
                                          help='Timestamp files')
 
-    parser_stamp.add_argument('-c', '--calendar', metavar='URL', dest='calendar_urls', action='append', type=str,
+    parser_stamp.add_argument('-a', '--aggregator', metavar='URL', dest='aggregators', action='append', type=str,
                               default=[],
-                              help='Create timestamp with the aid of a remote calendar. May be specified multiple times.')
+                              help='Add an aggregator')
+
+    parser_stamp.add_argument('--no-default-aggregators', action='store_true', default=False,
+                              help='Do not use the default list of aggregators; '
+                                   'use only aggregators manually added with --aggregator')
 
     parser_stamp.add_argument('-b', '--btc-wallet', dest='use_btc_wallet', action='store_true',
                               help='Create timestamp locally with the local Bitcoin wallet.')
@@ -172,14 +176,12 @@ def parse_ots_args(raw_args):
                               help='Filename')
 
     parser_stamp.add_argument("--timeout", type=int, default=5,
-                              help="Timeout before giving up on a calendar. "
+                              help="Timeout (in seconds) before giving up on an aggregator. "
                                    "Default: %(default)d")
 
-    parser_stamp.add_argument("-m", type=int, default="2",
-                              help="Commitments are sent to remote calendars,"
-                                   "in the event of timeout the timestamp is considered "
-                                   "done if at least M calendars replied. "
-                                   "Default: %(default)s")
+    parser_stamp.add_argument("-m", type=int, metavar='M', default=2,
+                              help="Require at least M of the aggregators to respond for the "
+                                   "timestamp to be considered complete. Default: %(default)d")
 
     # ----- upgrade -----
     parser_upgrade = subparsers.add_parser('upgrade', aliases=['u'],

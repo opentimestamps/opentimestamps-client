@@ -39,9 +39,13 @@ parser = otsclient.args.make_common_options_arg_parser()
 parser.add_argument("-g", "--gpg-program", action="store", default="/usr/bin/gpg",
                     help="Path to the GnuPG binary (default %(default)s)")
 
-parser.add_argument('-c','--calendar', metavar='URL', dest='calendar_urls', action='append', type=str,
-                    default=["https://a.pool.opentimestamps.org", "https://b.pool.opentimestamps.org", "https://a.pool.eternitywall.com"],
-                    help='Create timestamp with the aid of a remote calendar. May be specified multiple times. Default: %(default)r')
+parser.add_argument('-a', '--aggregator', metavar='URL', dest='aggregators', action='append', type=str,
+                    default=[],
+                    help='Add an aggregator')
+parser.add_argument('--no-default-aggregators', action='store_true', default=False,
+                    help='Do not use the default list of aggregators; '
+                         'use only aggregators manually added with --aggregator')
+
 parser.add_argument('-b','--btc-wallet', dest='use_btc_wallet', action='store_true',
                     help='Create timestamp locally with the local Bitcoin wallet.')
 parser.add_argument('--rehash-trees', action='store_true',
@@ -50,14 +54,12 @@ parser.add_argument("gpgargs", nargs=argparse.REMAINDER,
                     help='Arguments passed to GnuPG binary')
 
 parser.add_argument("--timeout", type=int, default=5,
-                              help="Timeout before giving up on a calendar. "
+                              help="Timeout before giving up on an aggregator. "
                                    "Default: %(default)d")
 
-parser.add_argument("-m", type=int, default="2",
-                              help="Commitments are sent to remote calendars,"
-                                   "in the event of timeout the timestamp is considered "
-                                   "done if at least M calendars replied. "
-                                   "Default: %(default)s")
+parser.add_argument("-m", type=int, metavar='M', default=2,
+                    help="Require at least M of the aggregators to respond for the "
+                         "timestamp to be considered complete. Default: %(default)d")
 
 args = otsclient.args.handle_common_options(parser.parse_args(), parser)
 
@@ -134,7 +136,7 @@ if gpgargs.bsau:
             final_timestamp = signed_commit_timestamp.ops.add(OpAppend(tree_stamper.timestamp.msg)).ops.add(OpSHA256())
             minor_version = 1
 
-        otsclient.cmds.create_timestamp(final_timestamp, args.calendar_urls, args)
+        otsclient.cmds.create_timestamp(final_timestamp, args)
 
         if args.wait:
             # Interpreted as override by the upgrade command

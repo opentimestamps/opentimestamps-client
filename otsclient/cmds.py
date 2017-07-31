@@ -45,13 +45,8 @@ def remote_calendar(calendar_uri):
                                                   user_agent="OpenTimestamps-Client/%s" % otsclient.__version__)
 
 
-def create_timestamp(timestamp, calendar_urls, args):
-    """Create a timestamp
-
-    calendar_urls - List of calendar's to use
-    setup_bitcoin - False if Bitcoin timestamp not desired; set to
-                    args.setup_bitcoin() otherwise.
-    """
+def create_timestamp(timestamp, args):
+    """Create a timestamp"""
 
     setup_bitcoin = args.setup_bitcoin if args.use_btc_wallet else False
     if setup_bitcoin:
@@ -92,17 +87,23 @@ def create_timestamp(timestamp, calendar_urls, args):
         assert block_timestamp is not None
         timestamp.merge(block_timestamp)
 
+    aggregator_urls = [] if args.no_default_aggregators else list(opentimestamps.calendar.DEFAULT_AGGREGATORS)
+    aggregator_urls.extend(args.aggregators)
+
     m = args.m
-    n = len(calendar_urls)
-    if m > n or m <= 0:
-        logging.error("m (%d) cannot be greater than available calendar%s (%d) neither less or equal 0" % (m,  "" if n == 1 else "s", n))
+    n = len(aggregator_urls)
+    if m > n:
+        logging.error("m (%d) cannot be greater than number of available aggregators", m)
+        sys.exit(1)
+    elif m <= 0:
+        logging.error("m must greater than zero")
         sys.exit(1)
 
     logging.debug("Doing %d-of-%d request, timeout is %d second%s" % (m, n, args.timeout, "" if n == 1 else "s"))
 
     q = Queue()
-    for calendar_url in calendar_urls:
-        submit_async(calendar_url, timestamp.msg, q, args.timeout)
+    for aggregator_url in aggregator_urls:
+        submit_async(aggregator_url, timestamp.msg, q, args.timeout)
 
     start = time.time()
     merged = 0
@@ -123,23 +124,27 @@ def create_timestamp(timestamp, calendar_urls, args):
             # Timeout
             continue
 
+    # FIXME: we should change this to have a concept of trusted calendars, and
+    # actually check that the aggregators return pending attestations with
+    # enough redundancy
+
     if merged < m:
-        logging.error("Failed to create timestamp: need at least %d attestation%s but received %s within timeout" % (m, "" if m == 1 else "s", merged))
+        logging.error("Failed to create timestamp: need at least %d attestation%s but received only %s within timeout" % (m, "" if m == 1 else "s", merged))
         sys.exit(1)
     logging.debug("%.2f seconds elapsed" % (time.time()-start))
 
 
-def submit_async(calendar_url, msg, q, timeout):
+def submit_async(aggregator_url, msg, q, timeout):
 
     def submit_async_thread(remote, msg, q, timeout):
         try:
-            calendar_timestamp = remote.submit(msg, timeout=timeout)
-            q.put(calendar_timestamp)
+            aggregator_timestamp = remote.submit(msg, timeout=timeout)
+            q.put(aggregator_timestamp)
         except Exception as exc:
             q.put(exc)
 
-    logging.info('Submitting to remote calendar %s' % calendar_url)
-    remote = remote_calendar(calendar_url)
+    logging.info('Submitting to aggregator %s' % aggregator_url)
+    remote = remote_calendar(aggregator_url)
     t = threading.Thread(target=submit_async_thread, args=(remote, msg, q, timeout))
     t.start()
 
@@ -181,13 +186,7 @@ def stamp_command(args):
 
     merkle_tip = make_merkle_tree(merkle_roots)
 
-    if not args.calendar_urls:
-        # Neither calendar nor wallet specified; add defaults
-        args.calendar_urls.append('https://a.pool.opentimestamps.org')
-        args.calendar_urls.append('https://b.pool.opentimestamps.org')
-        args.calendar_urls.append('https://a.pool.eternitywall.com')
-
-    create_timestamp(merkle_tip, args.calendar_urls, args)
+    create_timestamp(merkle_tip, args)
 
     if args.wait:
         upgrade_timestamp(merkle_tip, args)
