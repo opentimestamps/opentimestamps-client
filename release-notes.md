@@ -1,5 +1,14 @@
 # OpenTimestamps Client Release Notes
 
+## v0.5.0
+
+Breaking change: The remote calendar whitelist options have been reworked. The
+new behavior is that the `--whitelist` option adds additional remote calendars
+to the default whitelist. If you don't want to use the default whitelist, it
+can be disabled with the `--no-default-whitelist` option, replacing the prior
+`--no-remote-calendars` option, which no longer exists.
+
+
 ## v0.4.0
 
 Minor breaking change: `git-gpg-wrapper` now throws an error if

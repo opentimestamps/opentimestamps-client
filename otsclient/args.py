@@ -22,8 +22,6 @@ import otsclient
 import otsclient.cache
 import otsclient.cmds
 
-DEFAULT_WHITELIST = ['https://*.calendar.opentimestamps.org', 'https://*.calendar.eternitywall.com']
-
 
 def make_common_options_arg_parser():
     parser = argparse.ArgumentParser(description="OpenTimestamps client.")
@@ -34,14 +32,12 @@ def make_common_options_arg_parser():
     parser.add_argument("-v", "--verbose", action="count", default=0,
                         help="Be more verbose. Both -v and -q may be used multiple times.")
 
-    whitelist_group  = parser.add_mutually_exclusive_group()
-    whitelist_group.add_argument('-l', '--whitelist', metavar='URL', action='append', type=str,
-                                 default=[],
-                                 help='Whitelist a remote calendar. If no whitelist is specified, %s is whitelisted by default.' % DEFAULT_WHITELIST)
-    whitelist_group.add_argument('--no-remote-calendars', dest='whitelist', action='store_const',
-                                 const=None,
-                                 default=[],
-                                 help='Prevent any remote calendar from being contacted.')
+    parser.add_argument('-l', '--whitelist', metavar='URL', action='append', type=str,
+                        default=[],
+                        help='Add a calendar to the whitelist.')
+    parser.add_argument('--no-default-whitelist', action='store_true', default=False,
+                        help='Do not load the default remote calendar whitelist; '
+                             'contact only calendars that have been manually added with --whitelist')
 
     cache_group  = parser.add_mutually_exclusive_group()
     cache_group.add_argument("--cache", action="store", type=str,
@@ -90,14 +86,14 @@ def handle_common_options(args, parser):
         args.cache_path = os.path.normpath(os.path.expanduser(args.cache_path))
     args.cache = otsclient.cache.TimestampCache(args.cache_path)
 
-    if args.whitelist is not None:
-        if not args.whitelist:
-            args.whitelist = DEFAULT_WHITELIST
+    whitelist = opentimestamps.calendar.UrlWhitelist()
+    if not args.no_default_whitelist:
+        whitelist.update(opentimestamps.calendar.DEFAULT_CALENDAR_WHITELIST)
 
-        whitelist = opentimestamps.calendar.UrlWhitelist()
-        for url in args.whitelist:
-            whitelist.add(url)
-        args.whitelist = whitelist
+    for url in args.whitelist:
+        whitelist.add(url)
+
+    args.whitelist = whitelist
 
     if args.socks5_proxy is not None:
         try:
