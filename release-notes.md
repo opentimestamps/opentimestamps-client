@@ -1,12 +1,30 @@
 # OpenTimestamps Client Release Notes
 
-## v0.5.0
+## v0.5.0-PENDING
 
-Breaking change: The remote calendar whitelist options have been reworked. The
+### Breaking Change: Calendar Whitelists
+
+The remote calendar whitelist options have been reworked. The
 new behavior is that the `--whitelist` option adds additional remote calendars
 to the default whitelist. If you don't want to use the default whitelist, it
 can be disabled with the `--no-default-whitelist` option, replacing the prior
 `--no-remote-calendars` option, which no longer exists.
+
+Previously the default whitelist was only loaded if `--whitelist` wasn't used
+at all, making it the client inconvenient to use if you wanted to be able to
+verify timestamps using both standard and non-standard calendars at the same
+time.
+
+
+### Breaking Change: Aggregators
+
+Previously commands that created timestamps incorrectly used the term
+"calendar" when they should have used the term "aggregator" in both
+documentation and command line options. This version fixes that oversight by
+renaming the `--calendar` options of the `stamp` subcommand and
+`ots-git-gpg-wrapper` to `--aggregator`. As with the new calendar whitelist
+options, there's a default list of aggregators that can be disabled with the
+`--no-default-aggregators` option.
 
 
 ## v0.4.0
