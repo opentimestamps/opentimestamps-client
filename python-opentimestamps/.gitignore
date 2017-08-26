@@ -1,9 +1,0 @@
-*.pyc
-
-local*.cfg
-
-build/
-python_opentimestamps.egg-info/
-
-#Idea IDE
-.idea/

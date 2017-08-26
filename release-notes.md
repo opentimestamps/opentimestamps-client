@@ -2,6 +2,8 @@
 
 ## v0.5.0
 
+Installation via `setup.py` is now supported!
+
 Breaking change: The remote calendar whitelist options have been reworked. The
 new behavior is that the `--whitelist` option adds additional remote calendars
 to the default whitelist. If you don't want to use the default whitelist, it

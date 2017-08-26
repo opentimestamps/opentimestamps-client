@@ -9,4 +9,4 @@
 # modified, propagated, or distributed except according to the terms contained
 # in the LICENSE file.
 
-__version__ = "0.4.1-PENDING"
+__version__ = "0.5.0-PENDING"

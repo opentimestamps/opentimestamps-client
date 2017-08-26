@@ -6,32 +6,27 @@ Additionally this package provides timestamping of PGP signed Git commits, and
 verification of timestamps for both Git commits as a whole, and individual
 files within a Git repository.
 
+## Requirements
 
-## Requirements and Installation
+* Python3
 
-* Python3 >= 3.4.2
-* python-bitcoinlib >= 0.7.0
-* pysha3 >= 1.0.2
-* GitPython >= 2.0.8 (optional, required only for Git commit rehashing support)
-* PySocks >= 1.5.0 (optional, required for SOCK5 proxy/Tor support)
+While OpenTimestamps can *create* timestamps without a local Bitcoin node, to
+*verify* timestamps you need a local Bitcoin Core node (a pruned node is fine).
 
-Additionally while OpenTimestamps can *create* timestamps without a local
-Bitcoin node, to *verify* timestamps you need a local Bitcoin Core node (a
-pruned node is fine). You also need to set the `rpcuser` and `rpcpassword`
-options in `~/.bitcoin/bitcoin.conf` to allow the OpenTimestamps client to
-connect to your node via the RPC interface.
+
+## Installation
+
+Either via PyPi:
+
+    $ pip3 install opentimestamps-client
+
+or from source:
+
+    $ python3 setup.py install
 
 On Debian (Stretch) you can install the necessary system dependencies with:
 
     sudo apt-get install python3 python3-dev python3-pip3 python3-setuptools python3-wheel
-
-Other distros should be similiar. After that you can install the remaining libraries which are available via PyPI with:
-
-    pip3 install -r requirements.txt
-
-Once those libraries are installed, you can run the utilities directly out of
-the repository; there's no system-wide installation process yet.
-
 
 ## Usage
 
@@ -104,18 +99,15 @@ commitment operations and attestations in it:
         append 647b90ea1b270a97
         verify PendingAttestation('https://bob.btc.calendar.opentimestamps.org')
 
-
 ### Timestamping and Verifying PGP Signed Git Commits
 
 See `doc/git-integration.md`
-
 
 ### Timestamping Git Trees
 
 Read the source code: `python-opentimestamps/opentimestamps/core/git.py`
 
 This functionality needs more peer review before using it can be recommended.
-
 
 ## Privacy Security
 
@@ -137,7 +129,6 @@ each file is protected by an individual nonce; the timestamp for one file
 reveals nothing about the contents of another file timestamped at the same
 time.
 
-
 ## Compatibility Expectations
 
 OpenTimestamps is alpha software, so it's possible that timestamp formats may
@@ -150,12 +141,17 @@ calendars will change, including in backwards incompatible ways. If this
 happens you'll just need to upgrade your client; existing timestamps will be
 unaffected.
 
-
 ## Calendar Mirroring
 
 As a short-term measure, the raw calendar data for the three calendar servers
 in operation at this time can be downloaded directly. See
 the `contrib/calendar-mirror.sh` script for details.
+
+## Development
+
+Use the setuptools development mode:
+
+    python3 setup.py develop --user
 
 
 ## Known Issues
