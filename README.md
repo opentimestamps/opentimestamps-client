@@ -32,7 +32,7 @@ On Debian (Stretch) you can install the necessary system dependencies with:
 
 Creating a timestamp:
 
-    $ ./ots stamp README.md
+    $ ots stamp README.md
     Submitting to remote calendar https://a.pool.opentimestamps.org
     Submitting to remote calendar https://b.pool.opentimestamps.org
     Submitting to remote calendar https://a.pool.eternitywall.com
@@ -40,7 +40,7 @@ Creating a timestamp:
 You'll see that `README.md.ots` has been created with the aid of three remote
 calendars. We can't verify it immediately however:
 
-    $ ./ots verify README.md.ots
+    $ ots verify README.md.ots
     Assuming target filename is 'README.md'
     Calendar https://alice.btc.calendar.opentimestamps.org: Pending confirmation in Bitcoin blockchain
     Calendar https://bob.btc.calendar.opentimestamps.org: Pending confirmation in Bitcoin blockchain
@@ -53,14 +53,14 @@ However, the client does come with a number of example timestamps which you can
 try verifying immediately. Here's a complete timestamp that can be verified
 locally:
 
-    $ ./ots verify examples/hello-world.txt.ots
+    $ ots verify examples/hello-world.txt.ots
     Assuming target filename is 'examples/hello-world.txt'
     Success! Bitcoin attests data existed as of Thu May 28 15:41:18 2015 UTC
 
 Incomplete timestamps are ones that require the assistance of a remote calendar
 to verify; the calendar provides the path to the Bitcoin block header:
 
-    $ ./ots verify examples/incomplete.txt.ots
+    $ ots verify examples/incomplete.txt.ots
     Assuming target filename is 'examples/incomplete.txt'
     Got 1 new attestation(s) from https://alice.btc.calendar.opentimestamps.org
     Success! Bitcoin attests data existed as of Wed Sep  7 05:56:43 2016 UTC
@@ -68,7 +68,7 @@ to verify; the calendar provides the path to the Bitcoin block header:
 The client maintains a cache of timestamps it obtains from remote calendars, so
 if you verify the same file again it'll use the cache:
 
-    $ ./ots verify examples/incomplete.txt.ots
+    $ ots verify examples/incomplete.txt.ots
     Assuming target filename is 'examples/incomplete.txt'
     Got 1 attestation(s) from cache
     Success! Bitcoin attests data existed as of Wed Sep  7 05:56:43 2016 UTC
@@ -76,14 +76,14 @@ if you verify the same file again it'll use the cache:
 You can also upgrade an incomplete timestamp, which adds the path to the
 Bitcoin blockchain to the timestamp itself:
 
-    $ ./ots upgrade examples/incomplete.txt.ots
+    $ ots upgrade examples/incomplete.txt.ots
     Got 1 attestation(s) from cache
     Success! Timestamp is complete
 
 Finally, you can get information on a timestamp, including the actual
 commitment operations and attestations in it:
 
-    $ ./ots info examples/two-calendars.txt.ots
+    $ ots info examples/two-calendars.txt.ots
     File sha256 hash: efaa174f68e59705757460f4f7d204bd2b535cfd194d9d945418732129404ddb
     Timestamp:
     append 839037eef449dec6dac322ca97347c45
