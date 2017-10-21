@@ -112,10 +112,7 @@ To create and verify these signatures we simply wrap the gpg binary with our
 own code, `ots-git-gpg-wrapper`. Git allows you to override the default GnuPG
 binary (`/usr/bin/gpg`) with your own using the `gpg.program` config option.
 Unfortunately that option doesn't let you set additional command line flags, so
-we use one more wrapper, `ots-git-gpg-wrapper.sh`. You can set all this up with the
-following:
-
-    git config --global gpg.program <path to ots-git-gpg-wrapper.sh>
+we use one more wrapper, `ots-git-gpg-wrapper.sh`. check [OTS Git Wrapper Script](#ots-git-wrapper) for installation instructions.
 
 Now try creating a test repository and signing a commit:
 
@@ -347,3 +344,18 @@ calendar servers:
     gpg:                using RSA key 6399011044E8AFB2
     gpg: Good signature from "Peter Todd <pete@petertodd.org>"
     gpg:                 aka "[jpeg image of size 5220]"
+
+<a id="ots-git-wrapper"></a>OTS Git Wrapper Script Instructions
+-----------------------------
+
+Follow the below instructions to install `ots-git-gpg-wrapper.sh` script, you may modify destination path as needed.
+
+    # Modify as needed
+    DIST_PATH=~/ots-git-gpg-wrapper.sh
+    cat << "EOF" | tee $DIST_PATH
+    #!/bin/sh
+
+    ots-git-gpg-wrapper --gpg-program "`which gpg`" -- "$@" 
+    EOF
+    chmod +x $DIST_PATH
+    git config --global gpg.program $DIST_PATH
