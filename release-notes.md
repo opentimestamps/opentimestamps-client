@@ -1,5 +1,11 @@
 # OpenTimestamps Client Release Notes
 
+## v0.5.1
+
+Updated dependencies, which ultimately means the segwit-supporting
+`python-bitcoinlib` v0.9.0 is used instead of the non-segwit v0.8.0
+
+
 ## v0.5.0
 
 Installation via `setup.py` is now supported!
