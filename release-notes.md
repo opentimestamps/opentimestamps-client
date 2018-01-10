@@ -1,5 +1,13 @@
 # OpenTimestamps Client Release Notes
 
+## v0.6.0dev
+
+Minor breaking change: Git tree rehashing is now always enabled, removing the
+`--rehash-trees` option from `git-gpg-wrapper`. This means that timestamps can
+be extracted for individual files within Git repos timestamped with this
+version onwards using the `ots git-extract` subcommand.
+
+
 ## v0.5.1
 
 Updated dependencies, which ultimately means the segwit-supporting

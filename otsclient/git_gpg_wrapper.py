@@ -1,4 +1,4 @@
-# Copyright (C) 2017 The OpenTimestamps developers
+# Copyright (C) 2017-2018 The OpenTimestamps developers
 #
 # This file is part of the OpenTimestamps Client.
 #
@@ -17,12 +17,8 @@ import bitcoin
 import logging
 import subprocess
 
-try:
-    import git
-    from opentimestamps.core.git import GitTreeTimestamper
-    REHASH_TREES_SUPPORTED = True
-except ImportError:
-    REHASH_TREES_SUPPORTED = False
+import git
+from opentimestamps.core.git import GitTreeTimestamper
 
 from opentimestamps.core.timestamp import Timestamp
 from opentimestamps.core.op import OpAppend, OpSHA256
@@ -42,8 +38,6 @@ def main():
                         help='Create timestamp with the aid of a remote calendar. May be specified multiple times. Default: %(default)r')
     parser.add_argument('-b','--btc-wallet', dest='use_btc_wallet', action='store_true',
                         help='Create timestamp locally with the local Bitcoin wallet.')
-    parser.add_argument('--rehash-trees', action='store_true',
-                        help='Re-hash tree contents (requires GitPython)')
     parser.add_argument("gpgargs", nargs=argparse.REMAINDER,
                         help='Arguments passed to GnuPG binary')
 
@@ -81,9 +75,6 @@ def main():
     parser.add_argument("--verify", action="store")
     gpgargs = parser.parse_known_args(args.gpgargs)[0]
 
-    if args.rehash_trees and not REHASH_TREES_SUPPORTED:
-        parser.error("--rehash-trees requires GitPython to be installed")
-
     if gpgargs.bsau:
         with subprocess.Popen([args.gpg_program] + args.gpgargs, stdin=subprocess.PIPE, stdout=subprocess.PIPE) as gpg_proc:
             logging.debug("Reading Git commit")
@@ -108,29 +99,28 @@ def main():
             signed_commit_timestamp = Timestamp(hash_signed_commit(git_commit, gpg_sig))
             final_timestamp = signed_commit_timestamp
 
-            minor_version = 0
-            if args.rehash_trees:
+            # with git tree rehashing
+            minor_version = 1
 
-                # CWD will be the git repo, so this should get us the right one
-                repo = git.Repo()
+            # CWD will be the git repo, so this should get us the right one
+            repo = git.Repo()
 
-                hextree_start = None
-                if git_commit.startswith(b'tree '):
-                    hextree_start = 5
-                elif git_commit.startswith(b'object '):
-                    # I believe this is always a git tag
-                    hextree_start = 7
-                else:
-                    raise AssertionError("Don't know what to do with %r" % git_commit)
+            hextree_start = None
+            if git_commit.startswith(b'tree '):
+                hextree_start = 5
+            elif git_commit.startswith(b'object '):
+                # I believe this is always a git tag
+                hextree_start = 7
+            else:
+                raise AssertionError("Don't know what to do with %r" % git_commit)
 
-                hextree = git_commit[hextree_start:hextree_start + 20*2].decode()
-                tree = repo.tree(hextree)
-                tree.path = ''
+            hextree = git_commit[hextree_start:hextree_start + 20*2].decode()
+            tree = repo.tree(hextree)
+            tree.path = ''
 
-                tree_stamper = GitTreeTimestamper(tree)
+            tree_stamper = GitTreeTimestamper(tree)
 
-                final_timestamp = signed_commit_timestamp.ops.add(OpAppend(tree_stamper.timestamp.msg)).ops.add(OpSHA256())
-                minor_version = 1
+            final_timestamp = signed_commit_timestamp.ops.add(OpAppend(tree_stamper.timestamp.msg)).ops.add(OpSHA256())
 
             otsclient.cmds.create_timestamp(final_timestamp, args.calendar_urls, args)
 
