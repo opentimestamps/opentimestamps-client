@@ -186,6 +186,7 @@ def stamp_command(args):
         args.calendar_urls.append('https://a.pool.opentimestamps.org')
         args.calendar_urls.append('https://b.pool.opentimestamps.org')
         args.calendar_urls.append('https://a.pool.eternitywall.com')
+        args.calendar_urls.append('https://ots.btc.catallaxy.com')
 
     create_timestamp(merkle_tip, args.calendar_urls, args)
 
