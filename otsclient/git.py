@@ -1,4 +1,4 @@
-# Copyright (C) 2016 The OpenTimestamps developers
+# Copyright (C) 2016-2018 The OpenTimestamps developers
 #
 # This file is part of the OpenTimestamps Client.
 #
@@ -10,6 +10,7 @@
 # in the LICENSE file.
 
 import base64
+import hashlib
 import logging
 import sys
 
@@ -24,7 +25,10 @@ ASCII_ARMOR_HEADER = b'-----BEGIN OPENTIMESTAMPS GIT TIMESTAMP-----\n\n'
 ASCII_ARMOR_FOOTER = b'-----END OPENTIMESTAMPS GIT TIMESTAMP-----\n'
 
 def hash_signed_commit(git_commit, gpg_sig):
-    return OpSHA256()(OpSHA256()(git_commit) + OpSHA256()(gpg_sig))
+    # Note how we use hashlib here: git_commit and gpg_sig could exceed the
+    # maximum message size limit in the OpenTimestamps protocol.
+    return hashlib.sha256(hashlib.sha256(git_commit).digest()
+                          + hashlib.sha256(gpg_sig).digest()).digest()
 
 def write_ascii_armored(timestamp, fd, minor_version):
     ctx = BytesSerializationContext()
