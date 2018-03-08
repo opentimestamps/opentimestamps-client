@@ -15,7 +15,6 @@ import logging
 import sys
 
 from opentimestamps.core.timestamp import Timestamp
-from opentimestamps.core.op import OpAppend, OpSHA256
 from opentimestamps.core.serialize import BytesSerializationContext, BytesDeserializationContext
 
 # FIXME: This code should be added to python-opentimestamps, although it needs
