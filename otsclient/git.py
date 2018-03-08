@@ -1,4 +1,4 @@
-# Copyright (C) 2016 The OpenTimestamps developers
+# Copyright (C) 2016-2018 The OpenTimestamps developers
 #
 # This file is part of the OpenTimestamps Client.
 #
@@ -10,11 +10,11 @@
 # in the LICENSE file.
 
 import base64
+import hashlib
 import logging
 import sys
 
 from opentimestamps.core.timestamp import Timestamp
-from opentimestamps.core.op import OpAppend, OpSHA256
 from opentimestamps.core.serialize import BytesSerializationContext, BytesDeserializationContext
 
 # FIXME: This code should be added to python-opentimestamps, although it needs
@@ -23,8 +23,13 @@ from opentimestamps.core.serialize import BytesSerializationContext, BytesDeseri
 ASCII_ARMOR_HEADER = b'-----BEGIN OPENTIMESTAMPS GIT TIMESTAMP-----\n\n'
 ASCII_ARMOR_FOOTER = b'-----END OPENTIMESTAMPS GIT TIMESTAMP-----\n'
 
+
 def hash_signed_commit(git_commit, gpg_sig):
-    return OpSHA256()(OpSHA256()(git_commit) + OpSHA256()(gpg_sig))
+    # Note how we use hashlib here: git_commit and gpg_sig could exceed the
+    # maximum message size limit in the OpenTimestamps protocol.
+    return hashlib.sha256(hashlib.sha256(git_commit).digest()
+                          + hashlib.sha256(gpg_sig).digest()).digest()
+
 
 def write_ascii_armored(timestamp, fd, minor_version):
     ctx = BytesSerializationContext()
@@ -33,7 +38,7 @@ def write_ascii_armored(timestamp, fd, minor_version):
 
     fd.write(ASCII_ARMOR_HEADER)
 
-    header = (b'\x01' + # major
+    header = (b'\x01' +  # major
               bytes([minor_version]))
     b64_encoded = base64.standard_b64encode(header + serialized_timestamp)
     for chunk in (b64_encoded[i:i+64] for i in range(0, len(b64_encoded), 64)):
@@ -42,14 +47,15 @@ def write_ascii_armored(timestamp, fd, minor_version):
 
     fd.write(ASCII_ARMOR_FOOTER)
 
+
 def deserialize_ascii_armored_timestamp(git_commit, gpg_sig):
     stamp_start = gpg_sig.find(ASCII_ARMOR_HEADER)
     if stamp_start == -1:
-        return (None, None, None)
+        return None, None, None
 
     stamp_end = gpg_sig.find(b'\n' + ASCII_ARMOR_FOOTER)
     if stamp_end == -1:
-        return (None, None, None)
+        return None, None, None
 
     base64_encoded_stamp = gpg_sig[stamp_start + len(ASCII_ARMOR_HEADER):stamp_end]
 
@@ -69,10 +75,11 @@ def deserialize_ascii_armored_timestamp(git_commit, gpg_sig):
         ctx = BytesDeserializationContext(serialized_stamp[2:])
         timestamp = Timestamp.deserialize(ctx, initial_msg)
 
-        return (major_version, minor_version, timestamp)
+        return major_version, minor_version, timestamp
     except Exception as err:
         logging.error("Bad timestamp: %r" % err)
-        return (None, None, None)
+        return None, None, None
+
 
 def extract_sig_from_git_commit(signed_git_commit):
     """Extract signature (if any) from a signed git commit
@@ -102,4 +109,4 @@ def extract_sig_from_git_commit(signed_git_commit):
         else:
             unsigned_git_commit.append(l)
 
-    return (b'\n'.join(unsigned_git_commit), b'\n'.join(gpg_sig) + b'\n')
+    return b'\n'.join(unsigned_git_commit), b'\n'.join(gpg_sig) + b'\n'
