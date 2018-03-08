@@ -99,4 +99,8 @@ setup(
             'ots-git-gpg-wrapper = otsclient.git_gpg_wrapper:main',
         ],
     },
+
+     scripts = [
+         'ots-git-gpg-wrapper.sh'
+     ]
 )
