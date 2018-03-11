@@ -1,4 +1,4 @@
-# Copyright (C) 2016 The OpenTimestamps developers
+# Copyright (C) 2016-2018 The OpenTimestamps developers
 #
 # This file is part of the OpenTimestamps Client.
 #
@@ -9,12 +9,13 @@
 # modified, propagated, or distributed except according to the terms contained
 # in the LICENSE file.
 
+import appdirs
 import argparse
 import bitcoin
 import logging
 import os
-import sys
 import socket
+import sys
 
 import opentimestamps.calendar
 
@@ -22,6 +23,7 @@ import otsclient
 import otsclient.cache
 import otsclient.cmds
 
+APPDIRS = appdirs.AppDirs('ots','opentimestamps')
 
 def make_common_options_arg_parser():
     parser = argparse.ArgumentParser(description="OpenTimestamps client.")
@@ -42,7 +44,7 @@ def make_common_options_arg_parser():
     cache_group  = parser.add_mutually_exclusive_group()
     cache_group.add_argument("--cache", action="store", type=str,
                              dest='cache_path',
-                             default='~/.cache/ots',
+                             default=APPDIRS.user_cache_dir,
                              help="Location of the timestamp cache. Default: %(default)s")
     cache_group.add_argument("--no-cache", action="store_const", const=None,
                              dest='cache_path',
