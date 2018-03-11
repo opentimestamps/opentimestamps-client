@@ -1,4 +1,4 @@
-# Copyright (C) 2016 The OpenTimestamps developers
+# Copyright (C) 2016-2018 The OpenTimestamps developers
 #
 # This file is part of the OpenTimestamps Client.
 #
@@ -183,15 +183,14 @@ def parse_ots_args(raw_args):
 
     # ----- upgrade -----
     parser_upgrade = subparsers.add_parser('upgrade', aliases=['u'],
-                                           help='Upgrade remote calendar timestamps to be locally verifiable')
+                                           help='Upgrade timestamp to be locally verifiable, without remote calendars')
     parser_upgrade.add_argument('-c', '--calendar', metavar='URL', dest='calendar_urls', action='append', type=str,
                                 default=[],
                                 help='Override calendars in timestamp')
     parser_upgrade.add_argument('-n', '--dry-run', action='store_true', default=False,
                                 help='Perform a trial upgrade without modifying the existing timestamp.')
-    parser_upgrade.add_argument('files', metavar='FILE', type=argparse.FileType('rb'),
-                                nargs='+',
-                                help='Existing timestamp(s); moved to FILE.bak')
+    parser_upgrade.add_argument('timestamp_fd', metavar='FILE', type=argparse.FileType('rb'),
+                                help='Existing timestamp; moved to FILE.bak')
 
     # ----- verify -----
     parser_verify = subparsers.add_parser('verify', aliases=['v'],

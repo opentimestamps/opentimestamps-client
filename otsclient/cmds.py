@@ -1,4 +1,4 @@
-# Copyright (C) 2016 The OpenTimestamps developers
+# Copyright (C) 2016-2018 The OpenTimestamps developers
 #
 # This file is part of the OpenTimestamps Client.
 #
@@ -333,52 +333,51 @@ def upgrade_timestamp(timestamp, args):
 
 
 def upgrade_command(args):
-    for old_stamp_fd in args.files:
-        logging.debug("Upgrading %s" % old_stamp_fd.name)
+    logging.debug("Upgrading %s" % args.timestamp_fd.name)
 
-        ctx = StreamDeserializationContext(old_stamp_fd)
+    ctx = StreamDeserializationContext(args.timestamp_fd)
+    try:
+        detached_timestamp = DetachedTimestampFile.deserialize(ctx)
+        args.timestamp_fd.close()
+
+    # IOError's are already handled by argparse
+    except BadMagicError:
+        logging.error("Error! %r is not a timestamp file" % args.timestamp_fd.name)
+        sys.exit(1)
+    except DeserializationError as exp:
+        logging.error("Invalid timestamp file %r: %s" % (args.timestamp_fd.name, exp))
+        sys.exit(1)
+
+    changed = upgrade_timestamp(detached_timestamp.timestamp, args)
+
+    if changed and not args.dry_run:
+        backup_name = args.timestamp_fd.name + '.bak'
+        logging.debug("Got new timestamp data; renaming existing timestamp to %r" % backup_name)
+
+        if os.path.exists(backup_name):
+            logging.error("Could not backup timestamp: %r already exists" % backup_name)
+            sys.exit(1)
+
         try:
-            detached_timestamp = DetachedTimestampFile.deserialize(ctx)
-            old_stamp_fd.close()
-
-        # IOError's are already handled by argparse
-        except BadMagicError:
-            logging.error("Error! %r is not a timestamp file" % old_stamp_fd.name)
-            sys.exit(1)
-        except DeserializationError as exp:
-            logging.error("Invalid timestamp file %r: %s" % (old_stamp_fd.name, exp))
+            os.rename(args.timestamp_fd.name, backup_name)
+        except IOError as exp:
+            logging.error("Could not backup timestamp: %s" % exp)
             sys.exit(1)
 
-        changed = upgrade_timestamp(detached_timestamp.timestamp, args)
-
-        if changed and not args.dry_run:
-            backup_name = old_stamp_fd.name + '.bak'
-            logging.debug("Got new timestamp data; renaming existing timestamp to %r" % backup_name)
-
-            if os.path.exists(backup_name):
-                logging.error("Could not backup timestamp: %r already exists" % backup_name)
-                sys.exit(1)
-
-            try:
-                os.rename(old_stamp_fd.name, backup_name)
-            except IOError as exp:
-                logging.error("Could not backup timestamp: %s" % exp)
-                sys.exit(1)
-
-            try:
-                with open(old_stamp_fd.name, 'xb') as new_stamp_fd:
-                    ctx = StreamSerializationContext(new_stamp_fd)
-                    detached_timestamp.serialize(ctx)
-            except IOError as exp:
-                # FIXME: should we try to restore the old file here?
-                logging.error("Could not upgrade timestamp %s: %s" % (old_stamp_fd.name, exp))
-                sys.exit(1)
-
-        if is_timestamp_complete(detached_timestamp.timestamp, args):
-            logging.info("Success! Timestamp complete")
-        else:
-            logging.warning("Failed! Timestamp not complete")
+        try:
+            with open(args.timestamp_fd.name, 'xb') as new_stamp_fd:
+                ctx = StreamSerializationContext(new_stamp_fd)
+                detached_timestamp.serialize(ctx)
+        except IOError as exp:
+            # FIXME: should we try to restore the old file here?
+            logging.error("Could not upgrade timestamp %s: %s" % (args.timestamp_fd.name, exp))
             sys.exit(1)
+
+    if is_timestamp_complete(detached_timestamp.timestamp, args):
+        logging.info("Success! Timestamp complete")
+    else:
+        logging.warning("Failed! Timestamp not complete")
+        sys.exit(1)
 
 
 def verify_timestamp(timestamp, args):
