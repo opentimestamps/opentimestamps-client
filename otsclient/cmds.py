@@ -1,4 +1,4 @@
-# Copyright (C) 2016 The OpenTimestamps developers
+# Copyright (C) 2016-2018 The OpenTimestamps developers
 #
 # This file is part of the OpenTimestamps Client.
 #
@@ -401,6 +401,8 @@ def verify_timestamp(timestamp, args):
         elif attestation.__class__ == BitcoinBlockHeaderAttestation:
             if not args.use_bitcoin:
                 logging.warning("Not checking Bitcoin attestation; Bitcoin disabled")
+                logging.info("To verify manually, check that Bitcoin block %d has merkleroot %s" %
+                                (attestation.height, b2lx(msg)))
                 continue
 
             proxy = args.setup_bitcoin()
