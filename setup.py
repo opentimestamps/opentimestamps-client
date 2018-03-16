@@ -70,6 +70,7 @@ setup(
     # requirements files see:
     # https://packaging.python.org/en/latest/requirements.html
     install_requires=['opentimestamps>=0.2.0,<0.3.0',
+                      'appdirs>=1.3.0',
                       'GitPython>=2.0.8',
                       'PySocks>=1.5.0'],
 
