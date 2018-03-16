@@ -151,11 +151,6 @@ Use the setuptools development mode:
 
 ## Known Issues
 
-* Displaying Bitcoin timestamps down to the second is false precision, and
-  misleading. But rounding off to the nearest day is over-doing it in the other
-  direction. See https://lists.linuxfoundation.org/pipermail/bitcoin-dev/2016-September/013120.html
-  for more information on this issue.
-
 * Need unit tests for the client.
 
 * Git tree re-hashing support fails on certain filenames with invalid unicode

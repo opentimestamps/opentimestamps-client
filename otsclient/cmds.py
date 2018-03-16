@@ -427,8 +427,10 @@ def verify_timestamp(timestamp, args):
                 logging.error("Bitcoin verification failed: %s" % str(err))
                 continue
 
-            logging.info("Success! Bitcoin attests data existed as of %s" %
-                         time.strftime('%c %Z', time.localtime(attested_time)))
+            logging.info("Success! Bitcoin block %d attests existence as of %s" %
+                            (attestation.height,
+                             time.strftime('%Y-%m-%d %Z',
+                                          time.localtime(attested_time))))
             good = True
 
             # One Bitcoin attestation is enough
