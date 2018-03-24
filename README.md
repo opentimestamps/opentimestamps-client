@@ -26,7 +26,7 @@ or from source:
 
 On Debian (Stretch) you can install the necessary system dependencies with:
 
-    sudo apt-get install python3 python3-dev python3-pip3 python3-setuptools python3-wheel
+    sudo apt-get install python3 python3-dev python3-pip python3-setuptools python3-wheel
 
 ## Usage
 
