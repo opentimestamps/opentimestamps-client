@@ -1,11 +1,68 @@
 # OpenTimestamps Client Release Notes
 
-## v0.6.0dev
+## v0.6.0
 
-Minor breaking change: Git tree rehashing is now always enabled, removing the
-`--rehash-trees` option from `git-gpg-wrapper`. This means that timestamps can
-be extracted for individual files within Git repos timestamped with this
-version onwards using the `ots git-extract` subcommand.
+* Git tree rehashing is now always enabled; the `--rehash-tree` option is now
+  ignored. This means that timestamps can be extracted for individual files
+  within Git repos timestamped with this version onwards using the
+  `ots git-extract` subcommand.
+* Fixed crash when trying to timestamp git commits with very large commit
+  messages.
+* Standard app directory locations are now used, in particular for the
+  timestamp cache.
+
+### New Calendar Server
+
+Thanks to Vincent Cloutier from Catallaxy, who has committed to running it
+indefinitely.
+
+This means that Peter Todd is no longer a single-point of failure for OTS
+clients with default settings. By default both the `ots` client and the git
+commit timestamper only consider a timestamp complete if at least two calendars
+replied; previously Peter ran two out of three calendars. With the new
+Catallaxy calendar, that's two out of four, which means as long as the other
+two calendars are operating clients will continue to function with default
+settings even if all of Peter's calendars are down.
+
+
+### Bitcoin Timestamp Display Precision
+
+Previously we'd display Bitcoin timestamps with precision down to the second,
+which misrepresents how precise a Bitcoin timestamp can actually be as
+adversarial miners can get away with creating blocks whose timestamps are
+inaccurate by multiple hours, or more. This has been changed to rounding off to
+the nearest day, which better represents the actual accuracy of a Bitcoin
+timestamp.
+
+Examples of the new UX:
+
+```
+$ ots verify examples/empty.ots
+Assuming target filename is 'examples/empty'
+Success! Bitcoin block 129405 attests existence as of 2011-06-08 EDT
+```
+
+```
+$ git tag -v opentimestamps-client-v0.5.1
+object dcc45495b682c522170e8c2148b4759632e9d7fa
+type commit
+tag opentimestamps-client-v0.5.1
+tagger Peter Todd <pete@petertodd.org> 1513029381 -0500
+
+Release opentimestamps-client-v0.5.1
+ots: Got 1 attestation(s) from https://finney.calendar.eternitywall.com
+ots: Got 1 attestation(s) from https://bob.btc.calendar.opentimestamps.org
+ots: Success! Bitcoin block 498825 attests existence as of 2017-12-11 EST
+ots: Good timestamp
+gpg: Signature made Mon 11 Dec 2017 04:56:22 PM EST
+gpg:                using RSA key 2481403DA5F091FB
+gpg: Good signature from "Peter Todd <pete@petertodd.org>"
+gpg:                 aka "[jpeg image of size 5220]"
+```
+
+For those who do want a more precise timestamp, the height of the block
+attesting to the timestamp is now displayed, allowing a manual investigation of
+it.
 
 
 ## v0.5.1
