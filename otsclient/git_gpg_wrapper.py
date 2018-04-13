@@ -51,6 +51,10 @@ def main():
                                        "done if at least M calendars replied. "
                                        "Default: %(default)s")
 
+    parser.add_argument('--rehash-trees', action='store_true',
+                        help=argparse.SUPPRESS)
+
+
     args = otsclient.args.handle_common_options(parser.parse_args(), parser)
 
     logging.basicConfig(format='ots: %(message)s')
