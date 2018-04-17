@@ -182,7 +182,7 @@ Use the setuptools development mode:
 pip3 uninstall bitcoin python-bitcoinlib
 
 # remove the bitcoin directory manually from your dist-packages folder
-rm /usr/local/lib/python3.5/dist-packages/bitcoin
+rm -rf /usr/local/lib/python3.5/dist-packages/bitcoin
 
 # reinstall the required package
 pip3 install python-bitcoinlib
