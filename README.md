@@ -108,7 +108,7 @@ See `doc/git-integration.md`
 
 Timestamping inherently records potentially revealing metadata: the current
 time. If you create multiple timestamps in close succession it's quite likely
-that an adversary will be able to link those timestmaps as related simply on
+that an adversary will be able to link those timestamps as related simply on
 the basis of when they were created; if you make use of the timestamp multiple
 files in one command functionality (`./ots stamp <file1> <file2> ... <fileN>`)
 most of the commitment operations in the timestamps themselves will be
