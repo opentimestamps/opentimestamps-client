@@ -55,7 +55,7 @@ locally:
 
     $ ots verify examples/hello-world.txt.ots
     Assuming target filename is 'examples/hello-world.txt'
-    Success! Bitcoin attests data existed as of Thu May 28 15:41:18 2015 UTC
+    Success! Bitcoin block 358391 attests existence as of 2015-05-28 CEST
 
 Incomplete timestamps are ones that require the assistance of a remote calendar
 to verify; the calendar provides the path to the Bitcoin block header:
@@ -63,7 +63,7 @@ to verify; the calendar provides the path to the Bitcoin block header:
     $ ots verify examples/incomplete.txt.ots
     Assuming target filename is 'examples/incomplete.txt'
     Got 1 new attestation(s) from https://alice.btc.calendar.opentimestamps.org
-    Success! Bitcoin attests data existed as of Wed Sep  7 05:56:43 2016 UTC
+    Success! Bitcoin block 428648 attests existence as of 2016-09-07 CEST
 
 The client maintains a cache of timestamps it obtains from remote calendars, so
 if you verify the same file again it'll use the cache:
@@ -71,7 +71,7 @@ if you verify the same file again it'll use the cache:
     $ ots verify examples/incomplete.txt.ots
     Assuming target filename is 'examples/incomplete.txt'
     Got 1 attestation(s) from cache
-    Success! Bitcoin attests data existed as of Wed Sep  7 05:56:43 2016 UTC
+    Success! Bitcoin block 428648 attests existence as of 2016-09-07 CEST
 
 You can also upgrade an incomplete timestamp, which adds the path to the
 Bitcoin blockchain to the timestamp itself:
