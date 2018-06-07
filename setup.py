@@ -69,7 +69,7 @@ setup(
     # your project is installed. For an analysis of "install_requires" vs pip's
     # requirements files see:
     # https://packaging.python.org/en/latest/requirements.html
-    install_requires=['opentimestamps>=0.3.0,<0.4.0',
+    install_requires=['opentimestamps>=0.4.0,<0.5.0',
                       'appdirs>=1.3.0',
                       'GitPython>=2.0.8',
                       'PySocks>=1.5.0'],
