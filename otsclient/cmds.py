@@ -508,6 +508,209 @@ def info_command(args):
     print(detached_timestamp.timestamp.str_tree(verbosity=args.verbosity))
 
 
+def verify_all_attestations(timestamp, attestations_to_verify, args):
+    for msg, attestation in timestamp.all_attestations():
+        if attestation.__class__ in attestations_to_verify:
+            # as of now, only bitcoin attestations can be verified
+            if attestation.__class__ == BitcoinBlockHeaderAttestation:
+                if not args.use_bitcoin:
+                    logging.error("Bitcoin disabled, could not check attestations")
+                    sys.exit(1)
+
+                proxy = args.setup_bitcoin()
+
+                try:
+                    block_count = proxy.getblockcount()
+                    blockhash = proxy.getblockhash(attestation.height)
+                    block_header = proxy.getblockheader(blockhash)
+                    attested_time = attestation.verify_against_blockheader(msg, block_header)
+                except IndexError:
+                    logging.error("Bitcoin block height %d not found; %d is highest known block" % (
+                        attestation.height, block_count))
+                    sys.exit(1)
+                except ConnectionError as exp:
+                    logging.error("Could not connect to local Bitcoin node: %s" % exp)
+                    sys.exit(1)
+                except VerificationError as err:
+                    logging.error("Bitcoin verification failed: %s" % str(err))
+                    sys.exit(1)
+
+            else:
+                logging.error("Could not verify; verification with %s not supported" % str(attestation.__class__))
+                sys.exit(1)
+
+
+def discard_attestations(timestamp, attestations_to_discard):
+    for a in timestamp.attestations.copy():
+        # The client should be able to discard pending attestations from a specified calendar,
+        # thus pending attestations are managed differently
+        if a.__class__ == PendingAttestation:
+            if PendingAttestation in attestations_to_discard:
+                timestamp.attestations.remove(a)
+            elif a in attestations_to_discard:
+                timestamp.attestations.remove(a)
+        elif a.__class__ in attestations_to_discard:
+            timestamp.attestations.remove(a)
+
+    for op, stamp in timestamp.ops.items():
+        discard_attestations(stamp, attestations_to_discard)
+
+
+def discard_suboptimal(timestamp, target_attestation):
+    opt_att = None
+    opt_nod = None
+    opt_dep = 0
+    # optimal attestation, node and depth;
+    # it is necessary to store the optimal node to go back and remove an updated optimal attestation.
+
+    for op, stamp in timestamp.ops.items():
+        cur_opt_att, cur_opt_nod, cur_opt_dep = discard_suboptimal(stamp, target_attestation)
+        cur_opt_dep += 1 + (0 if len(op) == 0 else len(op[0]))
+        # all Op are encoded with one byte;
+        # depth does not count attestation sizes, although they may be relevant for overall size.
+        if cur_opt_att:
+            if not opt_att:
+                opt_att, opt_nod, opt_dep = cur_opt_att, cur_opt_nod, cur_opt_dep
+            elif cur_opt_att > opt_att:
+                cur_opt_nod.attestations.remove(cur_opt_att)
+            elif cur_opt_att < opt_att:
+                opt_nod.attestations.remove(opt_att)
+                opt_att, opt_nod, opt_dep = cur_opt_att, cur_opt_nod, cur_opt_dep
+            else:
+                # attestations are equal, check depth
+                if cur_opt_dep < opt_dep:
+                    opt_nod.attestations.remove(opt_att)
+                    opt_att, opt_nod, opt_dep = cur_opt_att, cur_opt_nod, cur_opt_dep
+                else:
+                    cur_opt_nod.attestations.remove(cur_opt_att)
+
+    for a in timestamp.attestations.copy():
+        if a.__class__ == target_attestation:
+            if not opt_att:
+                opt_att, opt_nod = a, timestamp
+            else:
+                if a > opt_att:
+                    timestamp.attestations.remove(a)
+                else:
+                    # if a == opt_att, then a is optimal, because the timestamp attestation is less deep
+                    opt_nod.attestations.remove(opt_att)
+                    opt_att, opt_nod = a, timestamp
+
+    return opt_att, opt_nod, opt_dep
+
+
+def prune_tree(timestamp):
+    prunable = len(timestamp.attestations) == 0
+    changed = False
+
+    for op, stamp in timestamp.ops.copy().items():
+        stamp_prunable, stamp_changed = prune_tree(stamp)
+        changed = changed or stamp_changed or stamp_prunable
+        if stamp_prunable:
+            del timestamp.ops[op]
+        else:
+            prunable = False
+
+    return prunable, changed
+
+
+def prune_timestamp(timestamp, attestations_to_verify, attestations_to_discard, args):
+    """Attempt to prune timestamp
+
+    Returns prunable and changed:
+    - prunable is True iff the pruned timestamp is empty;
+    - changed is True iff the pruned timestamp differs from the one input.
+
+    Note that it is inefficient to explore the tree several (5) times, but it avoids errors in particular cases.
+    If the requests are more specific (e.g. discard all attestations except best "btc"), then more efficient
+    implementation could be made.
+    """
+
+    verify_all_attestations(timestamp, attestations_to_verify, args)
+    discard_attestations(timestamp, attestations_to_discard)
+    # discard suboptimal attestations for each comparable attestation class
+    discard_suboptimal(timestamp, BitcoinBlockHeaderAttestation)
+    discard_suboptimal(timestamp, LitecoinBlockHeaderAttestation)
+    prunable, changed = prune_tree(timestamp)
+    return prunable, changed
+
+
+def prune_command(args):
+    ctx = StreamDeserializationContext(args.timestamp_fd)
+    try:
+        detached_timestamp = DetachedTimestampFile.deserialize(ctx)
+    except BadMagicError:
+        logging.error("Error! %r is not a timestamp file." % args.timestamp_fd.name)
+        sys.exit(1)
+    except DeserializationError as exp:
+        logging.error("Invalid timestamp file %r: %s" % (args.timestamp_fd.name, exp))
+        sys.exit(1)
+
+    attestations_to_verify = []
+    if args.attestations_to_verify:
+        for s in args.attestations_to_verify:
+            if s == "btc":
+                attestations_to_verify += [BitcoinBlockHeaderAttestation]
+            else:
+                args.parser.error("argument --verify: invalid choice: '%s' (choose from 'btc')" % s)
+                sys.exit(1)
+    elif not args.no_verify:
+        # default case, otherwise attestations_to_verify is left empty
+        attestations_to_verify = [BitcoinBlockHeaderAttestation]
+
+    attestations_to_discard = []
+    if args.attestations_to_discard:
+        for s in args.attestations_to_discard:
+            if s == "btc":
+                attestations_to_discard += [BitcoinBlockHeaderAttestation]
+            elif s == "ltc":
+                attestations_to_discard += [LitecoinBlockHeaderAttestation]
+            elif s == "unknown":
+                attestations_to_discard += [UnknownAttestation]
+            elif s[:8] == "pending:":
+                if s[8:] == "*":
+                    attestations_to_discard += [PendingAttestation]
+                else:
+                    attestations_to_discard += [PendingAttestation(s[8:])]
+            else:
+                args.parser.error("argument --discard: invalid choice: '%s' (choose from 'btc', 'ltc', 'unknown', "
+                                  "'pending:*', 'pending:uri')" % s)
+                sys.exit(1)
+    else:
+        # default case
+        attestations_to_discard = [PendingAttestation]
+
+    empty, changed = prune_timestamp(detached_timestamp.timestamp, attestations_to_verify, attestations_to_discard, args)
+
+    if empty:
+        logging.warning("Failed! All attestations have been discarded")
+        sys.exit(1)
+    elif not changed:
+        logging.warning("Failed! Nothing has been discarded")
+        sys.exit(1)
+    else:
+        backup_name = args.timestamp_fd.name + ".bak"
+        logging.debug("Prune successful; renaming existing timestamp to %r" % backup_name)
+        if os.path.exists(backup_name):
+            logging.error("Could not backup timestamp: %r already exists" % backup_name)
+            sys.exit(1)
+        try:
+            os.rename(args.timestamp_fd.name, backup_name)
+        except IOError as exp:
+            logging.error("Could not backup timestamp: %s" % exp)
+            sys.exit(1)
+
+        try:
+            with open(args.timestamp_fd.name, 'xb') as new_stamp_fd:
+                ctx = StreamSerializationContext(new_stamp_fd)
+                detached_timestamp.serialize(ctx)
+        except IOError as exp:
+            # FIXME: should we try to restore the old file here?
+            logging.error("Could not upgrade timestamp %s: %s" % (args.timestamp_fd.name, exp))
+            sys.exit(1)
+
+        logging.info("Success! Timestamp pruned")
+
 
 def git_extract_command(args):
     import git
