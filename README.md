@@ -57,6 +57,12 @@ locally:
     Assuming target filename is 'examples/hello-world.txt'
     Success! Bitcoin block 358391 attests existence as of 2015-05-28 CEST
 
+You can specify JSON-RPC credentials (`USER` and `PASS`) for a local bitcoin node like so:
+
+    $ ots --bitcoin-node http://USER:PASS@127.0.0.1:8332/ verify examples/hello-world.txt.ots
+    Assuming target filename is 'examples/hello-world.txt'
+    Success! Bitcoin block 358391 attests existence as of 2015-05-28 CEST
+
 Incomplete timestamps are ones that require the assistance of a remote calendar
 to verify; the calendar provides the path to the Bitcoin block header:
 
@@ -175,7 +181,7 @@ Use the setuptools development mode:
 * `bitcoin` package can cause issues, with ots confusing it with the
   required `python-bitcoinlib` package. A symptom of this issue is the
   message `AttributeError: module 'bitcoin' has no attribute
-  'SelectParams'`. To remedy this issue, one must do the following:
+  'SelectParams'` or `JSONDecodeError("Expecting value", s, err.value) from None`. To remedy this issue, one must do the following:
 
 ```bash
 # uninstall the packages through pip
