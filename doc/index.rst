@@ -12,6 +12,7 @@ Contents:
    :maxdepth: 2
    
    ots
+   README
    git-integration
 
 

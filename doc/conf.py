@@ -26,12 +26,20 @@
 #
 # needs_sphinx = '1.0'
 
+from recommonmark.parser import CommonMarkParser
+from recommonmark.transform import AutoStructify
+
+def setup(app):
+    app.add_config_value('recommonmark_config', {
+                    'enable_eval_rst': True }, True)
+    app.add_transform(AutoStructify)
+
 # Add any Sphinx extension module names here, as strings. They can be
 # extensions coming with Sphinx (named 'sphinx.ext.*') or your custom
 # ones.
 extensions = [
     'sphinx.ext.githubpages',
-#    'sphinxarg.ext'
+    'sphinxarg.ext'
 ]
 
 # Add any paths that contain templates here, relative to this directory.
@@ -43,7 +51,6 @@ templates_path = ['_templates']
 # source_suffix = ['.rst', '.md']
 source_suffix = [ '.rst', '.md' ]
 
-from recommonmark.parser import CommonMarkParser
 source_parsers = {
             '.md': CommonMarkParser,
             }
@@ -309,7 +316,7 @@ latex_documents = [
 # One entry per manual page. List of tuples
 # (source start file, name, description, authors, manual section).
 man_pages = [
-    (master_doc, 'opentimestamps-client', u'opentimestamps-client Documentation',
+    ('ots', 'ots', u'opentimestamps-client',
      [author], 1)
 ]
 
