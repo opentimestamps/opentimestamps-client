@@ -34,7 +34,7 @@ def main():
                         help="Path to the GnuPG binary (default %(default)s)")
 
     parser.add_argument('-c','--calendar', metavar='URL', dest='calendar_urls', action='append', type=str,
-                        default=["https://a.pool.opentimestamps.org", "https://b.pool.opentimestamps.org", "https://a.pool.eternitywall.com","https://ots.btc.catallaxy.com"],
+                        default=["https://a.pool.opentimestamps.org", "https://b.pool.opentimestamps.org", "https://a.pool.eternitywall.com","https://ots.btc.catallaxy.com","https://a.pool.dgi.io"],
                         help='Create timestamp with the aid of a remote calendar. May be specified multiple times. Default: %(default)r')
     parser.add_argument('-b','--btc-wallet', dest='use_btc_wallet', action='store_true',
                         help='Create timestamp locally with the local Bitcoin wallet.')
