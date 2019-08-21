@@ -1,5 +1,10 @@
 # OpenTimestamps Client Release Notes
 
+## v0.7.0
+
+* New command, `ots prune`, to prune timestamps of unnecessary and redundant attestations.
+* Updated dependencies.
+
 ## v0.6.0
 
 * Git tree rehashing is now always enabled; the `--rehash-tree` option is now
