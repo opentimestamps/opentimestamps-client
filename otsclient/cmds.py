@@ -459,7 +459,7 @@ def verify_command(args):
 
         if not digest == detached_timestamp.file_digest:
             logging.error("Digest provided does not match digest in timestamp, %s (%s)" %
-                          (b2x(detached_timestamp.file_digest), detached_timestamp.file_hash_op_class.TAG_NAME))
+                          (b2x(detached_timestamp.file_digest), detached_timestamp.file_hash_op.TAG_NAME))
             sys.exit(1)
 
     else:
