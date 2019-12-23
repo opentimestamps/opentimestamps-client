@@ -195,6 +195,14 @@ def parse_ots_args(raw_args):
                                 nargs='+',
                                 help='Existing timestamp(s); moved to FILE.bak')
 
+    parser_upgradewatchlist = subparsers.add_parser('upgradewatchlist', aliases=['uw'],
+                                                    help="Upgrade timestamps from cache")
+    parser_upgradewatchlist.add_argument('-c', '--calendar', metavar='URL', dest='calendar_urls', action='append', type=str,
+                                         default=[],
+                                         help='Override calendars in timestamps')
+    parser_upgradewatchlist.add_argument('-n', '--dry-run', action='store_true', default=False,
+                                         help='Perform a trial upgrade without modifying the existing timestamps.')
+
     # ----- verify -----
     parser_verify = subparsers.add_parser('verify', aliases=['v'],
                                           help="Verify a timestamp")
@@ -239,6 +247,7 @@ def parse_ots_args(raw_args):
 
     parser_stamp.set_defaults(cmd_func=otsclient.cmds.stamp_command)
     parser_upgrade.set_defaults(cmd_func=otsclient.cmds.upgrade_command)
+    parser_upgradewatchlist.set_defaults(cmd_func=otsclient.cmds.upgradewatchlist_command)
     parser_verify.set_defaults(cmd_func=otsclient.cmds.verify_command)
     parser_info.set_defaults(cmd_func=otsclient.cmds.info_command)
     parser_prune.set_defaults(cmd_func=otsclient.cmds.prune_command)
