@@ -183,6 +183,9 @@ def parse_ots_args(raw_args):
                                    "done if at least M calendars replied. "
                                    "Default: %(default)s")
 
+    parser_stamp.add_argument('--nowatch', action="store_true", default=False,
+                                help="Don't add the timestamp to the watchlist cache.")
+
     # ----- upgrade -----
     parser_upgrade = subparsers.add_parser('upgrade', aliases=['u'],
                                            help='Upgrade remote calendar timestamps to be locally verifiable')

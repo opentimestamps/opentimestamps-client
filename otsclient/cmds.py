@@ -205,8 +205,10 @@ def stamp_command(args):
                 ctx = StreamSerializationContext(timestamp_fd)
                 file_timestamp.serialize(ctx)
 
-                # add this timestamp to the watchlist
-                args.cache.watch(os.path.abspath(timestamp_file_path))
+                # pass --nowatch to skip
+                if not args.nowatch:
+                    # add this timestamp to the watchlist
+                    args.cache.watch(os.path.abspath(timestamp_file_path))
         except IOError as exp:
             logging.error("Failed to create timestamp %r: %s" % (timestamp_file_path, exp))
             sys.exit(1)
