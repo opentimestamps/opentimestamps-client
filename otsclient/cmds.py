@@ -430,7 +430,7 @@ def verify_timestamp(timestamp, args):
 
             logging.info("Success! Bitcoin block %d attests existence as of %s" %
                             (attestation.height,
-                             time.strftime('%Y-%m-%d %Z',
+                             time.strftime('%Y-%m-%dT%H:%M:%S %Z',
                                           time.localtime(attested_time))))
             good = True
 
