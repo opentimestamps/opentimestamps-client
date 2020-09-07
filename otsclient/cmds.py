@@ -360,7 +360,7 @@ def upgrade_command(args):
 
     completed_timestamps = []
 
-    # Timestamp commitment cash that exists only during active processing.
+    # Timestamp commitment cache that exists only during active processing.
     # Don't check calendar servers multiple times for the same commitment.
     args.runtime_cache = {}
 
