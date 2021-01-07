@@ -178,9 +178,7 @@ def parse_ots_args(raw_args):
                                    "Default: %(default)d")
 
     parser_stamp.add_argument("-m", type=int, default="2",
-                              help="Commitments are sent to remote calendars,"
-                                   "in the event of timeout the timestamp is considered "
-                                   "done if at least M calendars replied. "
+                              help="Consider the timestamp complete if at least M calendars reply prior to the timeout. "
                                    "Default: %(default)s")
 
     # ----- upgrade -----
