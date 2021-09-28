@@ -16,6 +16,7 @@ import base64
 import bitcoin
 import logging
 import subprocess
+import shutil
 
 import git
 from opentimestamps.core.git import GitTreeTimestamper
@@ -30,7 +31,7 @@ from otsclient.git import hash_signed_commit, write_ascii_armored, deserialize_a
 def main():
     parser = otsclient.args.make_common_options_arg_parser()
 
-    parser.add_argument("-g", "--gpg-program", action="store", default="/usr/bin/gpg",
+    parser.add_argument("-g", "--gpg-program", action="store", default=shutil.which("gpg") or "/usr/bin/gpg",
                         help="Path to the GnuPG binary (default %(default)s)")
 
     parser.add_argument('-c','--calendar', metavar='URL', dest='calendar_urls', action='append', type=str,
