@@ -383,6 +383,14 @@ OPENTIMESTAMPS=false git log --show-signature
 
 # Don't use OpenTimestamps for timestamping for one commit:
 OPENTIMESTAMPS=false git commit -m "commit message"
+
+# Only use OpenTimestamps for `git show` and `git commit` (not e.g. `git log`)
+git config --global opentimestamps.only-for show,commit
+
+# Don't try to use a local Bitcoin node for verification.
+# This gets rids of error messages in `git show` and `git log` 
+# when you don't have a Bitcoin node running.
+git config --global opentimestamps.flags '--no-bitcoin'
 ```
 
 Troubleshooting
