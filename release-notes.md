@@ -1,5 +1,9 @@
 # OpenTimestamps Client Release Notes
 
+## v0.7.1
+
+* Minor help message improvements
+
 ## v0.7.0
 
 * New command, `ots prune`, to prune timestamps of unnecessary and redundant attestations.
