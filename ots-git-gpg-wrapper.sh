@@ -58,7 +58,7 @@ function is_true() { if check_pattern "$1" "$false_pattern";then return 1;fi;che
 # This git subcommand-detection fails if there are direct arguments to `git` before the subcommand.
 # The full git cmdline should be parsed properly. Instead, we skip the git subcommand check in this case.
 git_command="`cat /proc/"$PPID"/cmdline | tr '\0' '\n' | tail -n+2 | head -n1`"
-if (echo "$git_command" | grep -vx '[a-z]\+');then
+if (echo "$git_command" | grep -qvx '[a-z]\+');then
     debug "Can't determine git command if there are direct options to git, sorry..."
     git_command=
 fi
