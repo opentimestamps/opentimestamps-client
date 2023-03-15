@@ -181,6 +181,31 @@ def parse_ots_args(raw_args):
                               help="Consider the timestamp complete if at least M calendars reply prior to the timeout. "
                                    "Default: %(default)s")
 
+    # ----- stamp-digest -----
+    parser_stamp_digest = subparsers.add_parser('stamp-digest',
+                                                help='Timestamp a digest')
+
+    parser_stamp_digest.add_argument('-c', '--calendar', metavar='URL', dest='calendar_urls', action='append', type=str,
+                                     default=[],
+                                     help='Create timestamp with the aid of a remote calendar. May be specified multiple times.')
+
+    parser_stamp_digest.add_argument('-b', '--btc-wallet', dest='use_btc_wallet', action='store_true',
+                                     help='Create timestamp locally with the local Bitcoin wallet.')
+
+    parser_stamp_digest.add_argument('hex_digest', metavar='DIGEST',
+                                     help='32-byte hex-encoded SHA256 digest')
+
+    parser_stamp_digest.add_argument('timestamp_fd', metavar='TIMESTAMP', type=argparse.FileType('wb'),
+                                     help='Timestamp filename')
+
+    parser_stamp_digest.add_argument("--timeout", type=int, default=5,
+                                     help="Timeout before giving up on a calendar. "
+                                          "Default: %(default)d")
+
+    parser_stamp_digest.add_argument("-m", type=int, default="2",
+                                     help="Consider the timestamp complete if at least M calendars reply prior to the timeout. "
+                                          "Default: %(default)s")
+
     # ----- upgrade -----
     parser_upgrade = subparsers.add_parser('upgrade', aliases=['u'],
                                            help='Upgrade remote calendar timestamps to be locally verifiable')
@@ -236,6 +261,7 @@ def parse_ots_args(raw_args):
 
 
     parser_stamp.set_defaults(cmd_func=otsclient.cmds.stamp_command)
+    parser_stamp_digest.set_defaults(cmd_func=otsclient.cmds.stamp_digest_command)
     parser_upgrade.set_defaults(cmd_func=otsclient.cmds.upgrade_command)
     parser_verify.set_defaults(cmd_func=otsclient.cmds.verify_command)
     parser_info.set_defaults(cmd_func=otsclient.cmds.info_command)
