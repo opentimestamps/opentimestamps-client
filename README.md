@@ -132,21 +132,25 @@ time.
 
 ## Compatibility Expectations
 
-OpenTimestamps is alpha software, so it's possible that timestamp formats may
-have to change in the future in non-backward-compatible ways. However it will
-almost certainly be possible to write conversion tools for any
-non-backwards-compatible changes.
+OpenTimestamps is production software that has been in use for many years. The
+timestamp format itself is stable and future OpenTimestamp's clients will
+always be able to verify OTS timestamps created in the past, provided that the
+relevant calendar data is available. The only case where this guarantee could
+fail is if cryptographic hashing functions themselves suffer a catestrophic
+failure; a failure of Bitcoin itself, eg due to 51% attack, is *not* sufficient
+to make Bitcoin timestamps from the past unverifiable, as the Bitcoin chain is
+widely witnessed.
 
-It's very likely that the REST protocol used to communicate with remote
-calendars will change, including in backwards incompatible ways. If this
-happens you'll just need to upgrade your client; existing timestamps will be
+It's likely that the REST protocol used to communicate with remote calendars
+will change, including in backwards incompatible ways. If this happens you'll
+just need to upgrade your client software; existing timestamps will be
 unaffected.
 
 ## Calendar Mirroring
 
-As a short-term measure, the raw calendar data for the three calendar servers
-in operation at this time can be downloaded directly. See
-the `contrib/calendar-mirror.sh` script for details.
+Calendars can be backed up with the [otsd-backup.py](https://github.com/opentimestamps/opentimestamps-server/blob/master/otsd-backup.py)
+tool from the [OpenTimestamps Server](https://github.com/opentimestamps/opentimestamps-server) package.
+
 
 ## Development
 
@@ -178,7 +182,7 @@ Use the setuptools development mode:
 * ots-git-gpg-wrapper doesn't yet check for you if the timestamp on the git commit
   makes sense.
 
-* `bitcoin` package can cause issues, with ots confusing it with the
+* `bitcoin` package can cause issues, with `ots` confusing it with the
   required `python-bitcoinlib` package. A symptom of this issue is the
   message `AttributeError: module 'bitcoin' has no attribute
   'SelectParams'` or `JSONDecodeError("Expecting value", s, err.value) from None`. To remedy this issue, one must do the following:
