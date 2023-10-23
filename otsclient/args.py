@@ -152,7 +152,7 @@ def handle_common_options(args, parser):
 
     return args
 
-def parse_ots_args(raw_args):
+def create_ots_arg_parser():
     parser = make_common_options_arg_parser()
 
     subparsers = parser.add_subparsers(title='Subcommands',
@@ -260,6 +260,10 @@ def parse_ots_args(raw_args):
     except ImportError:
         pass
 
+    return parser
+
+def parse_ots_args(raw_args):
+    parser = create_ots_arg_parser()
     args = parser.parse_args(raw_args)
     args = handle_common_options(args, parser)
 
