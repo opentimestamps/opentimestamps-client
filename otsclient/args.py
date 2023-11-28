@@ -54,6 +54,9 @@ def make_common_options_arg_parser():
     btc_net_group.add_argument('--btc-testnet', dest='btc_net', action='store_const',
                                const='testnet', default='mainnet',
                                help='Use Bitcoin testnet rather than mainnet')
+    btc_net_group.add_argument('--btc-signet', dest='btc_net', action='store_const',
+                               const='signet', default='mainnet',
+                               help='Use Bitcoin signet rather than mainnet')
     btc_net_group.add_argument('--btc-regtest', dest='btc_net', action='store_const',
                                const='regtest',
                                help='Use Bitcoin regtest rather than mainnet')
@@ -135,6 +138,8 @@ def handle_common_options(args, parser):
         """
         if args.btc_net == 'testnet':
            bitcoin.SelectParams('testnet')
+        elif args.btc_net == 'signet':
+           bitcoin.SelectParams('signet')
         elif args.btc_net == 'regtest':
            bitcoin.SelectParams('regtest')
         elif args.btc_net == 'mainnet':
