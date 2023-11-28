@@ -169,6 +169,9 @@ def parse_ots_args(raw_args):
     parser_stamp.add_argument('-b', '--btc-wallet', dest='use_btc_wallet', action='store_true',
                               help='Create timestamp locally with the local Bitcoin wallet.')
 
+    parser_stamp.add_argument('-f', '--fee-rate', dest='fee_rate', default=False,
+                              help='Specify fee rate in sat/vbyte. Default is to let Bitcoin Core decide.')
+
     parser_stamp.add_argument('files', metavar='FILE', type=argparse.FileType('rb'),
                               nargs='*',
                               help='Filename')

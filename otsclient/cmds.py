@@ -59,7 +59,12 @@ def create_timestamp(timestamp, calendar_urls, args):
 
         logging.debug("Call fundrawtransaction for OP_RETURN %s", timestamp.msg.hex())
         unfunded_tx = CTransaction([], [CTxOut(0, CScript([OP_RETURN, timestamp.msg]))])
-        r = proxy.fundrawtransaction(unfunded_tx)  # FIXME: handle errors
+
+        options = {}
+        if args.fee_rate:
+            options['fee_rate'] = args.fee_rate
+
+        r = proxy.fundrawtransaction(unfunded_tx, options)  # FIXME: handle errors
         funded_tx = r['tx']
 
         logging.debug("Call signrawtransactionwithwallet %s", funded_tx.serialize().hex())
