@@ -108,6 +108,10 @@ def create_timestamp(timestamp, nonce, calendar_urls, args):
         assert block_timestamp is not None
         timestamp.merge(block_timestamp)
 
+    # Do not use calendars when solo stamping:
+    if args.use_btc_wallet:
+        return True
+
     m = args.m
     n = len(calendar_urls)
     if m > n or m <= 0:
@@ -198,7 +202,7 @@ def stamp_command(args):
 
     merkle_tip = make_merkle_tree(merkle_roots)
 
-    if not args.calendar_urls:
+    if not args.use_btc_wallet or not args.calendar_urls:
         # Neither calendar nor wallet specified; add defaults
         args.calendar_urls.append('https://a.pool.opentimestamps.org')
         args.calendar_urls.append('https://b.pool.opentimestamps.org')
