@@ -172,6 +172,12 @@ def parse_ots_args(raw_args):
     parser_stamp.add_argument('-f', '--fee-rate', dest='fee_rate', default=False,
                               help='Specify fee rate in sat/vbyte. Default is to let Bitcoin Core decide.')
 
+    parser_stamp.add_argument('--nonce', dest='nonce', default=False,
+                              help='Resume earlier stamp, must be used together with --txid')
+
+    parser_stamp.add_argument('--txid', dest='txid', default=False,
+                              help='Resume earlier stamp, must be used together with --nonce. Can be used with RBF.')
+
     parser_stamp.add_argument('files', metavar='FILE', type=argparse.FileType('rb'),
                               nargs='*',
                               help='Filename')
@@ -264,6 +270,11 @@ def parse_ots_args(raw_args):
         pass
 
     args = parser.parse_args(raw_args)
+
+    if hasattr(args, "nonce") or hasattr(args, "txid"):
+        if bool(args.nonce) ^ bool(args.txid):
+            parser_stamp.error('--nonce and --txid must be given together')
+
     args = handle_common_options(args, parser)
 
     return args

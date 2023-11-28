@@ -45,7 +45,7 @@ def remote_calendar(calendar_uri):
                                                   user_agent="OpenTimestamps-Client/%s" % otsclient.__version__)
 
 
-def create_timestamp(timestamp, calendar_urls, args):
+def create_timestamp(timestamp, nonce, calendar_urls, args):
     """Create a timestamp
 
     calendar_urls - List of calendar's to use
@@ -57,26 +57,34 @@ def create_timestamp(timestamp, calendar_urls, args):
     if setup_bitcoin:
         proxy = setup_bitcoin()
 
-        logging.debug("Call fundrawtransaction for OP_RETURN %s", timestamp.msg.hex())
-        unfunded_tx = CTransaction([], [CTxOut(0, CScript([OP_RETURN, timestamp.msg]))])
+        txid = None
+        if args.txid:
+            logging.debug("Continue with existing transaction")
+            txid = bytes.fromhex(args.txid)[::-1]
+        else:
+            logging.debug("Call fundrawtransaction for OP_RETURN %s", timestamp.msg.hex())
+            unfunded_tx = CTransaction([], [CTxOut(0, CScript([OP_RETURN, timestamp.msg]))])
 
-        options = {}
-        if args.fee_rate:
-            options['fee_rate'] = args.fee_rate
+            options = {}
+            if args.fee_rate:
+                options['fee_rate'] = args.fee_rate
 
-        r = proxy.fundrawtransaction(unfunded_tx, options)  # FIXME: handle errors
-        funded_tx = r['tx']
+            r = proxy.fundrawtransaction(unfunded_tx, options)  # FIXME: handle errors
+            funded_tx = r['tx']
 
-        logging.debug("Call signrawtransactionwithwallet %s", funded_tx.serialize().hex())
-        r = proxy.signrawtransactionwithwallet(funded_tx)
-        assert r['complete']
-        signed_tx = r['tx']
+            logging.debug("Call signrawtransactionwithwallet %s", funded_tx.serialize().hex())
+            r = proxy.signrawtransactionwithwallet(funded_tx)
+            assert r['complete']
+            signed_tx = r['tx']
 
-        logging.debug("Call sendrawtransaction %s", signed_tx.serialize().hex())
-        txid = proxy.sendrawtransaction(signed_tx)
-        logging.info('Sent timestamp tx')
+            logging.debug("Call sendrawtransaction %s", signed_tx.serialize().hex())
+            txid = proxy.sendrawtransaction(signed_tx)
+            logging.info('Sent timestamp tx')
 
         blockhash = None
+
+        logging.info('Waiting for confirmation. This can be interupted and resumed with:\nots stamp --nonce=%s --txid=%s', nonce.hex(), txid[::-1].hex())
+
         while blockhash is None:
             logging.info('Waiting for timestamp tx %s to confirm...' % b2lx(txid))
             time.sleep(1)
@@ -181,7 +189,8 @@ def stamp_command(args):
         # Remember that the files - and their timestamps - might get separated
         # later, so if we didn't use a nonce for every file, the timestamp
         # would leak information on the digests of adjacent files.
-        nonce_appended_stamp = file_timestamp.timestamp.ops.add(OpAppend(os.urandom(16)))
+        nonce = bytes.fromhex(args.nonce) if args.nonce else os.urandom(16)
+        nonce_appended_stamp = file_timestamp.timestamp.ops.add(OpAppend(nonce))
         merkle_root = nonce_appended_stamp.ops.add(OpSHA256())
 
         merkle_roots.append(merkle_root)
@@ -196,7 +205,7 @@ def stamp_command(args):
         args.calendar_urls.append('https://a.pool.eternitywall.com')
         args.calendar_urls.append('https://ots.btc.catallaxy.com')
 
-    create_timestamp(merkle_tip, args.calendar_urls, args)
+    create_timestamp(merkle_tip, nonce, args.calendar_urls, args)
 
     if args.wait:
         upgrade_timestamp(merkle_tip, args)
