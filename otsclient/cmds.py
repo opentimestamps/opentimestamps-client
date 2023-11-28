@@ -57,14 +57,17 @@ def create_timestamp(timestamp, calendar_urls, args):
     if setup_bitcoin:
         proxy = setup_bitcoin()
 
+        logging.debug("Call fundrawtransaction for OP_RETURN %s", timestamp.msg.hex())
         unfunded_tx = CTransaction([], [CTxOut(0, CScript([OP_RETURN, timestamp.msg]))])
         r = proxy.fundrawtransaction(unfunded_tx)  # FIXME: handle errors
         funded_tx = r['tx']
 
-        r = proxy.signrawtransaction(funded_tx)
+        logging.debug("Call signrawtransactionwithwallet %s", funded_tx.serialize().hex())
+        r = proxy.signrawtransactionwithwallet(funded_tx)
         assert r['complete']
         signed_tx = r['tx']
 
+        logging.debug("Call sendrawtransaction %s", signed_tx.serialize().hex())
         txid = proxy.sendrawtransaction(signed_tx)
         logging.info('Sent timestamp tx')
 
