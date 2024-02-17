@@ -64,13 +64,15 @@ A signed Git commit adds a ASCII-armored PGP signature:
 What the signature actually signs is simply the commit minus the signature
 itself; in the above example the exact data the signature signs is:
 
-    $ git cat-file -p a9d1ffc2e10dafcf17d31593a362b15c0a636bfc
-    tree 548b1c88f537cd9939edeea094bfaff094f20874
-    parent 53c68bc976c581636b84c82fe814fab178adf8a6
-    author Peter Todd <pete@petertodd.org> 1432826886 -0400
-    committer Peter Todd <pete@petertodd.org> 1432827857 -0400
-    
-    Add working ots command line utility
+```
+tree 548b1c88f537cd9939edeea094bfaff094f20874
+parent 53c68bc976c581636b84c82fe814fab178adf8a6
+author Peter Todd <pete@petertodd.org> 1432826886 -0400
+committer Peter Todd <pete@petertodd.org> 1432827857 -0400
+
+Add working ots command line utility
+
+```
 
 You can verify this yourself manually with a bit of cut-and-pasting.
 Interestingly, if you ask GnuPG to verify a ASCII-armored signature with
