@@ -172,7 +172,7 @@ right away OpenTimestamps will tell you that the timestamp can't be verified:
     
         initial commit
 
-However, if we wait a few hours the timestamp will be completed and can
+However, if we wait a few hours the timestamp will be completed and can be
 verified:
 
     $ git log --show-signature
