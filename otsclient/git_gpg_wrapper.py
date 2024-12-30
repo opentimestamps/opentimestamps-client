@@ -107,7 +107,7 @@ def main():
             minor_version = 1
 
             # CWD will be the git repo, so this should get us the right one
-            repo = git.Repo()
+            repo = git.Repo(".")
 
             hextree_start = None
             if git_commit.startswith(b'tree '):
