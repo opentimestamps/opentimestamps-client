@@ -1,5 +1,9 @@
 # OpenTimestamps Client Release Notes
 
+## v0.7.2
+
+* Now works in git worktrees
+
 ## v0.7.1
 
 * Minor help message improvements
