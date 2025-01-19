@@ -112,10 +112,23 @@ To create and verify these signatures we simply wrap the gpg binary with our
 own code, `ots-git-gpg-wrapper`. Git allows you to override the default GnuPG
 binary (`/usr/bin/gpg`) with your own using the `gpg.program` config option.
 Unfortunately that option doesn't let you set additional command line flags, so
-we use one more wrapper, `ots-git-gpg-wrapper.sh`. You can set all this up with the
-following:
+we use one more wrapper, `ots-git-gpg-wrapper.sh`. You can set all this up with
+either of the following:
 
-    git config --global gpg.program <path to ots-git-gpg-wrapper.sh>
+```bash
+# just specify ots-git-gpg-wrapper.sh and let `git` find it itself
+git config --global gpg.program ots-git-gpg-wrapper.sh
+# manually enter the full path to ots-git-gpg-wrapper.sh
+git config --global gpg.program <path/to/ots-git-gpg-wrapper.sh>
+# auto-detect the full path using `which`
+git config --global gpg.program "`which ots-git-gpg-wrapper.sh`"
+```
+
+> **Note:** If you get errors that it doesn't find the
+> `ots-git-gpg-wrapper.sh`, make sure that your `PATH` includes the
+> installation location, e.g. by appending `export
+> PATH="$PATH:$HOME/.local/bin"` to your `.bashrc`. You can check the
+> installation location with `pip show -f opentimestamps-client`.
 
 Now try creating a test repository and signing a commit:
 
@@ -347,3 +360,47 @@ calendar servers:
     gpg:                using RSA key 6399011044E8AFB2
     gpg: Good signature from "Peter Todd <pete@petertodd.org>"
     gpg:                 aka "[jpeg image of size 5220]"
+
+
+Configuration
+-------------
+
+The OpenTimestamps GPG wrapper can be configured in the following ways:
+
+
+```bash
+# Disable OpenTimestamps for the current repository:
+git config opentimestamps.enable false
+
+# Disable OpenTimestamps by default for all git repositories on this machine:
+git config --global opentimestamps.enable false
+
+# Temporarily (re)enable OpenTimestamps signatures in `git log`:
+OPENTIMESTAMPS=true git log --show-signature
+
+# Temporarily ignore OpenTimestamps signatures in `git log`:
+OPENTIMESTAMPS=false git log --show-signature
+
+# Don't use OpenTimestamps for timestamping for one commit:
+OPENTIMESTAMPS=false git commit -m "commit message"
+
+# Only use OpenTimestamps for `git show` and `git commit` (not e.g. `git log`)
+git config --global opentimestamps.only-for show,commit
+
+# Don't try to use a local Bitcoin node for verification.
+# This gets rids of error messages in `git show` and `git log` 
+# when you don't have a Bitcoin node running.
+git config --global opentimestamps.flags '--no-bitcoin'
+```
+
+Troubleshooting
+---------------
+
+You can troubleshoot the OpenTimestamps process like this:
+
+```bash
+# Debug the OpenTimeStamps process
+GIT_TRACE=true OPENTIMESTAMPS_GIT_GPG_WRAPPER_DEBUG=true OPENTIMESTAMPS_GIT_GPG_WRAPPER_FLAGS='-vvvvv' git log --show-signature
+```
+
+This however does not seem to work properly for `git commit` unfortunately.
