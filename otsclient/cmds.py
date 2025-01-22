@@ -204,6 +204,11 @@ def stamp_command(args):
             with special_output_fd or open(timestamp_file_path, 'xb') as timestamp_fd:
                 ctx = StreamSerializationContext(timestamp_fd)
                 file_timestamp.serialize(ctx)
+
+                # pass --nowatch to skip
+                if not args.nowatch:
+                    # add this timestamp to the watchlist
+                    args.cache.watch(os.path.abspath(timestamp_file_path))
         except IOError as exp:
             logging.error("Failed to create timestamp %r: %s" % (timestamp_file_path, exp))
             sys.exit(1)
@@ -226,6 +231,9 @@ def upgrade_timestamp(timestamp, args):
     Note that this means if the timestamp that is already complete, False will
     be returned as nothing has changed.
     """
+
+    if not hasattr(args, "runtime_cache"):
+        args.runtime_cache = {}
 
     def directly_verified(stamp):
         if stamp.attestations:
@@ -272,6 +280,15 @@ def upgrade_timestamp(timestamp, args):
         # agressive.
         found_new_attestations = False
         for sub_stamp in directly_verified(timestamp):
+            commitment = sub_stamp.msg
+
+            # If the runtime cache already indicates that calendar servers have
+            # been checked and there are no mature timestamps available, then
+            # don't check the servers a second time during this run.
+            if b2x(commitment) in args.runtime_cache.keys() and args.runtime_cache[b2x(commitment)] == False:
+                logging.info("Runtime cache indicates timestamp not complete")
+                continue
+
             for attestation in sub_stamp.attestations:
                 if attestation.__class__ == PendingAttestation:
                     calendar_urls = args.calendar_urls
@@ -287,7 +304,6 @@ def upgrade_timestamp(timestamp, args):
                             logging.warning("Ignoring attestation from calendar %s: Calendar not in whitelist" % attestation.uri)
                             continue
 
-                    commitment = sub_stamp.msg
                     for calendar_url in calendar_urls:
                         logging.debug("Checking calendar %s for %s" % (attestation.uri, b2x(commitment)))
                         calendar = remote_calendar(calendar_url)
@@ -317,6 +333,10 @@ def upgrade_timestamp(timestamp, args):
                             args.cache.merge(upgraded_stamp)
                             sub_stamp.merge(upgraded_stamp)
 
+                    if changed == False:
+                        # commitment not timestamped in any of the calendars
+                        args.runtime_cache[b2x(commitment)] = False
+
         if not args.wait:
             break
 
@@ -334,8 +354,30 @@ def upgrade_timestamp(timestamp, args):
 
 
 def upgrade_command(args):
+
+    # defer certain sys.exit(1) calls until later
+    error = False
+
+    completed_timestamps = []
+
+    # Timestamp commitment cache that exists only during active processing.
+    # Don't check calendar servers multiple times for the same commitment.
+    args.runtime_cache = {}
+
     for old_stamp_fd in args.files:
-        logging.debug("Upgrading %s" % old_stamp_fd.name)
+        # Bypass file descriptor limit by opening a file one at a time when a
+        # filepath is given instead of a file descriptor.
+        if isinstance(old_stamp_fd, str):
+            filepath = old_stamp_fd
+            try:
+                old_stamp_fd = open(filepath, "rb")
+                logging.info("Upgrading %s" % filepath)
+            except FileNotFoundError:
+                logging.error("Error! Failed to open file %r" % filepath)
+                error = True
+                continue
+        else:
+            logging.debug("Upgrading %s" % old_stamp_fd.name)
 
         ctx = StreamDeserializationContext(old_stamp_fd)
         try:
@@ -345,10 +387,12 @@ def upgrade_command(args):
         # IOError's are already handled by argparse
         except BadMagicError:
             logging.error("Error! %r is not a timestamp file" % old_stamp_fd.name)
-            sys.exit(1)
+            error = True
+            continue
         except DeserializationError as exp:
             logging.error("Invalid timestamp file %r: %s" % (old_stamp_fd.name, exp))
-            sys.exit(1)
+            error = True
+            continue
 
         changed = upgrade_timestamp(detached_timestamp.timestamp, args)
 
@@ -358,13 +402,15 @@ def upgrade_command(args):
 
             if os.path.exists(backup_name):
                 logging.error("Could not backup timestamp: %r already exists" % backup_name)
-                sys.exit(1)
+                error = True
+                continue
 
             try:
                 os.rename(old_stamp_fd.name, backup_name)
             except IOError as exp:
                 logging.error("Could not backup timestamp: %s" % exp)
-                sys.exit(1)
+                error = True
+                continue
 
             try:
                 with open(old_stamp_fd.name, 'xb') as new_stamp_fd:
@@ -373,14 +419,30 @@ def upgrade_command(args):
             except IOError as exp:
                 # FIXME: should we try to restore the old file here?
                 logging.error("Could not upgrade timestamp %s: %s" % (old_stamp_fd.name, exp))
-                sys.exit(1)
+                error = True
+                continue
 
         if is_timestamp_complete(detached_timestamp.timestamp, args):
             logging.info("Success! Timestamp complete")
+            completed_timestamps.append(os.path.abspath(old_stamp_fd.name))
         else:
             logging.warning("Failed! Timestamp not complete")
-            sys.exit(1)
+            error = True
+            continue
 
+    # remove old entries from the watchlist
+    if not args.dry_run:
+        old_watchlist = args.cache.watchlist()
+        args.cache.unwatch(old_watchlist, completed_timestamps)
+
+    if error:
+        logging.error("Encountered an earlier error. Exiting.")
+        sys.exit(1)
+
+
+def upgradewatchlist_command(args):
+    args.files = [filename for filename in args.cache.watchlist() if filename != ""]
+    return upgrade_command(args)
 
 def verify_timestamp(timestamp, args):
     args.calendar_urls = []
