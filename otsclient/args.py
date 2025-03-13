@@ -54,6 +54,9 @@ def make_common_options_arg_parser():
     btc_net_group.add_argument('--btc-testnet', dest='btc_net', action='store_const',
                                const='testnet', default='mainnet',
                                help='Use Bitcoin testnet rather than mainnet')
+    btc_net_group.add_argument('--btc-signet', dest='btc_net', action='store_const',
+                               const='signet', default='mainnet',
+                               help='Use Bitcoin signet rather than mainnet')
     btc_net_group.add_argument('--btc-regtest', dest='btc_net', action='store_const',
                                const='regtest',
                                help='Use Bitcoin regtest rather than mainnet')
@@ -135,6 +138,8 @@ def handle_common_options(args, parser):
         """
         if args.btc_net == 'testnet':
            bitcoin.SelectParams('testnet')
+        elif args.btc_net == 'signet':
+           bitcoin.SelectParams('signet')
         elif args.btc_net == 'regtest':
            bitcoin.SelectParams('regtest')
         elif args.btc_net == 'mainnet':
@@ -168,6 +173,15 @@ def parse_ots_args(raw_args):
 
     parser_stamp.add_argument('-b', '--btc-wallet', dest='use_btc_wallet', action='store_true',
                               help='Create timestamp locally with the local Bitcoin wallet.')
+
+    parser_stamp.add_argument('-f', '--fee-rate', dest='fee_rate', default=False,
+                              help='Specify fee rate in sat/vbyte. Default is to let Bitcoin Core decide.')
+
+    parser_stamp.add_argument('--nonce', dest='nonce', default=False,
+                              help='Resume earlier stamp, must be used together with --txid')
+
+    parser_stamp.add_argument('--txid', dest='txid', default=False,
+                              help='Resume earlier stamp, must be used together with --nonce. Can be used with RBF.')
 
     parser_stamp.add_argument('files', metavar='FILE', type=argparse.FileType('rb'),
                               nargs='*',
@@ -261,6 +275,11 @@ def parse_ots_args(raw_args):
         pass
 
     args = parser.parse_args(raw_args)
+
+    if hasattr(args, "nonce") or hasattr(args, "txid"):
+        if bool(args.nonce) ^ bool(args.txid):
+            parser_stamp.error('--nonce and --txid must be given together')
+
     args = handle_common_options(args, parser)
 
     return args
