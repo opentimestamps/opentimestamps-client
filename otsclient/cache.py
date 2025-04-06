@@ -90,3 +90,35 @@ class TimestampCache:
 
         existing.merge(new_timestamp)
         self.__save(existing)
+
+    def __get_watchlist_path(self):
+        watchlist_path = os.path.join(self.path, "watchlist")
+        return watchlist_path
+
+    def watch(self, ots_filepath):
+        watchlist_path = self.__get_watchlist_path()
+        with open(watchlist_path, "a") as watchlist_fd:
+            watchlist_fd.write(ots_filepath)
+            watchlist_fd.write("\n")
+        return True
+
+    def unwatch(self, watchlist, ots_filepaths):
+        watchlist_path = self.__get_watchlist_path()
+        with open(watchlist_path, "w") as watchlist_fd:
+            for watch_item in watchlist:
+                if watch_item in ots_filepaths:
+                    continue
+                watchlist_fd.write(watch_item)
+                watchlist_fd.write("\n")
+        return True
+
+    def watchlist(self):
+        watchlist_path = self.__get_watchlist_path()
+
+        if not os.path.exists(watchlist_path):
+            return []
+
+        with open(watchlist_path, "r") as watchlist_fd:
+            watchlist_content = watchlist_fd.read()
+            watchlist_items = watchlist_content.split("\n")
+            return [watchlist_item for watchlist_item in watchlist_items if watchlist_item != ""]
