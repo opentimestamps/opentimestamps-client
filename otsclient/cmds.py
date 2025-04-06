@@ -38,6 +38,7 @@ from opentimestamps.bitcoin import *
 import opentimestamps.calendar
 
 import otsclient
+import otsclient.dns_headers
 
 def remote_calendar(calendar_uri):
     """Create a remote calendar with User-Agent set appropriately"""
@@ -406,19 +407,23 @@ def verify_timestamp(timestamp, args):
                                 (attestation.height, b2lx(msg)))
                 continue
 
-            proxy = args.setup_bitcoin()
 
             try:
+                proxy = args.setup_bitcoin()
                 block_count = proxy.getblockcount()
                 blockhash = proxy.getblockhash(attestation.height)
+                block_header = proxy.getblockheader(blockhash)
             except IndexError:
                 logging.error("Bitcoin block height %d not found; %d is highest known block" % (attestation.height, block_count))
                 continue
-            except ConnectionError as exp:
-                logging.error("Could not connect to local Bitcoin node: %s" % exp)
-                continue
-
-            block_header = proxy.getblockheader(blockhash)
+            except Exception as exp:
+                if args.bitcoin_dns is None:
+                    logging.error("Could not connect to local Bitcoin node: %s" % exp)
+                    continue
+                else:
+                    logging.warning("WARNING: Falling back to insecure Bitcoin headers over DNS")
+                    block_header = otsclient.dns_headers.get_header_from_dns(args.bitcoin_dns, attestation.height)
+                    blockhash = block_header.GetHash()
 
             logging.debug("Attestation block hash: %s" % b2lx(blockhash))
 
