@@ -1,0 +1,13 @@
+OpenTimestamps is sufficiently flexible that OTS proofs can often be created
+for messages timestamped via other mechanisms, including ad-hoc standards.
+gdp2q25-2nd.pdf.ots is an example of this: in 2025 the US Government Commerce
+Department timestamped gdp2q25-2nd.pdf with a manually created Bitcoin
+transaction, fcf172401ca9d89013f13f5bbf0fc7577cb8a3588bf5cbc3b458ff36635fec00
+
+The original file can be obtained from:
+
+https://www.commerce.gov/news/press-releases/2025/08/department-commerce-posts-2nd-quarter-gross-domestic-product-blockchain
+
+Thanks goes to bonjour22sss-lab for manually constructing this proof:
+
+https://github.com/opentimestamps/opentimestamps-client/pull/162
