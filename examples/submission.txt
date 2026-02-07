@@ -1,0 +1,3 @@
+this is an attempt of creating a valid ots proof for pdf file the Us Department of Commerce  
+hashed and published its hash on the blockchain in bare op_return you can find the detail here:
+https://x.com/CommerceGov/status/1961074672461631987#m
