@@ -10,8 +10,9 @@
 # in the LICENSE file.
 
 import sys
+import json
+import contextlib
 
-import argparse
 import binascii
 import io
 import logging
@@ -19,8 +20,6 @@ import os
 import time
 import urllib.request
 import threading
-import bitcoin
-import bitcoin.rpc
 from queue import Queue, Empty
 
 from bitcoin.core import b2x, b2lx, lx, CTxOut, CTransaction
@@ -38,6 +37,154 @@ from opentimestamps.bitcoin import *
 import opentimestamps.calendar
 
 import otsclient
+
+EXIT_VERIFY_FAILED = 1
+EXIT_VERIFY_PENDING = 2
+
+
+@contextlib.contextmanager
+def _suppress_logging():
+    previous = logging.root.manager.disable
+    logging.disable(logging.CRITICAL)
+    try:
+        yield
+    finally:
+        logging.disable(previous)
+
+
+def _attestation_type_name(attestation):
+    return attestation.__class__.__name__
+
+
+def _serialize_attestation(msg, attestation):
+    item = {
+        "type": _attestation_type_name(attestation),
+        "commitment": b2lx(msg),
+    }
+    if isinstance(attestation, PendingAttestation):
+        item["status"] = "pending"
+        item["calendar"] = attestation.uri
+    elif isinstance(attestation, BitcoinBlockHeaderAttestation):
+        item["status"] = "attested"
+        item["chain"] = "bitcoin"
+        item["height"] = attestation.height
+    elif isinstance(attestation, LitecoinBlockHeaderAttestation):
+        item["status"] = "attested"
+        item["chain"] = "litecoin"
+        item["height"] = attestation.height
+    elif isinstance(attestation, UnknownAttestation):
+        item["status"] = "unknown"
+        item["tag"] = b2x(attestation.TAG)
+        item["payload"] = b2x(attestation.payload)
+    else:
+        item["status"] = "unknown"
+    return item
+
+
+def timestamp_to_json(timestamp):
+    items = [_serialize_attestation(msg, attestation)
+             for msg, attestation in timestamp.all_attestations()]
+    return {
+        "attestation_count": len(items),
+        "attestations": items,
+    }
+
+
+def detached_timestamp_to_json(detached_timestamp, verbosity=0):
+    return {
+        "hash_algorithm": detached_timestamp.file_hash_op.HASHLIB_NAME,
+        "file_digest": b2x(detached_timestamp.file_digest),
+        "timestamp": timestamp_to_json(detached_timestamp.timestamp),
+        "tree": detached_timestamp.timestamp.str_tree(verbosity=verbosity),
+    }
+
+
+def verify_timestamp_json(timestamp, args):
+    args.calendar_urls = []
+    with _suppress_logging():
+        changed = upgrade_timestamp(timestamp, args)
+
+    result = {
+        "status": "failed",
+        "verified": False,
+        "upgraded": changed,
+        "attestations": [],
+    }
+
+    def attestation_key(item):
+        (msg, attestation) = item
+        if attestation.__class__ == BitcoinBlockHeaderAttestation:
+            return attestation.height
+        else:
+            return 2**32-1
+
+    for msg, attestation in sorted(timestamp.all_attestations(), key=attestation_key):
+        entry = _serialize_attestation(msg, attestation)
+
+        if isinstance(attestation, PendingAttestation):
+            entry["status"] = "pending"
+            result["attestations"].append(entry)
+            continue
+
+        if isinstance(attestation, BitcoinBlockHeaderAttestation):
+            if not args.use_bitcoin:
+                entry["status"] = "manual_check_required"
+                entry["reason"] = "bitcoin_disabled"
+                result["attestations"].append(entry)
+                continue
+
+            try:
+                proxy = args.setup_bitcoin()
+            except SystemExit:
+                entry["status"] = "failed"
+                entry["reason"] = "bitcoin_connection_error"
+                result["attestations"].append(entry)
+                continue
+
+            try:
+                block_count = proxy.getblockcount()
+                blockhash = proxy.getblockhash(attestation.height)
+                block_header = proxy.getblockheader(blockhash)
+                attested_time = attestation.verify_against_blockheader(msg, block_header)
+            except IndexError:
+                entry["status"] = "pending"
+                entry["reason"] = "block_height_not_found"
+                entry["highest_known_block"] = block_count
+                result["attestations"].append(entry)
+                continue
+            except ConnectionError:
+                entry["status"] = "failed"
+                entry["reason"] = "bitcoin_connection_error"
+                result["attestations"].append(entry)
+                continue
+            except VerificationError as err:
+                entry["status"] = "failed"
+                entry["reason"] = "verification_error"
+                entry["detail"] = str(err)
+                result["attestations"].append(entry)
+                continue
+
+            entry["status"] = "verified"
+            entry["block_hash"] = b2lx(blockhash)
+            entry["attested_time"] = attested_time
+            entry["attested_time_iso"] = time.strftime('%Y-%m-%dT%H:%M:%SZ',
+                                                       time.gmtime(attested_time))
+            result["attestations"].append(entry)
+            result["verified"] = True
+            result["status"] = "verified"
+            break
+
+        else:
+            result["attestations"].append(entry)
+
+    if not result["verified"]:
+        if any(item.get("status") == "pending" for item in result["attestations"]):
+            result["status"] = "pending"
+        elif any(item.get("status") == "manual_check_required" for item in result["attestations"]):
+            result["status"] = "manual_check_required"
+
+    return result
+
 
 def remote_calendar(calendar_uri):
     """Create a remote calendar with User-Agent set appropriately"""
@@ -451,6 +598,8 @@ def verify_command(args):
         logging.error("Invalid timestamp file %r: %s" % (args.timestamp_fd.name, exp))
         sys.exit(1)
 
+    target_value = None
+
     if args.hex_digest is not None:
         try:
             digest = binascii.unhexlify(args.hex_digest.encode('utf8'))
@@ -477,6 +626,7 @@ def verify_command(args):
             except IOError as exp:
                 logging.error('Could not open target: %s' % exp)
                 sys.exit(1)
+        target_value = args.target_fd.name
 
         logging.debug("Hashing file, algorithm %s" % detached_timestamp.file_hash_op.TAG_NAME)
         actual_file_digest = detached_timestamp.file_hash_op.hash_fd(args.target_fd)
@@ -486,6 +636,31 @@ def verify_command(args):
             logging.debug("Expected digest %s" % b2x(detached_timestamp.file_digest))
             logging.error("File does not match original!")
             sys.exit(1)
+
+    if getattr(args, 'json', False):
+        result = {
+            "command": "verify",
+            "timestamp_file": args.timestamp_fd.name,
+            "digest": b2x(detached_timestamp.file_digest),
+            "hash_algorithm": detached_timestamp.file_hash_op.HASHLIB_NAME,
+        }
+
+        if args.hex_digest is not None:
+            result["target"] = {"type": "digest", "value": args.hex_digest.lower()}
+        else:
+            result["target"] = {"type": "file", "value": target_value}
+
+        verify_result = verify_timestamp_json(detached_timestamp.timestamp, args)
+        result.update(verify_result)
+        result["exit_code"] = 0 if verify_result["verified"] else (
+            EXIT_VERIFY_PENDING
+            if verify_result["status"] in ("pending", "manual_check_required")
+            else EXIT_VERIFY_FAILED
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
+        if not verify_result["verified"]:
+            sys.exit(result["exit_code"])
+        return
 
     if not verify_timestamp(detached_timestamp.timestamp, args):
         sys.exit(1)
@@ -501,6 +676,15 @@ def info_command(args):
     except DeserializationError as exp:
         logging.error("Invalid timestamp file %r: %s" % (args.file.name, exp))
         sys.exit(1)
+
+    if getattr(args, 'json', False):
+        result = {
+            "command": "info",
+            "file": args.file.name,
+        }
+        result.update(detached_timestamp_to_json(detached_timestamp, verbosity=args.verbosity))
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return
 
     print("File %s hash: %s" % (detached_timestamp.file_hash_op.HASHLIB_NAME, hexlify(detached_timestamp.file_digest).decode('utf8')))
 

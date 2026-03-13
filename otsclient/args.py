@@ -207,12 +207,16 @@ def parse_ots_args(raw_args):
 
     parser_verify.add_argument('timestamp_fd', metavar='TIMESTAMP', type=argparse.FileType('rb'),
                                help='Timestamp filename')
+    parser_verify.add_argument('--json', dest='json', action='store_true', default=False,
+                               help='Emit machine-readable JSON output')
 
     # ----- info -----
     parser_info = subparsers.add_parser('info', aliases=['i'],
                                         help='Show information on a timestamp')
     parser_info.add_argument('file', metavar='FILE', type=argparse.FileType('rb'),
                              help='Filename')
+    parser_info.add_argument('--json', dest='json', action='store_true', default=False,
+                             help='Emit machine-readable JSON output')
 
     # ----- prune -----
     parser_prune = subparsers.add_parser('prune', aliases=['p'],
