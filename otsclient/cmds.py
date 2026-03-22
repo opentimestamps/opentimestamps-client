@@ -54,6 +54,19 @@ def write_pending(pending_path, nonce, txid_hex):
         logging.info('Wrote recovery file %s' % pending_path)
 
 
+def get_waiting_tx_state(proxy, txid, nonce, pending_path=None):
+    """Return the txid/blockhash to keep tracking while waiting for confirmation
+    """
+    r = proxy.gettransaction(txid)
+
+    if 'blockhash' in r:
+        # FIXME: this will break when python-bitcoinlib adds RPC
+        # support for gettransaction, due to formatting differences
+        return txid, lx(r['blockhash'])
+
+    return txid, None
+
+
 def create_timestamp(timestamp, nonce, calendar_urls, args, pending_path=None):
     """Create a timestamp
 
@@ -100,12 +113,7 @@ def create_timestamp(timestamp, nonce, calendar_urls, args, pending_path=None):
             logging.info('Waiting for timestamp tx %s to confirm...' % b2lx(txid))
             time.sleep(1)
 
-            r = proxy.gettransaction(txid)
-
-            if 'blockhash' in r:
-                # FIXME: this will break when python-bitcoinlib adds RPC
-                # support for gettransaction, due to formatting differences
-                blockhash = lx(r['blockhash'])
+            txid, blockhash = get_waiting_tx_state(proxy, txid, nonce, pending_path)
 
         logging.info('Confirmed by block %s' % b2lx(blockhash))
 
