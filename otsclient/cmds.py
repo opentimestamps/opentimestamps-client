@@ -14,6 +14,7 @@ import sys
 import argparse
 import binascii
 import io
+import json
 import logging
 import os
 import time
@@ -45,7 +46,62 @@ def remote_calendar(calendar_uri):
                                                   user_agent="OpenTimestamps-Client/%s" % otsclient.__version__)
 
 
-def create_timestamp(timestamp, calendar_urls, args):
+def write_pending(pending_path, nonce, txid_hex):
+    """Write or update the recovery file for interrupted solo stamps"""
+    if pending_path is not None:
+        with open(pending_path, 'w') as f:
+            json.dump({'nonce': nonce.hex(), 'txid': txid_hex}, f)
+        logging.info('Wrote recovery file %s' % pending_path)
+
+
+def log_stamp_resume_instruction(nonce, txid_hex):
+    """Log the command to resume solo stamping with the current transaction"""
+    logging.info('ots stamp --nonce=%s --txid=%s', nonce.hex(), txid_hex)
+
+
+def get_waiting_tx_state(proxy, txid, nonce, pending_path=None):
+    """Return the txid/blockhash to keep tracking while waiting for confirmation
+
+    Follows wallet-managed RBF replacements using the directional
+    ``replaced_by_txid`` field when available, avoiding switching back to
+    older conflicting transactions listed in ``walletconflicts``.
+    """
+    r = proxy.gettransaction(txid)
+
+    if 'blockhash' in r:
+        # FIXME: this will break when python-bitcoinlib adds RPC
+        # support for gettransaction, due to formatting differences
+        return txid, lx(r['blockhash'])
+
+    replacement_txid_hex = r.get('replaced_by_txid')
+    if replacement_txid_hex is not None:
+        replacement_txid = lx(replacement_txid_hex)
+        replacement = proxy.gettransaction(replacement_txid)
+
+        if 'blockhash' in replacement:
+            logging.info('Tx was replaced (RBF) by confirmed tx %s' % replacement_txid_hex)
+            return replacement_txid, lx(replacement['blockhash'])
+
+        logging.info('Tx was replaced (RBF). Now tracking replacement tx %s' % replacement_txid_hex)
+        logging.info('To resume manually:')
+        log_stamp_resume_instruction(nonce, replacement_txid_hex)
+        write_pending(pending_path, nonce, replacement_txid_hex)
+        return replacement_txid, None
+
+    for conflict_txid_hex in r.get('walletconflicts', []):
+        try:
+            conflict = proxy.gettransaction(lx(conflict_txid_hex))
+        except Exception:
+            continue
+
+        if 'blockhash' in conflict:
+            logging.info('Tx conflicts with confirmed tx %s' % conflict_txid_hex)
+            return lx(conflict_txid_hex), lx(conflict['blockhash'])
+
+    return txid, None
+
+
+def create_timestamp(timestamp, nonce, calendar_urls, args, pending_path=None):
     """Create a timestamp
 
     calendar_urls - List of calendar's to use
@@ -57,28 +113,42 @@ def create_timestamp(timestamp, calendar_urls, args):
     if setup_bitcoin:
         proxy = setup_bitcoin()
 
-        unfunded_tx = CTransaction([], [CTxOut(0, CScript([OP_RETURN, timestamp.msg]))])
-        r = proxy.fundrawtransaction(unfunded_tx)  # FIXME: handle errors
-        funded_tx = r['tx']
+        txid = None
+        if args.txid is not None:
+            logging.debug("Continue with existing transaction")
+            txid = bytes.fromhex(args.txid)[::-1]
+        else:
+            logging.debug("Call fundrawtransaction for OP_RETURN %s", timestamp.msg.hex())
+            unfunded_tx = CTransaction([], [CTxOut(0, CScript([OP_RETURN, timestamp.msg]))])
 
-        r = proxy.signrawtransaction(funded_tx)
-        assert r['complete']
-        signed_tx = r['tx']
+            options = {}
+            if args.fee_rate is not None:
+                options['fee_rate'] = args.fee_rate
 
-        txid = proxy.sendrawtransaction(signed_tx)
-        logging.info('Sent timestamp tx')
+            r = proxy.fundrawtransaction(unfunded_tx, options)  # FIXME: handle errors
+            funded_tx = r['tx']
+
+            logging.debug("Call signrawtransactionwithwallet %s", funded_tx.serialize().hex())
+            r = proxy.signrawtransactionwithwallet(funded_tx)
+            assert r['complete']
+            signed_tx = r['tx']
+
+            logging.debug("Call sendrawtransaction %s", signed_tx.serialize().hex())
+            txid = proxy.sendrawtransaction(signed_tx)
+            logging.info('Sent timestamp tx')
+
+            write_pending(pending_path, nonce, txid[::-1].hex())
 
         blockhash = None
+
+        logging.info('Waiting for confirmation. This can be interupted and resumed with:')
+        log_stamp_resume_instruction(nonce, txid[::-1].hex())
+
         while blockhash is None:
             logging.info('Waiting for timestamp tx %s to confirm...' % b2lx(txid))
             time.sleep(1)
 
-            r = proxy.gettransaction(txid)
-
-            if 'blockhash' in r:
-                # FIXME: this will break when python-bitcoinlib adds RPC
-                # support for gettransaction, due to formatting differences
-                blockhash = lx(r['blockhash'])
+            txid, blockhash = get_waiting_tx_state(proxy, txid, nonce, pending_path)
 
         logging.info('Confirmed by block %s' % b2lx(blockhash))
 
@@ -91,6 +161,10 @@ def create_timestamp(timestamp, calendar_urls, args):
         block_timestamp = make_timestamp_from_block(timestamp.msg, block, blockheight)
         assert block_timestamp is not None
         timestamp.merge(block_timestamp)
+
+    # Do not use calendars when solo stamping:
+    if args.use_btc_wallet:
+        return True
 
     m = args.m
     n = len(calendar_urls)
@@ -145,9 +219,13 @@ def submit_async(calendar_url, msg, q, timeout):
 
 
 def stamp_command(args):
+    if args.nonce is not None and args.txid is not None:
+        args.use_btc_wallet = True
+
     # Create initial commitment ops for all files
     file_timestamps = []
     merkle_roots = []
+    pending_paths = []
     if not args.files:
         args.files = [sys.stdin.buffer]
 
@@ -173,7 +251,21 @@ def stamp_command(args):
         # Remember that the files - and their timestamps - might get separated
         # later, so if we didn't use a nonce for every file, the timestamp
         # would leak information on the digests of adjacent files.
-        nonce_appended_stamp = file_timestamp.timestamp.ops.add(OpAppend(os.urandom(16)))
+        pending_path = fd.name + '.ots.pending' if fd != sys.stdin.buffer else None
+        if args.nonce is not None:
+            nonce = bytes.fromhex(args.nonce)
+        elif pending_path is not None and os.path.exists(pending_path):
+            with open(pending_path, 'r') as pf:
+                pending = json.load(pf)
+            logging.info('Resuming from recovery file %s' % pending_path)
+            args.nonce = pending['nonce']
+            args.txid = pending['txid']
+            args.use_btc_wallet = True
+            nonce = bytes.fromhex(pending['nonce'])
+        else:
+            nonce = os.urandom(16)
+        pending_paths.append(pending_path)
+        nonce_appended_stamp = file_timestamp.timestamp.ops.add(OpAppend(nonce))
         merkle_root = nonce_appended_stamp.ops.add(OpSHA256())
 
         merkle_roots.append(merkle_root)
@@ -181,14 +273,15 @@ def stamp_command(args):
 
     merkle_tip = make_merkle_tree(merkle_roots)
 
-    if not args.calendar_urls:
+    if not args.use_btc_wallet or not args.calendar_urls:
         # Neither calendar nor wallet specified; add defaults
         args.calendar_urls.append('https://a.pool.opentimestamps.org')
         args.calendar_urls.append('https://b.pool.opentimestamps.org')
         args.calendar_urls.append('https://a.pool.eternitywall.com')
         args.calendar_urls.append('https://ots.btc.catallaxy.com')
 
-    create_timestamp(merkle_tip, args.calendar_urls, args)
+    create_timestamp(merkle_tip, nonce, args.calendar_urls, args,
+                     pending_path=pending_paths[0] if pending_paths else None)
 
     if args.wait:
         upgrade_timestamp(merkle_tip, args)
@@ -207,6 +300,11 @@ def stamp_command(args):
         except IOError as exp:
             logging.error("Failed to create timestamp %r: %s" % (timestamp_file_path, exp))
             sys.exit(1)
+
+    for pending_path in pending_paths:
+        if pending_path is not None and os.path.exists(pending_path):
+            os.remove(pending_path)
+            logging.info('Removed recovery file %s' % pending_path)
 
 def is_timestamp_complete(stamp, args):
     """Determine if timestamp is complete and can be verified"""
