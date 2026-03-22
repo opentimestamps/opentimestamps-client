@@ -14,6 +14,7 @@ import sys
 import argparse
 import binascii
 import io
+import json
 import logging
 import os
 import time
@@ -45,7 +46,15 @@ def remote_calendar(calendar_uri):
                                                   user_agent="OpenTimestamps-Client/%s" % otsclient.__version__)
 
 
-def create_timestamp(timestamp, nonce, calendar_urls, args):
+def write_pending(pending_path, nonce, txid_hex):
+    """Write or update the recovery file for interrupted solo stamps"""
+    if pending_path is not None:
+        with open(pending_path, 'w') as f:
+            json.dump({'nonce': nonce.hex(), 'txid': txid_hex}, f)
+        logging.info('Wrote recovery file %s' % pending_path)
+
+
+def create_timestamp(timestamp, nonce, calendar_urls, args, pending_path=None):
     """Create a timestamp
 
     calendar_urls - List of calendar's to use
@@ -80,6 +89,8 @@ def create_timestamp(timestamp, nonce, calendar_urls, args):
             logging.debug("Call sendrawtransaction %s", signed_tx.serialize().hex())
             txid = proxy.sendrawtransaction(signed_tx)
             logging.info('Sent timestamp tx')
+
+            write_pending(pending_path, nonce, txid[::-1].hex())
 
         blockhash = None
 
@@ -171,6 +182,7 @@ def stamp_command(args):
     # Create initial commitment ops for all files
     file_timestamps = []
     merkle_roots = []
+    pending_paths = []
     if not args.files:
         args.files = [sys.stdin.buffer]
 
@@ -196,7 +208,20 @@ def stamp_command(args):
         # Remember that the files - and their timestamps - might get separated
         # later, so if we didn't use a nonce for every file, the timestamp
         # would leak information on the digests of adjacent files.
-        nonce = bytes.fromhex(args.nonce) if args.nonce is not None else os.urandom(16)
+        pending_path = fd.name + '.ots.pending' if fd != sys.stdin.buffer else None
+        if args.nonce is not None:
+            nonce = bytes.fromhex(args.nonce)
+        elif pending_path is not None and os.path.exists(pending_path):
+            with open(pending_path, 'r') as pf:
+                pending = json.load(pf)
+            logging.info('Resuming from recovery file %s' % pending_path)
+            args.nonce = pending['nonce']
+            args.txid = pending['txid']
+            args.use_btc_wallet = True
+            nonce = bytes.fromhex(pending['nonce'])
+        else:
+            nonce = os.urandom(16)
+        pending_paths.append(pending_path)
         nonce_appended_stamp = file_timestamp.timestamp.ops.add(OpAppend(nonce))
         merkle_root = nonce_appended_stamp.ops.add(OpSHA256())
 
@@ -212,7 +237,8 @@ def stamp_command(args):
         args.calendar_urls.append('https://a.pool.eternitywall.com')
         args.calendar_urls.append('https://ots.btc.catallaxy.com')
 
-    create_timestamp(merkle_tip, nonce, args.calendar_urls, args)
+    create_timestamp(merkle_tip, nonce, args.calendar_urls, args,
+                     pending_path=pending_paths[0] if pending_paths else None)
 
     if args.wait:
         upgrade_timestamp(merkle_tip, args)
@@ -231,6 +257,11 @@ def stamp_command(args):
         except IOError as exp:
             logging.error("Failed to create timestamp %r: %s" % (timestamp_file_path, exp))
             sys.exit(1)
+
+    for pending_path in pending_paths:
+        if pending_path is not None and os.path.exists(pending_path):
+            os.remove(pending_path)
+            logging.info('Removed recovery file %s' % pending_path)
 
 def is_timestamp_complete(stamp, args):
     """Determine if timestamp is complete and can be verified"""
