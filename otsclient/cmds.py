@@ -54,8 +54,17 @@ def write_pending(pending_path, nonce, txid_hex):
         logging.info('Wrote recovery file %s' % pending_path)
 
 
+def log_stamp_resume_instruction(nonce, txid_hex):
+    """Log the command to resume solo stamping with the current transaction"""
+    logging.info('ots stamp --nonce=%s --txid=%s', nonce.hex(), txid_hex)
+
+
 def get_waiting_tx_state(proxy, txid, nonce, pending_path=None):
     """Return the txid/blockhash to keep tracking while waiting for confirmation
+
+    Follows wallet-managed RBF replacements using the directional
+    ``replaced_by_txid`` field when available, avoiding switching back to
+    older conflicting transactions listed in ``walletconflicts``.
     """
     r = proxy.gettransaction(txid)
 
@@ -63,6 +72,31 @@ def get_waiting_tx_state(proxy, txid, nonce, pending_path=None):
         # FIXME: this will break when python-bitcoinlib adds RPC
         # support for gettransaction, due to formatting differences
         return txid, lx(r['blockhash'])
+
+    replacement_txid_hex = r.get('replaced_by_txid')
+    if replacement_txid_hex is not None:
+        replacement_txid = lx(replacement_txid_hex)
+        replacement = proxy.gettransaction(replacement_txid)
+
+        if 'blockhash' in replacement:
+            logging.info('Tx was replaced (RBF) by confirmed tx %s' % replacement_txid_hex)
+            return replacement_txid, lx(replacement['blockhash'])
+
+        logging.info('Tx was replaced (RBF). Now tracking replacement tx %s' % replacement_txid_hex)
+        logging.info('To resume manually:')
+        log_stamp_resume_instruction(nonce, replacement_txid_hex)
+        write_pending(pending_path, nonce, replacement_txid_hex)
+        return replacement_txid, None
+
+    for conflict_txid_hex in r.get('walletconflicts', []):
+        try:
+            conflict = proxy.gettransaction(lx(conflict_txid_hex))
+        except Exception:
+            continue
+
+        if 'blockhash' in conflict:
+            logging.info('Tx conflicts with confirmed tx %s' % conflict_txid_hex)
+            return lx(conflict_txid_hex), lx(conflict['blockhash'])
 
     return txid, None
 
@@ -107,7 +141,8 @@ def create_timestamp(timestamp, nonce, calendar_urls, args, pending_path=None):
 
         blockhash = None
 
-        logging.info('Waiting for confirmation. This can be interupted and resumed with:\nots stamp --nonce=%s --txid=%s', nonce.hex(), txid[::-1].hex())
+        logging.info('Waiting for confirmation. This can be interupted and resumed with:')
+        log_stamp_resume_instruction(nonce, txid[::-1].hex())
 
         while blockhash is None:
             logging.info('Waiting for timestamp tx %s to confirm...' % b2lx(txid))
