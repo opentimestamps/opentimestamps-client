@@ -38,6 +38,7 @@ from opentimestamps.bitcoin import *
 import opentimestamps.calendar
 
 import otsclient
+import otsclient.headers
 
 def remote_calendar(calendar_uri):
     """Create a remote calendar with User-Agent set appropriately"""
@@ -406,21 +407,18 @@ def verify_timestamp(timestamp, args):
                                 (attestation.height, b2lx(msg)))
                 continue
 
-            proxy = args.setup_bitcoin()
+            header_source = args.get_header_source()
 
             try:
-                block_count = proxy.getblockcount()
-                blockhash = proxy.getblockhash(attestation.height)
-            except IndexError:
-                logging.error("Bitcoin block height %d not found; %d is highest known block" % (attestation.height, block_count))
+                block_header = header_source.get_header_at_height(attestation.height)
+            except IndexError as exp:
+                logging.error("%s" % exp)
                 continue
             except ConnectionError as exp:
-                logging.error("Could not connect to local Bitcoin node: %s" % exp)
+                logging.error("Could not connect to header source: %s" % exp)
                 continue
 
-            block_header = proxy.getblockheader(blockhash)
-
-            logging.debug("Attestation block hash: %s" % b2lx(blockhash))
+            logging.debug("Attestation block hash: %s" % b2lx(block_header.GetHash()))
 
             try:
                 attested_time = attestation.verify_against_blockheader(msg, block_header)
@@ -517,19 +515,16 @@ def verify_all_attestations(timestamp, attestations_to_verify, args):
                     logging.error("Bitcoin disabled, could not check attestations")
                     sys.exit(1)
 
-                proxy = args.setup_bitcoin()
+                header_source = args.get_header_source()
 
                 try:
-                    block_count = proxy.getblockcount()
-                    blockhash = proxy.getblockhash(attestation.height)
-                    block_header = proxy.getblockheader(blockhash)
+                    block_header = header_source.get_header_at_height(attestation.height)
                     attested_time = attestation.verify_against_blockheader(msg, block_header)
-                except IndexError:
-                    logging.error("Bitcoin block height %d not found; %d is highest known block" % (
-                        attestation.height, block_count))
+                except IndexError as exp:
+                    logging.error("%s" % exp)
                     sys.exit(1)
                 except ConnectionError as exp:
-                    logging.error("Could not connect to local Bitcoin node: %s" % exp)
+                    logging.error("Could not connect to header source: %s" % exp)
                     sys.exit(1)
                 except VerificationError as err:
                     logging.error("Bitcoin verification failed: %s" % str(err))
@@ -827,3 +822,122 @@ def git_extract_command(args):
     except IOError as exp:
         logging.error("Failed to create timestamp %r: %s" % (timestamp_file_path, exp))
         sys.exit(1)
+
+
+def headers_fetch_command(args):
+    """Fetch Bitcoin block headers into a local archive."""
+    archive = otsclient.headers.HeaderArchive(args.headers_path)
+
+    # If the archive does not exist yet, create it. If it does exist,
+    # the network and start_height are already fixed and we just append.
+    if not archive.exists():
+        start_height = args.since_height if args.since_height is not None else 0
+        try:
+            archive.create(args.btc_net, start_height)
+            logging.info("Created header archive %s (network=%s, start_height=%d)" % (
+                args.headers_path, args.btc_net, start_height))
+        except otsclient.headers.HeaderArchiveError as exp:
+            logging.error("Could not create archive: %s" % exp)
+            sys.exit(1)
+
+    try:
+        archive_network, start_height, header_count = archive.read_file_header()
+    except otsclient.headers.HeaderArchiveError as exp:
+        logging.error("Invalid archive: %s" % exp)
+        sys.exit(1)
+
+    if archive_network != args.btc_net:
+        logging.error("Archive network %r does not match selected network %r" % (
+            archive_network, args.btc_net))
+        sys.exit(1)
+
+    # Resolve fetch sources
+    if args.source_urls:
+        sources = [otsclient.headers.EsploraHeaderFetcher(url) for url in args.source_urls]
+    else:
+        sources = otsclient.headers.make_default_esplora_sources(args.btc_net)
+        if not sources:
+            logging.error("No default fetch sources for network %r; provide --source URL(s)" %
+                          args.btc_net)
+            sys.exit(1)
+
+    fetcher = otsclient.headers.HeaderFetcher(sources, quorum=args.quorum)
+
+    # Resolve since_height: the next height to fetch.
+    next_height = start_height + header_count
+    if args.since_height is not None and args.since_height != next_height:
+        if args.since_height < next_height:
+            logging.info("Skipping --since-height %d; archive already has up to height %d" % (
+                args.since_height, next_height - 1))
+        else:
+            logging.error(
+                "Cannot fetch from height %d: archive ends at %d and headers must be appended in order" % (
+                    args.since_height, next_height - 1))
+            sys.exit(1)
+
+    # Resolve until_height. If not given, query sources for current chain tip
+    # and pick the median (resilient to a single source reporting a stale
+    # or future tip).
+    if args.until_height is None:
+        tip_heights = []
+        for source in sources:
+            try:
+                tip_heights.append(source.get_tip_height())
+            except Exception as exp:
+                logging.debug("Source %r failed tip lookup: %s" % (source.base_url, exp))
+        if not tip_heights:
+            logging.error("Could not determine chain tip from any source; "
+                          "use --until-height to specify explicitly")
+            sys.exit(1)
+        tip_heights.sort()
+        until_height = tip_heights[len(tip_heights) // 2]
+        logging.info("Auto-detected chain tip height %d (from %d source(s))" % (
+            until_height, len(tip_heights)))
+    else:
+        until_height = args.until_height
+
+    if until_height < next_height:
+        logging.info("Nothing to do: archive already covers up to height %d" % (next_height - 1))
+        return
+
+    logging.info("Fetching headers %d..%d from %d source(s), quorum=%d" % (
+        next_height, until_height, len(sources), fetcher.quorum))
+
+    fetched = 0
+    log_every = 100
+    for height in range(next_height, until_height + 1):
+        try:
+            header = fetcher.fetch_header(height)
+            archive.append_header(header)
+            fetched += 1
+        except (otsclient.headers.HeaderArchiveError, ConnectionError) as exp:
+            logging.error("Stopping at height %d: %s" % (height, exp))
+            sys.exit(1)
+
+        if fetched % log_every == 0:
+            logging.info("... fetched %d headers (at height %d)" % (fetched, height))
+
+    logging.info("Done. Fetched %d header(s); archive now covers %d..%d" % (
+        fetched, start_height, until_height))
+
+
+def headers_info_command(args):
+    """Print information about a local header archive."""
+    archive = otsclient.headers.HeaderArchive(args.archive_path)
+    if not archive.exists():
+        logging.error("Archive file not found: %s" % args.archive_path)
+        sys.exit(1)
+
+    try:
+        info = archive.info()
+    except otsclient.headers.HeaderArchiveError as exp:
+        logging.error("Invalid archive: %s" % exp)
+        sys.exit(1)
+
+    print("Path:         %s" % info['path'])
+    print("Network:      %s" % info['network'])
+    print("Header count: %d" % info['header_count'])
+    print("Height range: %d..%s" % (
+        info['start_height'],
+        info['end_height'] if info['end_height'] is not None else '(empty)'))
+    print("File size:    %d bytes" % info['file_size'])

@@ -1,5 +1,17 @@
 # OpenTimestamps Client Release Notes
 
+## Unreleased
+
+* New `ots headers` subcommand group (`fetch`, `info`) plus a new `--headers`
+  flag on `ots verify` enable verification of Bitcoin-anchored timestamps
+  against a local archive of Bitcoin block headers, with no local Bitcoin
+  node and no network access at verify time. The archive is built by
+  cross-validating multiple Esplora-compatible sources at fetch time, with
+  per-header proof-of-work and previous-hash continuity checks at append
+  time. At 80 bytes per header (~70 MB for the entire Bitcoin chain),
+  this enables air-gapped and archival-quality verification. Closes the
+  "Lite-Client Support" item from TODO.md.
+
 ## v0.7.2
 
 * Now works in git worktrees

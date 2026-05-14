@@ -22,6 +22,7 @@ import opentimestamps.calendar
 import otsclient
 import otsclient.cache
 import otsclient.cmds
+import otsclient.headers
 
 APPDIRS = appdirs.AppDirs('ots','opentimestamps')
 
@@ -150,6 +151,35 @@ def handle_common_options(args, parser):
 
     args.setup_bitcoin = setup_bitcoin
 
+    def get_header_source():
+        """Return a BlockHeaderSource appropriate for the current args.
+
+        If --headers was given to the verify subcommand, use a local
+        archive. Otherwise fall back to the existing Bitcoin RPC proxy.
+        """
+        headers_path = getattr(args, 'headers_path', None)
+        if headers_path is not None:
+            archive = otsclient.headers.HeaderArchive(headers_path)
+            if not archive.exists():
+                logging.error("Header archive not found: %s" % headers_path)
+                sys.exit(1)
+            try:
+                archive_network, _start, _count = archive.read_file_header()
+            except otsclient.headers.HeaderArchiveError as exp:
+                logging.error("Header archive is invalid: %s" % exp)
+                sys.exit(1)
+            if archive_network != args.btc_net:
+                logging.error(
+                    "Header archive network %r does not match selected network %r" % (
+                        archive_network, args.btc_net))
+                sys.exit(1)
+            return otsclient.headers.LocalArchiveHeaderSource(archive)
+
+        proxy = setup_bitcoin()
+        return otsclient.headers.BitcoinNodeHeaderSource(proxy)
+
+    args.get_header_source = get_header_source
+
     return args
 
 def parse_ots_args(raw_args):
@@ -205,8 +235,50 @@ def parse_ots_args(raw_args):
                                      default=None,
                                      help='Verify a (hex-encoded) digest rather than a file')
 
+    parser_verify.add_argument('--headers', metavar='PATH', dest='headers_path', type=str,
+                               default=None,
+                               help='Verify using a local Bitcoin header archive (produced by '
+                                    '`ots headers fetch`) instead of a local Bitcoin node. '
+                                    'Enables fully offline verification.')
+
     parser_verify.add_argument('timestamp_fd', metavar='TIMESTAMP', type=argparse.FileType('rb'),
                                help='Timestamp filename')
+
+    # ----- headers -----
+    parser_headers = subparsers.add_parser('headers',
+                                           help='Manage local Bitcoin block header archive')
+    headers_subparsers = parser_headers.add_subparsers(
+        title='Subcommands',
+        description='Header archive operations:')
+
+    parser_headers_fetch = headers_subparsers.add_parser('fetch',
+                                                         help='Fetch headers from public sources into a local archive')
+    parser_headers_fetch.add_argument('--output', metavar='PATH', dest='headers_path', type=str,
+                                      default=os.path.join(APPDIRS.user_cache_dir, 'headers.bin'),
+                                      help='Path to the header archive file. Default: %(default)s')
+    parser_headers_fetch.add_argument('--since-height', dest='since_height', type=int,
+                                      default=None,
+                                      help='Lowest block height to fetch. Default: continue from end of '
+                                           'existing archive, or 0 if creating a new archive.')
+    parser_headers_fetch.add_argument('--until-height', dest='until_height', type=int,
+                                      default=None,
+                                      help='Highest block height to fetch (inclusive). '
+                                           'Default: current chain tip according to fetch sources.')
+    parser_headers_fetch.add_argument('--source', metavar='URL', dest='source_urls', action='append',
+                                      type=str, default=[],
+                                      help='Esplora-compatible base URL to fetch from. May be specified '
+                                           'multiple times. Defaults to a network-appropriate set of '
+                                           'public sources if not given.')
+    parser_headers_fetch.add_argument('--quorum', dest='quorum', type=int, default=None,
+                                      help='Minimum number of agreeing sources required per header. '
+                                           'Default: majority of provided sources (rounded up).')
+    parser_headers_fetch.set_defaults(cmd_func=otsclient.cmds.headers_fetch_command)
+
+    parser_headers_info = headers_subparsers.add_parser('info',
+                                                        help='Show information about a local header archive')
+    parser_headers_info.add_argument('archive_path', metavar='PATH', type=str,
+                                     help='Path to the header archive file')
+    parser_headers_info.set_defaults(cmd_func=otsclient.cmds.headers_info_command)
 
     # ----- info -----
     parser_info = subparsers.add_parser('info', aliases=['i'],

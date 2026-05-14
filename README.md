@@ -11,7 +11,10 @@ files within a Git repository.
 * Python3
 
 While OpenTimestamps can *create* timestamps without a local Bitcoin node, to
-*verify* timestamps you need a local Bitcoin Core node (a pruned node is fine).
+*verify* timestamps you traditionally need a local Bitcoin Core node (a pruned
+node is fine). As of the lite-client support added in `headers.py`, you can
+alternatively verify against a small local archive of Bitcoin block headers
+(~70 MB total for the whole chain) — see "Offline / lite verification" below.
 
 
 ## Installation
@@ -129,6 +132,44 @@ and meaningless digest. Equally, if multiple files are timestamped at once,
 each file is protected by an individual nonce; the timestamp for one file
 reveals nothing about the contents of another file timestamped at the same
 time.
+
+## Offline / lite verification (local header archive)
+
+Bitcoin-anchored OpenTimestamps proofs mathematically resolve to one specific
+Bitcoin block's merkle root. Verifying such a proof traditionally requires a
+local Bitcoin Core node, but at 80 bytes per block the entire chain's headers
+fit in around 70 MB. The `ots headers` subcommand maintains a local archive of
+headers so that verification can run with no Bitcoin node and no network
+access at verify time.
+
+Create or extend a header archive by fetching from public Esplora-compatible
+sources (with cross-source quorum agreement and per-header PoW + chain
+continuity validation at append time):
+
+    $ ots headers fetch --until-height 800000
+    Created header archive .../headers.bin (network=mainnet, start_height=0)
+    Auto-detected chain tip height 875432 (from 3 source(s))
+    Fetching headers 0..800000 from 3 source(s), quorum=2
+    ... fetched 100 headers (at height 100)
+    ... fetched 200 headers (at height 200)
+    ...
+
+Inspect a header archive:
+
+    $ ots headers info ~/.cache/opentimestamps/ots/headers.bin
+    Path:         .../headers.bin
+    Network:      mainnet
+    Header count: 800001
+    Height range: 0..800000
+    File size:    64000016 bytes
+
+Verify an OTS proof against the local archive — no Bitcoin node, no internet:
+
+    $ ots verify --headers .../headers.bin README.md.ots
+    Success! Bitcoin block 800000 attests existence as of 2023-07-24 UTC
+
+The header archive is mutually exclusive with `--bitcoin-node` at verify time.
+Stamping is unaffected - only verification gains the new option.
 
 ## Compatibility Expectations
 
