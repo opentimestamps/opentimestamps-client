@@ -12,6 +12,12 @@
   this enables air-gapped and archival-quality verification. Closes the
   "Lite-Client Support" item from TODO.md.
 
+* `ots headers fetch --p2p` uses Bitcoin's native P2P getheaders protocol
+  for bulk header sync (up to 2000 headers per round trip vs one per HTTP
+  call). DNS-seed discovery by default; `--p2p-peer host[:port]` to
+  override. Headers undergo the same PoW + previous-hash validation as
+  the HTTP path, so a single peer is sufficient.
+
 ## v0.7.2
 
 * Now works in git worktrees

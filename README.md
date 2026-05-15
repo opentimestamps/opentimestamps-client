@@ -154,6 +154,22 @@ continuity validation at append time):
     ... fetched 200 headers (at height 200)
     ...
 
+For bulk fetches like populating from genesis, the `--p2p` flag uses
+Bitcoin's native getheaders protocol instead of per-header HTTP, returning
+up to 2000 headers per round trip. DNS seeds are used for peer discovery
+by default; `--p2p-peer host[:port]` overrides this:
+
+    $ ots headers fetch --p2p
+    Fetching headers via Bitcoin P2P to the chain tip
+    ... fetched 5000 headers (at height 5000)
+    ... fetched 10000 headers (at height 10000)
+    ...
+    Done. Appended 875433 header(s); archive now covers 0..875432
+
+Re-running `ots headers fetch` against an existing archive appends from
+where the last fetch left off; you can keep an evergreen archive by
+running it periodically.
+
 Inspect a header archive:
 
     $ ots headers info ~/.cache/opentimestamps/ots/headers.bin

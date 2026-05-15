@@ -825,8 +825,21 @@ def git_extract_command(args):
 
 
 def headers_fetch_command(args):
-    """Fetch Bitcoin block headers into a local archive."""
+    """Fetch Bitcoin block headers into a local archive.
+
+    Two transports are supported. The HTTP fetcher (default) queries
+    Esplora-compatible block explorers; it's well-suited for small ranges
+    around a specific OTS attestation, with cross-source quorum agreement.
+    The P2P fetcher (--p2p, --p2p-peer) talks Bitcoin's native getheaders
+    protocol; it returns up to 2000 headers per round trip and is the
+    right choice for bulk fetches like populating from genesis.
+    """
     archive = otsclient.headers.HeaderArchive(args.headers_path)
+
+    use_p2p = args.use_p2p or bool(args.p2p_peers)
+    if use_p2p and args.source_urls:
+        logging.error("--p2p and --source are mutually exclusive")
+        sys.exit(1)
 
     # If the archive does not exist yet, create it. If it does exist,
     # the network and start_height are already fixed and we just append.
@@ -850,6 +863,10 @@ def headers_fetch_command(args):
         logging.error("Archive network %r does not match selected network %r" % (
             archive_network, args.btc_net))
         sys.exit(1)
+
+    if use_p2p:
+        _headers_fetch_p2p(args, archive)
+        return
 
     # Resolve fetch sources
     if args.source_urls:
@@ -919,6 +936,56 @@ def headers_fetch_command(args):
 
     logging.info("Done. Fetched %d header(s); archive now covers %d..%d" % (
         fetched, start_height, until_height))
+
+
+def _parse_p2p_peer_spec(spec):
+    """Parse a 'host' or 'host:port' string into a (host, port) tuple.
+
+    Defaults to the network's default port if no port is given.
+    """
+    if ':' in spec:
+        host, port_str = spec.rsplit(':', 1)
+        try:
+            port = int(port_str)
+        except ValueError:
+            raise ValueError("Invalid port in peer spec %r" % spec)
+    else:
+        host = spec
+        port = bitcoin.params.DEFAULT_PORT
+    return (host, port)
+
+
+def _headers_fetch_p2p(args, archive):
+    """Fetch headers via Bitcoin P2P getheaders."""
+    if args.p2p_peers:
+        try:
+            peers = [_parse_p2p_peer_spec(s) for s in args.p2p_peers]
+        except ValueError as exp:
+            logging.error("%s" % exp)
+            sys.exit(1)
+    else:
+        peers = None  # signals DNS-seed discovery
+
+    fetcher = otsclient.headers.BitcoinP2PHeaderFetcher(
+        network=args.btc_net,
+        peers=peers,
+    )
+
+    if args.until_height is not None:
+        logging.info("Fetching headers via Bitcoin P2P up to height %d" % args.until_height)
+    else:
+        logging.info("Fetching headers via Bitcoin P2P to the chain tip")
+
+    try:
+        appended = fetcher.fetch_into(archive, until_height=args.until_height)
+    except otsclient.headers.P2PFetcherError as exp:
+        logging.error("P2P fetch failed: %s" % exp)
+        sys.exit(1)
+
+    _network, start_height, header_count = archive.read_file_header()
+    end_height = start_height + header_count - 1
+    logging.info("Done. Appended %d header(s); archive now covers %d..%d" % (
+        appended, start_height, end_height))
 
 
 def headers_info_command(args):

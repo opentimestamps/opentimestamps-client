@@ -22,13 +22,18 @@ bytes per block, the entire Bitcoin chain since 2009 fits in ~70 MB.
 This makes archival-quality, fully offline OTS verification practical.
 """
 
+import hashlib
+import io
 import logging
 import os
+import socket
 import struct
 import urllib.request
 
 import bitcoin
 import bitcoin.core
+import bitcoin.messages
+import bitcoin.net
 
 
 # On-disk archive format
@@ -423,6 +428,378 @@ def make_default_esplora_sources(network):
         return []
     else:
         raise ValueError("Unknown network: %s" % network)
+
+
+# Bitcoin P2P getheaders SPV-style fetcher
+#
+# The HTTP-explorer fetcher above is fine for small ranges (one or a few
+# headers around an OTS attestation). For bulk fetches -- the entire chain
+# or large ranges -- it's the wrong transport: per-block HTTP calls are
+# rate-limited and slow.
+#
+# Bitcoin's P2P `getheaders` message returns up to 2000 headers per round
+# trip. Full-chain fetch is ~475 round trips (a couple of minutes against a
+# typical peer) instead of millions of HTTP calls (days, plus rate limits).
+# This is the canonical SPV bulk-header path -- used by Electrum, BitcoinJ,
+# every wallet.
+#
+# python-bitcoinlib provides the message types (msg_version, msg_verack,
+# msg_getheaders, msg_headers); we add the connection loop and a small
+# workaround for one quirk: the headers wire format appends a 0x00 varint
+# after each 80-byte header (transaction count, always zero in this
+# context), and python-bitcoinlib's CBlockHeader.stream_deserialize doesn't
+# consume that trailing byte. We intercept the `headers` command at the
+# framing layer and parse the body ourselves so the trailing byte is
+# correctly skipped.
+
+P2P_DEFAULT_TIMEOUT = 30
+P2P_MESSAGE_HEADER_SIZE = 24  # magic(4) + command(12) + length(4) + checksum(4)
+
+
+class P2PFetcherError(HeaderArchiveError):
+    """Base class for Bitcoin P2P fetcher errors."""
+
+
+class P2PHandshakeError(P2PFetcherError):
+    """Failed to complete the version/verack handshake with a peer."""
+
+
+class P2PProtocolError(P2PFetcherError):
+    """Received an unexpected, malformed, or out-of-spec message from a peer."""
+
+
+def _read_exact(sock_file, n):
+    """Read exactly n bytes from a file-like, raising on short reads.
+
+    socket.makefile() with default buffering loops on read() until n bytes
+    are available, but the loop terminates early on EOF -- which is what we
+    want to detect explicitly here.
+    """
+    buf = sock_file.read(n)
+    if len(buf) < n:
+        raise EOFError("Expected %d bytes, got %d" % (n, len(buf)))
+    return buf
+
+
+def _read_p2p_message(sock_file):
+    """Read one P2P message from a socket-as-file, returning (command, body).
+
+    Generic message framing: magic + command + length + checksum + body.
+    Returns the command bytes (e.g. b'headers') and the body bytes;
+    callers are responsible for parsing the body according to command.
+
+    Raises P2PProtocolError on a bad magic or checksum.
+    """
+    header = _read_exact(sock_file, P2P_MESSAGE_HEADER_SIZE)
+    if header[:4] != bitcoin.params.MESSAGE_START:
+        raise P2PProtocolError("Bad message magic %s, expected %s" % (
+            header[:4].hex(), bitcoin.params.MESSAGE_START.hex()))
+    command = header[4:16].rstrip(b'\x00')
+    body_len = struct.unpack(b'<I', header[16:20])[0]
+    checksum = header[20:24]
+    body = _read_exact(sock_file, body_len)
+    expected_checksum = hashlib.sha256(hashlib.sha256(body).digest()).digest()[:4]
+    if checksum != expected_checksum:
+        raise P2PProtocolError("Bad checksum on '%s' message" % command.decode('ascii', 'replace'))
+    return command, body
+
+
+def _parse_headers_body(body):
+    """Parse the body of a P2P 'headers' message, returning a list of CBlockHeader.
+
+    Each entry in the wire format is 80 bytes of canonical block header
+    followed by a single 0x00 byte (the transaction-count varint, always
+    zero here since this is a header-only message).
+    """
+    f = io.BytesIO(body)
+    count = bitcoin.core.VarIntSerializer.stream_deserialize(f)
+    out = []
+    for _ in range(count):
+        header_bytes = f.read(80)
+        if len(header_bytes) < 80:
+            raise P2PProtocolError("Truncated header in headers message")
+        header = bitcoin.core.CBlockHeader.deserialize(header_bytes)
+        # Consume and discard the trailing transaction-count varint.
+        bitcoin.core.VarIntSerializer.stream_deserialize(f)
+        out.append(header)
+    return out
+
+
+def _send_p2p_message(sock, msg):
+    """Serialize a python-bitcoinlib MsgSerializable and send it to a socket.
+
+    `MsgSerializable.to_bytes()` already produces the fully-framed
+    message (magic + command + length + checksum + body).
+    """
+    sock.sendall(msg.to_bytes())
+
+
+def discover_p2p_peers_via_dns(network='mainnet', limit=20):
+    """Resolve the network's DNS seeds to a list of (host, port) tuples.
+
+    Returns at most `limit` peers, drawn round-robin across seeds so a
+    single seed's failure doesn't dominate. Failed seeds are silently
+    skipped; if all seeds fail, returns an empty list and the caller
+    should fall back to user-provided peers.
+    """
+    seeds = [hostname for (_label, hostname) in bitcoin.params.DNS_SEEDS]
+    port = bitcoin.params.DEFAULT_PORT
+    per_seed = []
+    for seed in seeds:
+        addrs = []
+        try:
+            for info in socket.getaddrinfo(seed, port, type=socket.SOCK_STREAM):
+                addrs.append((info[4][0], port))
+        except socket.gaierror as exp:
+            logging.debug("DNS seed %s failed: %s" % (seed, exp))
+        per_seed.append(addrs)
+
+    # Round-robin across seeds so we don't get stuck on a slow/bad one.
+    out = []
+    while len(out) < limit:
+        added = False
+        for addrs in per_seed:
+            if addrs:
+                out.append(addrs.pop(0))
+                added = True
+                if len(out) >= limit:
+                    break
+        if not added:
+            break
+    return out
+
+
+class _P2PPeerSession:
+    """A short-lived Bitcoin P2P session for fetching headers from one peer.
+
+    Use as a context manager:
+
+        with _P2PPeerSession(host, port) as session:
+            headers = session.request_headers(locator_hash)
+            ...
+
+    The session handles the version/verack handshake on entry and closes
+    the socket on exit. Slow/unresponsive peers are bounded by a per-call
+    socket timeout (default 30 seconds).
+    """
+
+    def __init__(self, host, port, timeout=P2P_DEFAULT_TIMEOUT):
+        self.host = host
+        self.port = port
+        self.timeout = timeout
+        self.sock = None
+        self.sock_file = None
+
+    def __enter__(self):
+        self.sock = socket.create_connection((self.host, self.port), timeout=self.timeout)
+        # Default buffering ensures read(n) loops until n bytes are available
+        # (or EOF). Headers messages can be ~162 KB and need that loop.
+        self.sock_file = self.sock.makefile('rb')
+        try:
+            self._handshake()
+        except Exception:
+            self._close()
+            raise
+        return self
+
+    def __exit__(self, *exc):
+        self._close()
+
+    def _close(self):
+        for resource in (self.sock_file, self.sock):
+            if resource is not None:
+                try:
+                    resource.close()
+                except Exception:
+                    pass
+        self.sock_file = None
+        self.sock = None
+
+    def _handshake(self):
+        """Perform the version/verack handshake. Both directions exchange both messages."""
+        _send_p2p_message(self.sock, bitcoin.messages.msg_version())
+        got_version = False
+        got_verack = False
+        # Bound the handshake so a misbehaving peer can't keep us looping.
+        for _ in range(20):
+            command, body = _read_p2p_message(self.sock_file)
+            if command == b'version':
+                got_version = True
+                _send_p2p_message(self.sock, bitcoin.messages.msg_verack())
+            elif command == b'verack':
+                got_verack = True
+            # Other messages (alert, sendheaders, sendcmpct, etc.) are ignored.
+            if got_version and got_verack:
+                return
+        raise P2PHandshakeError("Did not complete handshake with %s:%d" % (self.host, self.port))
+
+    def request_headers(self, locator_hash, hashstop=None):
+        """Send a getheaders request and return the resulting list of CBlockHeader.
+
+        `locator_hash` is the bytes of the most recent block we have (in
+        internal byte order, i.e. matching CBlockHeader.GetHash()). The
+        peer will respond with up to 2000 headers starting from the block
+        AFTER the one we name.
+
+        If `hashstop` is None, the peer sends as many headers as it
+        wishes (up to 2000); otherwise it stops at the named hash.
+
+        Returns an empty list if the peer thinks we're already at its tip.
+        Other unsolicited messages (ping, inv, addr) are handled or
+        ignored while waiting for the headers response.
+        """
+        gh = bitcoin.messages.msg_getheaders()
+        gh.locator.vHave = [locator_hash]
+        if hashstop is not None:
+            gh.hashstop = hashstop
+        _send_p2p_message(self.sock, gh)
+
+        # Bound the wait so a peer that just sends pings forever can't
+        # deadlock us.
+        for _ in range(50):
+            command, body = _read_p2p_message(self.sock_file)
+            if command == b'headers':
+                return _parse_headers_body(body)
+            elif command == b'ping':
+                # Respond to keep the connection alive while we wait.
+                pong = bitcoin.messages.msg_pong()
+                pong.nonce = struct.unpack(b'<Q', body[:8])[0]
+                _send_p2p_message(self.sock, pong)
+            # Everything else (inv, addr, alert, getheaders from the peer,
+            # etc.) is ignored -- we're only looking for our headers reply.
+        raise P2PProtocolError("Did not receive headers response from %s:%d" % (
+            self.host, self.port))
+
+
+class BitcoinP2PHeaderFetcher:
+    """Fetch Bitcoin block headers via the Bitcoin P2P protocol.
+
+    Significantly faster than HTTP-explorer fetching for bulk operations:
+    a single getheaders round trip returns up to 2000 headers, so the
+    full chain since 2009 fetches in a couple of minutes against a
+    responsive peer.
+
+    Uses one peer at a time; on peer failure (connection refused, slow
+    peer, malformed response, headers that fail PoW or chain-continuity
+    validation), falls through to the next peer. PoW + prev-hash
+    continuity is the trust anchor: a malicious peer can only feed us
+    chains that fail PoW, which we catch and treat as cause to drop the
+    peer.
+
+    This fetcher only supports archives that begin at the genesis block
+    (start_height == 0). Partial archives starting at a higher height
+    require knowing the exact previous-block hash to construct the
+    locator, which we don't have a portable source for; use the HTTP
+    fetcher (EsploraHeaderFetcher) for those cases.
+    """
+
+    def __init__(self, network='mainnet', peers=None, timeout=P2P_DEFAULT_TIMEOUT,
+                 dns_discovery_limit=20):
+        self.network = network
+        self._explicit_peers = list(peers) if peers else None
+        self.timeout = timeout
+        self.dns_discovery_limit = dns_discovery_limit
+
+    def get_peers(self):
+        """Return the list of (host, port) peers to try, in order."""
+        if self._explicit_peers is not None:
+            return list(self._explicit_peers)
+        return discover_p2p_peers_via_dns(self.network, limit=self.dns_discovery_limit)
+
+    def fetch_into(self, archive, until_height=None):
+        """Fetch headers into the given archive, starting from where it left off.
+
+        Connects to peers in turn; for each peer, requests batches of up
+        to 2000 headers in a loop, validating each header via
+        archive.append_header (which checks PoW and prev-hash continuity).
+
+        If until_height is given, stops appending once that height is
+        reached; otherwise continues until the peer reports we're at the
+        chain tip (empty headers response).
+
+        Returns the number of headers appended in this call.
+        """
+        _network, start_height, header_count = archive.read_file_header()
+        if start_height != 0:
+            raise P2PFetcherError(
+                "P2P fetcher only supports archives starting at genesis (height 0); "
+                "got start_height=%d. Use the HTTP fetcher for partial archives." % start_height)
+
+        # Seed an empty archive with genesis so subsequent locators have
+        # something to anchor to. Peers respond to a zero-hash locator by
+        # sending headers starting at height 1, not at genesis.
+        if header_count == 0:
+            genesis = bitcoin.params.GENESIS_BLOCK
+            if hasattr(genesis, 'get_header'):
+                genesis = genesis.get_header()
+            archive.append_header(genesis)
+            logging.debug("Seeded empty archive with genesis (network=%s)" % self.network)
+
+        peers = self.get_peers()
+        if not peers:
+            raise P2PFetcherError(
+                "No Bitcoin P2P peers available "
+                "(DNS seed discovery returned nothing; try --p2p-peer host[:port])")
+
+        appended_total = 0
+        for peer_host, peer_port in peers:
+            try:
+                with _P2PPeerSession(peer_host, peer_port, self.timeout) as session:
+                    appended_from_this_peer = self._drain_peer(
+                        session, archive, until_height)
+                    appended_total += appended_from_this_peer
+                    if appended_from_this_peer == 0:
+                        # Peer says we're done (returned an empty headers list).
+                        return appended_total
+            except (socket.error, EOFError, P2PFetcherError) as exp:
+                logging.debug("P2P peer %s:%d failed (appended=%d so far): %s" % (
+                    peer_host, peer_port, appended_total, exp))
+                continue
+
+        if appended_total == 0:
+            raise P2PFetcherError(
+                "All %d peer(s) failed without appending any headers" % len(peers))
+        return appended_total
+
+    def _drain_peer(self, session, archive, until_height, log_every=5000):
+        """Repeatedly request headers from one peer until done or it stops responding.
+
+        Returns the number of headers appended via this peer in this call.
+        Logs progress every `log_every` headers so a multi-minute bulk
+        fetch isn't silent.
+        """
+        appended = 0
+        next_log_at = log_every
+        while True:
+            _network, start_height, header_count = archive.read_file_header()
+            tip_header = archive.get_header_at_height(start_height + header_count - 1)
+            locator_hash = tip_header.GetHash()
+
+            batch = session.request_headers(locator_hash)
+            if not batch:
+                # Peer believes we're at the chain tip.
+                return appended
+
+            for header in batch:
+                if until_height is not None:
+                    _net, sh, hc = archive.read_file_header()
+                    if sh + hc - 1 >= until_height:
+                        return appended
+                try:
+                    archive.append_header(header)
+                    appended += 1
+                except HeaderArchiveChainError as exp:
+                    # A header that fails PoW or chain continuity means
+                    # this peer is feeding us bad data. Stop with this peer;
+                    # the outer loop will try the next one.
+                    raise P2PProtocolError(
+                        "Peer returned invalid header: %s" % exp)
+
+                if appended >= next_log_at:
+                    _net, sh, hc = archive.read_file_header()
+                    logging.info("... fetched %d headers (at height %d)" % (
+                        appended, sh + hc - 1))
+                    next_log_at += log_every
 
 
 # vim:syntax=python filetype=python

@@ -12,9 +12,11 @@
 import os
 import tempfile
 import unittest
+from unittest import mock
 
 import bitcoin
 import bitcoin.core
+import bitcoin.messages
 
 from otsclient.headers import (
     HeaderArchive,
@@ -24,6 +26,12 @@ from otsclient.headers import (
     BlockHeaderSource,
     LocalArchiveHeaderSource,
     HeaderFetcher,
+    BitcoinP2PHeaderFetcher,
+    P2PFetcherError,
+    P2PProtocolError,
+    _P2PPeerSession,
+    _read_p2p_message,
+    _parse_headers_body,
     ARCHIVE_MAGIC,
     ARCHIVE_FILE_HEADER_SIZE,
     BLOCK_HEADER_SIZE,
@@ -279,6 +287,192 @@ class TestHeaderFetcher(unittest.TestCase):
             HeaderFetcher([s], quorum=0)
         with self.assertRaises(ValueError):
             HeaderFetcher([s], quorum=2)
+
+
+def _build_headers_message_body(headers):
+    """Serialize a list of CBlockHeaders into a P2P headers-message body.
+
+    Each entry is 80 bytes of header followed by a single 0x00 byte
+    (transaction-count varint = 0), matching the on-wire format.
+    """
+    import io
+    out = io.BytesIO()
+    bitcoin.core.VarIntSerializer.stream_serialize(len(headers), out)
+    for h in headers:
+        out.write(h.serialize())
+        out.write(b'\x00')  # transaction count varint = 0
+    return out.getvalue()
+
+
+def _frame_p2p_message(command, body):
+    """Wrap a body in P2P framing (magic + command + length + checksum)."""
+    import hashlib
+    import struct
+    cmd_padded = command + b'\x00' * (12 - len(command))
+    length = struct.pack(b'<I', len(body))
+    checksum = hashlib.sha256(hashlib.sha256(body).digest()).digest()[:4]
+    return bitcoin.params.MESSAGE_START + cmd_padded + length + checksum + body
+
+
+class _FakeSocket:
+    """A minimal socket stand-in for testing P2P session logic.
+
+    `recv_script` is a sequence of pre-framed messages the peer will
+    "send" back (consumed in order each time the session reads). All
+    `sendall()` calls are captured for later inspection.
+    """
+
+    def __init__(self, recv_script):
+        self.sent = []
+        self._recv_buf = b''.join(recv_script)
+
+    def sendall(self, data):
+        self.sent.append(data)
+
+    def makefile(self, mode='rb'):
+        import io
+        return io.BytesIO(self._recv_buf)
+
+    def close(self):
+        pass
+
+
+class TestP2PMessageParsing(unittest.TestCase):
+
+    def test_parse_headers_body_skips_trailing_byte(self):
+        """Header bodies on the wire have a 0-byte tx-count after each 80-byte header"""
+        # Two distinct, identifiable headers
+        h0 = bitcoin.core.CBlockHeader(
+            nVersion=1, hashPrevBlock=b'\x00' * 32,
+            hashMerkleRoot=b'\x11' * 32, nTime=1, nBits=0x1d00ffff, nNonce=10)
+        h1 = bitcoin.core.CBlockHeader(
+            nVersion=2, hashPrevBlock=b'\x22' * 32,
+            hashMerkleRoot=b'\x33' * 32, nTime=2, nBits=0x1d00ffff, nNonce=20)
+        body = _build_headers_message_body([h0, h1])
+        parsed = _parse_headers_body(body)
+        self.assertEqual(len(parsed), 2)
+        self.assertEqual(parsed[0].serialize(), h0.serialize())
+        self.assertEqual(parsed[1].serialize(), h1.serialize())
+
+    def test_parse_headers_body_truncated_raises(self):
+        """A body shorter than count * 80 bytes is rejected"""
+        # Claim 2 headers but include only 40 bytes of payload
+        import io
+        out = io.BytesIO()
+        bitcoin.core.VarIntSerializer.stream_serialize(2, out)
+        out.write(b'\x00' * 40)
+        with self.assertRaises(P2PProtocolError):
+            _parse_headers_body(out.getvalue())
+
+    def test_read_p2p_message_roundtrip(self):
+        """Properly framed message decodes to (command, body) with checksum check"""
+        import io
+        body = b'hello world'
+        framed = _frame_p2p_message(b'foo', body)
+        f = io.BytesIO(framed)
+        cmd, got_body = _read_p2p_message(f)
+        self.assertEqual(cmd, b'foo')
+        self.assertEqual(got_body, body)
+
+    def test_read_p2p_message_bad_magic_raises(self):
+        """Wrong magic bytes raise P2PProtocolError"""
+        import io
+        framed = b'WRONG' + b'\x00' * 100
+        f = io.BytesIO(framed)
+        with self.assertRaises(P2PProtocolError):
+            _read_p2p_message(f)
+
+    def test_read_p2p_message_bad_checksum_raises(self):
+        """Tampered body that no longer matches the framing checksum is rejected"""
+        import io
+        body = b'original'
+        framed = bytearray(_frame_p2p_message(b'foo', body))
+        # Flip a byte inside the body (past the 24-byte header)
+        framed[30] = framed[30] ^ 0xff
+        f = io.BytesIO(bytes(framed))
+        with self.assertRaises(P2PProtocolError):
+            _read_p2p_message(f)
+
+
+class TestP2PPeerSession(unittest.TestCase):
+
+    def _genesis_header(self):
+        gb = bitcoin.params.GENESIS_BLOCK
+        return gb.get_header() if hasattr(gb, 'get_header') else gb
+
+    def test_handshake_completes(self):
+        """Session completes version/verack exchange given canned peer responses"""
+        # Peer sends: version + verack
+        peer_messages = [
+            _frame_p2p_message(b'version', bitcoin.messages.msg_version().to_bytes()[24:]),
+            _frame_p2p_message(b'verack', b''),
+        ]
+        fake = _FakeSocket(peer_messages)
+
+        with mock.patch('socket.create_connection', return_value=fake):
+            with _P2PPeerSession('fake.example', 8333) as session:
+                # Reaching here means handshake succeeded
+                self.assertIsNotNone(session.sock)
+        # Two messages should have been sent: our version, then verack
+        self.assertEqual(len(fake.sent), 2)
+
+    def test_request_headers_returns_parsed_list(self):
+        """request_headers returns the headers from a canned 'headers' response"""
+        h0 = self._genesis_header()
+        peer_messages = [
+            _frame_p2p_message(b'version', bitcoin.messages.msg_version().to_bytes()[24:]),
+            _frame_p2p_message(b'verack', b''),
+            _frame_p2p_message(b'headers', _build_headers_message_body([h0])),
+        ]
+        fake = _FakeSocket(peer_messages)
+
+        with mock.patch('socket.create_connection', return_value=fake):
+            with _P2PPeerSession('fake.example', 8333) as session:
+                headers = session.request_headers(b'\x00' * 32)
+                self.assertEqual(len(headers), 1)
+                self.assertEqual(headers[0].serialize(), h0.serialize())
+
+    def test_request_headers_responds_to_ping(self):
+        """A 'ping' arriving before 'headers' is answered with 'pong'"""
+        import struct
+        h0 = self._genesis_header()
+        ping_body = struct.pack(b'<Q', 0x1234567890abcdef)
+        peer_messages = [
+            _frame_p2p_message(b'version', bitcoin.messages.msg_version().to_bytes()[24:]),
+            _frame_p2p_message(b'verack', b''),
+            _frame_p2p_message(b'ping', ping_body),
+            _frame_p2p_message(b'headers', _build_headers_message_body([h0])),
+        ]
+        fake = _FakeSocket(peer_messages)
+
+        with mock.patch('socket.create_connection', return_value=fake):
+            with _P2PPeerSession('fake.example', 8333) as session:
+                headers = session.request_headers(b'\x00' * 32)
+                self.assertEqual(len(headers), 1)
+        # Sent: our version, verack, getheaders, pong = 4 messages
+        self.assertEqual(len(fake.sent), 4)
+        # Last sent should be a pong containing the same nonce
+        last = fake.sent[-1]
+        self.assertEqual(last[4:4 + len(b'pong')].rstrip(b'\x00'), b'pong')
+
+
+class TestP2PFetcher(unittest.TestCase):
+
+    def test_rejects_non_genesis_archive(self):
+        """P2P fetcher refuses archives that don't start at genesis"""
+        with tempfile.TemporaryDirectory() as td:
+            p = os.path.join(td, 'partial.headers.bin')
+            archive = HeaderArchive(p)
+            archive.create('mainnet', 800000)
+            fetcher = BitcoinP2PHeaderFetcher(network='mainnet')
+            with self.assertRaises(P2PFetcherError):
+                fetcher.fetch_into(archive)
+
+    def test_constructor_holds_explicit_peers(self):
+        """Constructor stores explicit peers without invoking DNS"""
+        peers = [('1.2.3.4', 8333), ('5.6.7.8', 8333)]
+        f = BitcoinP2PHeaderFetcher(peers=peers)
+        self.assertEqual(f.get_peers(), peers)
 
 
 # vim:syntax=python filetype=python

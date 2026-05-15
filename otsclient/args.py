@@ -272,6 +272,15 @@ def parse_ots_args(raw_args):
     parser_headers_fetch.add_argument('--quorum', dest='quorum', type=int, default=None,
                                       help='Minimum number of agreeing sources required per header. '
                                            'Default: majority of provided sources (rounded up).')
+    parser_headers_fetch.add_argument('--p2p', dest='use_p2p', action='store_true', default=False,
+                                      help='Fetch via the Bitcoin P2P getheaders protocol instead of '
+                                           'HTTP block explorers. Much faster for bulk fetches '
+                                           '(up to 2000 headers per round trip). Uses DNS seeds for '
+                                           'peer discovery by default. Mutually exclusive with --source.')
+    parser_headers_fetch.add_argument('--p2p-peer', metavar='HOST[:PORT]', dest='p2p_peers',
+                                      action='append', type=str, default=[],
+                                      help='Specific Bitcoin P2P peer to connect to (may be repeated). '
+                                           'Implies --p2p.')
     parser_headers_fetch.set_defaults(cmd_func=otsclient.cmds.headers_fetch_command)
 
     parser_headers_info = headers_subparsers.add_parser('info',
