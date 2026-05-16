@@ -136,15 +136,34 @@ time.
 ## Offline / lite verification (local header archive)
 
 Bitcoin-anchored OpenTimestamps proofs mathematically resolve to one specific
-Bitcoin block's merkle root. Verifying such a proof traditionally requires a
+Bitcoin block's merkle root. Verifying such a proof traditionally required a
 local Bitcoin Core node, but at 80 bytes per block the entire chain's headers
-fit in around 70 MB. The `ots headers` subcommand maintains a local archive of
-headers so that verification can run with no Bitcoin node and no network
-access at verify time.
+fit in around 70 MB.
 
-Create or extend a header archive by fetching from public Esplora-compatible
-sources (with cross-source quorum agreement and per-header PoW + chain
-continuity validation at append time):
+By default, `ots verify` now Just Works without any flags. When neither
+`--bitcoin-node` nor `--headers` is given, it first probes for a reachable
+local Bitcoin Core node and uses it when present (preserving the historical
+"I run `bitcoind`, just use it" UX); otherwise it auto-fetches the headers
+it needs for the attested heights from public Esplora-compatible sources
+with quorum agreement, and caches them locally so subsequent verifications
+of the same proof are network-free:
+
+    $ ots verify README.md.ots
+    Fetching block 875432 header from public sources...
+    Success! Bitcoin block 875432 attests existence as of 2025-12-14 UTC
+
+No Bitcoin node, no `--headers` flag, no preconfiguration required. The trust
+signal is per-header proof-of-work plus quorum across multiple independent
+public sources. An info-level log line ("Using local Bitcoin Core node ..."
+vs "Fetching block N header ...") indicates which path was taken so
+privacy-conscious users see at a glance whether their proof hit a third
+party.
+
+For air-gapped or archival verification, the `ots headers` subcommand
+maintains a local header archive that can populate a full chain (~70 MB)
+once and verify forever offline. Create or extend an archive by fetching
+from public Esplora-compatible sources (with cross-source quorum agreement
+and per-header PoW + chain continuity validation at append time):
 
     $ ots headers fetch --until-height 800000
     Created header archive .../headers.bin (network=mainnet, start_height=0)
@@ -179,13 +198,14 @@ Inspect a header archive:
     Height range: 0..800000
     File size:    64000016 bytes
 
-Verify an OTS proof against the local archive — no Bitcoin node, no internet:
+Verify an OTS proof against the local archive — no Bitcoin node, no internet,
+no public fetch:
 
     $ ots verify --headers .../headers.bin README.md.ots
     Success! Bitcoin block 800000 attests existence as of 2023-07-24 UTC
 
-The header archive is mutually exclusive with `--bitcoin-node` at verify time.
-Stamping is unaffected - only verification gains the new option.
+`--headers` and `--bitcoin-node` are mutually exclusive at verify time, and
+each takes precedence over the default auto-fetch. Stamping is unaffected.
 
 ## Compatibility Expectations
 

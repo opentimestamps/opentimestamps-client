@@ -18,6 +18,30 @@
   override. Headers undergo the same PoW + previous-hash validation as
   the HTTP path, so a single peer is sufficient.
 
+* `ots verify` no longer requires `--bitcoin-node` or `--headers` to find
+  block headers. When neither flag is given, the no-flag path first
+  probes for a reachable local Bitcoin Core node (short-timeout RPC
+  ping against the default config) and uses it when present --
+  preserving the historical "I run `bitcoind`, just use it" behavior.
+  When no node responds, headers for the attested heights are
+  auto-fetched from public Esplora-compatible sources with quorum
+  agreement and cached on disk (in
+  `<cache_dir>/verify-cache-<network>.bin`) so subsequent verifications
+  of the same proof are network-free. The trust signal is unchanged:
+  per-header proof-of-work + quorum across multiple independent sources.
+  An info-level log line names which path was taken
+  ("Using local Bitcoin Core node ..." vs "Fetching block N header ...")
+  so privacy-conscious users see at a glance whether their proof hit a
+  third party. `--no-cache` disables the verify cache (and the existing
+  timestamp cache) for one-shot invocations.
+
+* `ots headers fetch` default `--output` path is now network-suffixed
+  (`<cache_dir>/headers-<network>.bin`) for the same reason: a mainnet
+  archive and a testnet archive used to collide on the same default
+  path and trigger a network-mismatch error. Existing local archives
+  named `headers.bin` are not migrated automatically; pass
+  `--output <cache_dir>/headers.bin` to keep using one, or rename it.
+
 ## v0.7.2
 
 * Now works in git worktrees

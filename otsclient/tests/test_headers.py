@@ -23,18 +23,24 @@ from otsclient.headers import (
     HeaderArchiveError,
     HeaderArchiveFormatError,
     HeaderArchiveChainError,
+    HeaderArchiveNetworkMismatch,
     BlockHeaderSource,
     LocalArchiveHeaderSource,
     HeaderFetcher,
     BitcoinP2PHeaderFetcher,
     P2PFetcherError,
     P2PProtocolError,
+    VerifyCache,
+    AutoFetchHeaderSource,
     _P2PPeerSession,
     _read_p2p_message,
     _parse_headers_body,
     ARCHIVE_MAGIC,
     ARCHIVE_FILE_HEADER_SIZE,
     BLOCK_HEADER_SIZE,
+    VERIFY_CACHE_MAGIC,
+    VERIFY_CACHE_FILE_HEADER_SIZE,
+    VERIFY_CACHE_RECORD_SIZE,
 )
 
 
@@ -287,6 +293,182 @@ class TestHeaderFetcher(unittest.TestCase):
             HeaderFetcher([s], quorum=0)
         with self.assertRaises(ValueError):
             HeaderFetcher([s], quorum=2)
+
+
+class TestVerifyCache(unittest.TestCase):
+
+    def setUp(self):
+        self._tmpdir = tempfile.TemporaryDirectory()
+        self.cache_path = os.path.join(self._tmpdir.name, 'verify-cache.bin')
+        self.genesis = genesis_header()
+
+    def tearDown(self):
+        self._tmpdir.cleanup()
+
+    def test_create_empty(self):
+        """Creating a verify cache writes a 16-byte file header"""
+        c = VerifyCache(self.cache_path)
+        c.create('mainnet')
+        net, count = c.read_file_header()
+        self.assertEqual(net, 'mainnet')
+        self.assertEqual(count, 0)
+        self.assertEqual(os.path.getsize(self.cache_path),
+                         VERIFY_CACHE_FILE_HEADER_SIZE)
+
+    def test_magic_written(self):
+        """File header begins with the OTSV magic bytes"""
+        c = VerifyCache(self.cache_path)
+        c.create('mainnet')
+        with open(self.cache_path, 'rb') as fd:
+            self.assertEqual(fd.read(4), VERIFY_CACHE_MAGIC)
+
+    def test_create_refuses_overwrite(self):
+        """Create on an existing file raises HeaderArchiveError"""
+        c = VerifyCache(self.cache_path)
+        c.create('mainnet')
+        with self.assertRaises(HeaderArchiveError):
+            c.create('mainnet')
+
+    def test_create_unknown_network_rejected(self):
+        """Unknown network name raises HeaderArchiveError"""
+        c = VerifyCache(self.cache_path)
+        with self.assertRaises(HeaderArchiveError):
+            c.create('mainnetx')
+
+    def test_add_and_get(self):
+        """Round-trip: add a header at a height, get it back"""
+        c = VerifyCache(self.cache_path)
+        c.create('mainnet')
+        c.add(0, self.genesis)
+        got = c.get(0)
+        self.assertIsNotNone(got)
+        self.assertEqual(got.serialize(), self.genesis.serialize())
+
+    def test_get_missing_returns_none(self):
+        """Looking up an absent height returns None, not an error"""
+        c = VerifyCache(self.cache_path)
+        c.create('mainnet')
+        self.assertIsNone(c.get(0))
+        c.add(0, self.genesis)
+        self.assertIsNone(c.get(1))
+
+    def test_iter_records(self):
+        """iter_records yields (height, header) in file order"""
+        c = VerifyCache(self.cache_path)
+        c.create('mainnet')
+        c.add(0, self.genesis)
+        c.add(42, self.genesis)  # PoW passes; height is just a label here
+        records = list(c.iter_records())
+        self.assertEqual(len(records), 2)
+        self.assertEqual(records[0][0], 0)
+        self.assertEqual(records[1][0], 42)
+        for _height, header in records:
+            self.assertEqual(header.serialize(), self.genesis.serialize())
+
+    def test_add_rejects_invalid_pow(self):
+        """A header whose hash doesn't satisfy nBits is rejected"""
+        c = VerifyCache(self.cache_path)
+        c.create('mainnet')
+        bad_header = bitcoin.core.CBlockHeader(
+            nVersion=2,
+            hashPrevBlock=b'\x00' * 32,
+            hashMerkleRoot=b'\x11' * 32,
+            nTime=0, nBits=0x1d00ffff, nNonce=0,
+        )
+        with self.assertRaises(HeaderArchiveChainError):
+            c.add(0, bad_header)
+
+    def test_bad_magic_rejected_on_read(self):
+        """A file with the wrong magic raises HeaderArchiveFormatError"""
+        with open(self.cache_path, 'wb') as fd:
+            fd.write(b'XXXX' + b'\x00' * (VERIFY_CACHE_FILE_HEADER_SIZE - 4))
+        c = VerifyCache(self.cache_path)
+        with self.assertRaises(HeaderArchiveFormatError):
+            c.read_file_header()
+
+    def test_truncated_record_rejected(self):
+        """A body size that's not a multiple of the record size is rejected"""
+        c = VerifyCache(self.cache_path)
+        c.create('mainnet')
+        # Append a partial record (4 bytes < 84).
+        with open(self.cache_path, 'ab') as fd:
+            fd.write(b'\x00\x00\x00\x00')
+        with self.assertRaises(HeaderArchiveFormatError):
+            c.read_file_header()
+
+
+class TestAutoFetchHeaderSource(unittest.TestCase):
+
+    def setUp(self):
+        self._tmpdir = tempfile.TemporaryDirectory()
+        self.cache_path = os.path.join(self._tmpdir.name, 'verify-cache.bin')
+        self.genesis = genesis_header()
+
+    def tearDown(self):
+        self._tmpdir.cleanup()
+
+    def _make_source(self, cache=None, header=None):
+        if header is None:
+            header = self.genesis
+        s = _MockHeaderSource({0: header})
+        fetcher = HeaderFetcher([s], quorum=1)
+        if cache is None:
+            cache = VerifyCache(self.cache_path)
+        return AutoFetchHeaderSource(cache, fetcher, 'mainnet', log=False), s
+
+    def test_empty_cache_fetches_and_caches(self):
+        """First lookup populates the cache from the fetcher"""
+        src, _s = self._make_source()
+        out = src.get_header_at_height(0)
+        self.assertEqual(out.serialize(), self.genesis.serialize())
+        self.assertTrue(os.path.isfile(self.cache_path))
+        cache = VerifyCache(self.cache_path)
+        cached = cache.get(0)
+        self.assertIsNotNone(cached)
+        self.assertEqual(cached.serialize(), self.genesis.serialize())
+
+    def test_second_lookup_uses_cache(self):
+        """A second lookup at the same height doesn't call the fetcher"""
+        cache = VerifyCache(self.cache_path)
+        src, mock_source = self._make_source(cache=cache)
+        src.get_header_at_height(0)
+        # Pop the source's data so a re-fetch would IndexError.
+        mock_source.headers_by_height.clear()
+        out = src.get_header_at_height(0)
+        self.assertEqual(out.serialize(), self.genesis.serialize())
+
+    def test_cache_none_disables_caching(self):
+        """cache=None: always fetches, never writes a file"""
+        s = _MockHeaderSource({0: self.genesis})
+        fetcher = HeaderFetcher([s], quorum=1)
+        src = AutoFetchHeaderSource(None, fetcher, 'mainnet', log=False)
+        src.get_header_at_height(0)
+        self.assertFalse(os.path.isfile(self.cache_path))
+
+    def test_network_mismatch_raises(self):
+        """An existing cache for a different network raises"""
+        cache = VerifyCache(self.cache_path)
+        cache.create('testnet')
+        src, _s = self._make_source(cache=cache)
+        with self.assertRaises(HeaderArchiveNetworkMismatch):
+            src.get_header_at_height(0)
+
+    def test_fetched_bad_pow_raises(self):
+        """A fetched header that fails PoW is rejected before caching"""
+        bad_header = bitcoin.core.CBlockHeader(
+            nVersion=2,
+            hashPrevBlock=b'\x00' * 32,
+            hashMerkleRoot=b'\x11' * 32,
+            nTime=0, nBits=0x1d00ffff, nNonce=0,
+        )
+        src, _s = self._make_source(header=bad_header)
+        with self.assertRaises(HeaderArchiveChainError):
+            src.get_header_at_height(0)
+        # Cache should not have been created on the bad-PoW path.
+        if os.path.isfile(self.cache_path):
+            cache = VerifyCache(self.cache_path)
+            _net, count = cache.read_file_header()
+            self.assertEqual(count, 0)
 
 
 def _build_headers_message_body(headers):

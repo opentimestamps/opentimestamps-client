@@ -11,6 +11,7 @@
 
 import sys
 
+import appdirs
 import argparse
 import binascii
 import io
@@ -834,6 +835,15 @@ def headers_fetch_command(args):
     protocol; it returns up to 2000 headers per round trip and is the
     right choice for bulk fetches like populating from genesis.
     """
+    if args.headers_path is None:
+        # Default is network-suffixed so mainnet/testnet archives don't
+        # collide on the same default path. Lives in the OS cache dir
+        # regardless of --no-cache (which only disables the timestamp
+        # cache).
+        appdirs_default = appdirs.AppDirs('ots', 'opentimestamps')
+        args.headers_path = os.path.join(
+            appdirs_default.user_cache_dir, 'headers-%s.bin' % args.btc_net)
+
     archive = otsclient.headers.HeaderArchive(args.headers_path)
 
     use_p2p = args.use_p2p or bool(args.p2p_peers)

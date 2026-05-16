@@ -430,6 +430,220 @@ def make_default_esplora_sources(network):
         raise ValueError("Unknown network: %s" % network)
 
 
+# Sparse on-disk cache of (height, header) pairs.
+#
+# Unlike HeaderArchive, which stores a contiguous range from start_height
+# onwards, VerifyCache stores arbitrary individual heights. It exists to
+# back the auto-fetch path used by `ots verify` when no Bitcoin node and
+# no explicit --headers archive are configured: each fetched header is
+# cached so subsequent verifications of the same proof are network-free.
+#
+# Format:
+#
+#   bytes  | field        | description
+#   -------+--------------+----------------------------------------------
+#   0..3   | magic        | 'OTSV' (4 ASCII bytes)
+#   4      | version_major| currently 1
+#   5      | version_minor| currently 0
+#   6      | network      | 0=mainnet, 1=testnet, 2=regtest
+#   7      | reserved     | 0x00
+#   8..15  | reserved     | 8 bytes, zero
+#
+# Followed by N records of 84 bytes each:
+#
+#   bytes  | field         | description
+#   -------+---------------+----------------------------------------------
+#   0..3   | height        | uint32 little-endian
+#   4..83  | header_bytes  | 80-byte serialized block header
+#
+# Records may appear in any order, and duplicates are tolerated (readers
+# return the first matching record). The file is append-only.
+
+VERIFY_CACHE_MAGIC = b'OTSV'
+VERIFY_CACHE_VERSION_MAJOR = 1
+VERIFY_CACHE_VERSION_MINOR = 0
+VERIFY_CACHE_FILE_HEADER_SIZE = 16
+VERIFY_CACHE_RECORD_SIZE = 4 + BLOCK_HEADER_SIZE
+
+
+class VerifyCache:
+    """Sparse on-disk cache of (height, CBlockHeader) pairs for auto-fetch.
+
+    Backs AutoFetchHeaderSource, which fills it lazily as `ots verify`
+    walks a timestamp proof. Each cached entry is PoW-validated at write
+    time, so a tampered cache file fails PoW on read.
+    """
+
+    def __init__(self, path):
+        self.path = path
+
+    def exists(self):
+        return os.path.isfile(self.path)
+
+    def create(self, network):
+        """Create a new empty verify cache for the given network.
+
+        Writes the 16-byte file header and nothing else. Raises
+        HeaderArchiveError if the file already exists.
+        """
+        if os.path.exists(self.path):
+            raise HeaderArchiveError("Verify cache file already exists: %s" % self.path)
+        if network not in NETWORK_NAME_TO_ID:
+            raise HeaderArchiveError("Unknown network: %s" % network)
+        os.makedirs(os.path.dirname(self.path) or '.', exist_ok=True)
+        with open(self.path, 'wb') as fd:
+            fd.write(struct.pack(
+                '<4sBBBB8s',
+                VERIFY_CACHE_MAGIC,
+                VERIFY_CACHE_VERSION_MAJOR,
+                VERIFY_CACHE_VERSION_MINOR,
+                NETWORK_NAME_TO_ID[network],
+                0,  # reserved byte
+                b'\x00' * 8,  # 8 reserved bytes
+            ))
+
+    def read_file_header(self):
+        """Return (network_name, record_count)."""
+        with open(self.path, 'rb') as fd:
+            buf = fd.read(VERIFY_CACHE_FILE_HEADER_SIZE)
+            if len(buf) < VERIFY_CACHE_FILE_HEADER_SIZE:
+                raise HeaderArchiveFormatError(
+                    "Verify cache too short to contain a file header: %s" % self.path)
+            magic, ver_maj, ver_min, network_id, _reserved1, _reserved2 = \
+                struct.unpack('<4sBBBB8s', buf)
+            if magic != VERIFY_CACHE_MAGIC:
+                raise HeaderArchiveFormatError(
+                    "Verify cache magic mismatch: got %r, expected %r" % (
+                        magic, VERIFY_CACHE_MAGIC))
+            if ver_maj != VERIFY_CACHE_VERSION_MAJOR:
+                raise HeaderArchiveFormatError(
+                    "Unsupported verify cache version: %d.%d (this client supports %d.x)" % (
+                        ver_maj, ver_min, VERIFY_CACHE_VERSION_MAJOR))
+            if network_id not in NETWORK_ID_TO_NAME:
+                raise HeaderArchiveFormatError(
+                    "Unknown network ID in verify cache: %d" % network_id)
+            file_size = os.path.getsize(self.path)
+            body_size = file_size - VERIFY_CACHE_FILE_HEADER_SIZE
+            if body_size % VERIFY_CACHE_RECORD_SIZE != 0:
+                raise HeaderArchiveFormatError(
+                    "Verify cache body size %d is not a multiple of %d" % (
+                        body_size, VERIFY_CACHE_RECORD_SIZE))
+            record_count = body_size // VERIFY_CACHE_RECORD_SIZE
+            return NETWORK_ID_TO_NAME[network_id], record_count
+
+    def iter_records(self):
+        """Yield (height, CBlockHeader) for each cached record, in file order."""
+        self.read_file_header()  # validate format before iterating
+        with open(self.path, 'rb') as fd:
+            fd.seek(VERIFY_CACHE_FILE_HEADER_SIZE)
+            while True:
+                buf = fd.read(VERIFY_CACHE_RECORD_SIZE)
+                if not buf:
+                    return
+                if len(buf) < VERIFY_CACHE_RECORD_SIZE:
+                    raise HeaderArchiveFormatError(
+                        "Truncated record in verify cache: %s" % self.path)
+                height = struct.unpack('<I', buf[:4])[0]
+                header = bitcoin.core.CBlockHeader.deserialize(buf[4:])
+                yield height, header
+
+    def get(self, height):
+        """Return the cached CBlockHeader at this height, or None if absent."""
+        for h, header in self.iter_records():
+            if h == height:
+                return header
+        return None
+
+    def add(self, height, header):
+        """Append a (height, header) record, validating proof-of-work.
+
+        Does not enforce chain-continuity, since cache entries are sparse.
+        The trust signal for AutoFetchHeaderSource is fetcher-level quorum
+        agreement plus this PoW check.
+
+        Raises HeaderArchiveChainError if PoW validation fails.
+        """
+        try:
+            bitcoin.core.CheckProofOfWork(header.GetHash(), header.nBits)
+        except bitcoin.core.CheckProofOfWorkError as exp:
+            raise HeaderArchiveChainError(
+                "Header at height %d fails proof-of-work check: %s" % (height, exp))
+        with open(self.path, 'ab') as fd:
+            fd.write(struct.pack('<I', height) + header.serialize())
+
+
+class AutoFetchHeaderSource(BlockHeaderSource):
+    """Block header source that fetches lazily from public HTTP sources.
+
+    The default for `ots verify` when no Bitcoin node and no explicit
+    --headers archive are configured. Each height looked up is fetched
+    once (with quorum agreement across multiple sources) and cached on
+    disk so subsequent verifications of the same proof are network-free.
+
+    Trust signal: quorum agreement across the fetcher's sources, plus
+    per-header proof-of-work validation. A tampered cache file would
+    simply fail PoW on read; a malicious source either fails quorum or
+    fails PoW.
+    """
+
+    def __init__(self, cache, fetcher, network, log=True):
+        self.cache = cache  # VerifyCache or None (caching disabled)
+        self.fetcher = fetcher
+        self.network = network
+        self.log = log
+
+    def _ensure_cache_for_network(self):
+        """Create the cache file if absent, or validate its network if present."""
+        if self.cache is None:
+            return
+        if self.cache.exists():
+            cache_network, _count = self.cache.read_file_header()
+            if cache_network != self.network:
+                raise HeaderArchiveNetworkMismatch(
+                    "Verify cache network %r does not match selected network %r" % (
+                        cache_network, self.network))
+        else:
+            self.cache.create(self.network)
+
+    def get_header_at_height(self, height):
+        if self.cache is not None and self.cache.exists():
+            cache_network, _count = self.cache.read_file_header()
+            if cache_network != self.network:
+                raise HeaderArchiveNetworkMismatch(
+                    "Verify cache network %r does not match selected network %r" % (
+                        cache_network, self.network))
+            cached = self.cache.get(height)
+            if cached is not None:
+                logging.debug("Verify cache hit for height %d" % height)
+                return cached
+
+        if self.log:
+            logging.info("Fetching block %d header from public sources..." % height)
+        header = self.fetcher.fetch_header(height)
+        # HeaderFetcher does quorum agreement but does not check PoW.
+        # We check it here so cached entries are always trustworthy.
+        try:
+            bitcoin.core.CheckProofOfWork(header.GetHash(), header.nBits)
+        except bitcoin.core.CheckProofOfWorkError as exp:
+            raise HeaderArchiveChainError(
+                "Fetched header at height %d fails proof-of-work check: %s" % (
+                    height, exp))
+
+        if self.cache is not None:
+            self._ensure_cache_for_network()
+            self.cache.add(height, header)
+        return header
+
+    def get_block_count(self):
+        """Query the underlying sources for the chain tip."""
+        for source in self.fetcher.sources:
+            try:
+                return source.get_tip_height()
+            except Exception as exp:
+                logging.debug("Source %r failed to return tip height: %s" % (source, exp))
+        raise HeaderArchiveError("No source returned a chain-tip height")
+
+
 # Bitcoin P2P getheaders SPV-style fetcher
 #
 # The HTTP-explorer fetcher above is fine for small ranges (one or a few
