@@ -373,6 +373,26 @@ def parse_ots_args(raw_args):
                                      help='Path to the header archive file')
     parser_headers_info.set_defaults(cmd_func=otsclient.cmds.headers_info_command)
 
+    parser_headers_bootstrap = headers_subparsers.add_parser(
+        'bootstrap',
+        help='Download a prebuilt header archive from a URL and install it locally')
+    parser_headers_bootstrap.add_argument('url', metavar='URL', type=str,
+        help='URL to download the archive from. Supports http(s)://, file://, '
+             'and any other scheme urllib.request handles.')
+    parser_headers_bootstrap.add_argument('--output', metavar='PATH',
+        dest='headers_path', type=str, default=None,
+        help='Where to install the validated archive. '
+             'Default: <cache_dir>/headers-<network>.bin')
+    parser_headers_bootstrap.add_argument('--sha256', metavar='HEX',
+        dest='expected_sha256', type=str, default=None,
+        help='Expected SHA-256 of the downloaded file (hex-encoded). '
+             'Optional but recommended when the URL points at a third-party host.')
+    parser_headers_bootstrap.add_argument('--force', dest='force_overwrite',
+        action='store_true', default=False,
+        help='Overwrite an existing archive at the output path. Without this, '
+             'bootstrap refuses to clobber an existing file.')
+    parser_headers_bootstrap.set_defaults(cmd_func=otsclient.cmds.headers_bootstrap_command)
+
     # ----- info -----
     parser_info = subparsers.add_parser('info', aliases=['i'],
                                         help='Show information on a timestamp')

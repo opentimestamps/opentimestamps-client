@@ -189,6 +189,26 @@ Re-running `ots headers fetch` against an existing archive appends from
 where the last fetch left off; you can keep an evergreen archive by
 running it periodically.
 
+To skip the fetch entirely, download a prebuilt archive from a URL with
+`ots headers bootstrap`. The downloaded file is validated end-to-end
+(PoW + prev-hash continuity for every header) before install, so the
+URL host doesn't need to be trusted -- math is the trust signal:
+
+    $ ots headers bootstrap https://example.com/headers-mainnet.bin
+    Downloading header archive from https://example.com/headers-mainnet.bin
+    ... downloaded 10 MB
+    ... downloaded 20 MB
+    ...
+    Validating archive (PoW + chain continuity, every header)...
+    Validated 949588 header(s) (heights 0..949587)
+    Installed archive at .../headers-mainnet.bin
+
+Pass `--sha256 HEX` to add an integrity precheck (recommended for
+third-party hosts), `--force` to overwrite an existing archive, and
+`--output PATH` to install somewhere other than the default
+`<cache_dir>/headers-<network>.bin`. Sources can be anything urllib
+supports: `http(s)://`, `file://`, etc.
+
 Inspect a header archive:
 
     $ ots headers info ~/.cache/opentimestamps/ots/headers.bin

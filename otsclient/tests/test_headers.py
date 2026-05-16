@@ -9,6 +9,7 @@
 # modified, propagated, or distributed except according to the terms contained
 # in the LICENSE file.
 
+import hashlib
 import os
 import tempfile
 import unittest
@@ -32,9 +33,11 @@ from otsclient.headers import (
     P2PProtocolError,
     VerifyCache,
     AutoFetchHeaderSource,
+    bootstrap_archive_from_url,
     _P2PPeerSession,
     _read_p2p_message,
     _parse_headers_body,
+    _walk_validate_archive,
     ARCHIVE_MAGIC,
     ARCHIVE_FILE_HEADER_SIZE,
     BLOCK_HEADER_SIZE,
@@ -655,6 +658,212 @@ class TestP2PFetcher(unittest.TestCase):
         peers = [('1.2.3.4', 8333), ('5.6.7.8', 8333)]
         f = BitcoinP2PHeaderFetcher(peers=peers)
         self.assertEqual(f.get_peers(), peers)
+
+
+class _MockHTTPResponse:
+    """Mimics urllib.request.urlopen's return value for tests.
+
+    Supports the context-manager protocol and a chunked .read(n) interface.
+    """
+
+    def __init__(self, body):
+        self._body = body
+        self._pos = 0
+
+    def read(self, n=None):
+        if n is None or n < 0:
+            chunk = self._body[self._pos:]
+            self._pos = len(self._body)
+            return chunk
+        chunk = self._body[self._pos:self._pos + n]
+        self._pos += len(chunk)
+        return chunk
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+
+class TestBootstrapFromUrl(unittest.TestCase):
+
+    def setUp(self):
+        self._tmpdir = tempfile.TemporaryDirectory()
+        self.output_path = os.path.join(self._tmpdir.name, 'headers.bin')
+        self.genesis = genesis_header()
+
+        # Build a valid 1-header mainnet archive once and reuse the bytes
+        # as the "served" body for the mocked URL.
+        template = os.path.join(self._tmpdir.name, '_template.bin')
+        a = HeaderArchive(template)
+        a.create('mainnet', 0)
+        a.append_header(self.genesis)
+        with open(template, 'rb') as fd:
+            self.valid_archive_bytes = fd.read()
+        os.unlink(template)
+
+        # Pre-compute the SHA-256 of the valid archive for sha256 tests.
+        self.valid_sha256 = hashlib.sha256(self.valid_archive_bytes).hexdigest()
+
+    def tearDown(self):
+        self._tmpdir.cleanup()
+
+    def _patch_urlopen(self, body):
+        return mock.patch('urllib.request.urlopen',
+                          return_value=_MockHTTPResponse(body))
+
+    def test_happy_path(self):
+        """Valid archive at URL is downloaded, validated, installed atomically"""
+        with self._patch_urlopen(self.valid_archive_bytes):
+            info = bootstrap_archive_from_url(
+                'http://example.com/headers.bin',
+                self.output_path, 'mainnet', log=False)
+
+        self.assertEqual(info['network'], 'mainnet')
+        self.assertEqual(info['header_count'], 1)
+        self.assertEqual(info['start_height'], 0)
+        self.assertEqual(info['sha256'], self.valid_sha256)
+        self.assertTrue(os.path.isfile(self.output_path))
+        self.assertFalse(os.path.isfile(self.output_path + '.partial'))
+
+        # Installed file is byte-identical to served bytes.
+        with open(self.output_path, 'rb') as fd:
+            self.assertEqual(fd.read(), self.valid_archive_bytes)
+
+    def test_sha256_match_passes(self):
+        """Matching --sha256 succeeds"""
+        with self._patch_urlopen(self.valid_archive_bytes):
+            info = bootstrap_archive_from_url(
+                'http://example.com/headers.bin',
+                self.output_path, 'mainnet',
+                expected_sha256=self.valid_sha256, log=False)
+        self.assertEqual(info['sha256'], self.valid_sha256)
+
+    def test_sha256_mismatch_raises_and_no_install(self):
+        """Wrong --sha256 fails before validation, partial preserved"""
+        wrong_sha = '0' * 64
+        with self._patch_urlopen(self.valid_archive_bytes):
+            with self.assertRaises(HeaderArchiveError) as ctx:
+                bootstrap_archive_from_url(
+                    'http://example.com/headers.bin',
+                    self.output_path, 'mainnet',
+                    expected_sha256=wrong_sha, log=False)
+        self.assertIn('SHA-256 mismatch', str(ctx.exception))
+        self.assertFalse(os.path.isfile(self.output_path))
+        self.assertTrue(os.path.isfile(self.output_path + '.partial'))
+
+    def test_network_mismatch_raises(self):
+        """Archive built for one network rejected when caller expects another"""
+        with self._patch_urlopen(self.valid_archive_bytes):
+            with self.assertRaises(HeaderArchiveNetworkMismatch):
+                bootstrap_archive_from_url(
+                    'http://example.com/headers.bin',
+                    self.output_path, 'testnet', log=False)
+        self.assertFalse(os.path.isfile(self.output_path))
+        self.assertTrue(os.path.isfile(self.output_path + '.partial'))
+
+    def test_invalid_magic_raises(self):
+        """Body with wrong magic is rejected"""
+        bad_body = b'XXXX' + self.valid_archive_bytes[4:]
+        with self._patch_urlopen(bad_body):
+            with self.assertRaises(HeaderArchiveFormatError):
+                bootstrap_archive_from_url(
+                    'http://example.com/headers.bin',
+                    self.output_path, 'mainnet', log=False)
+        self.assertFalse(os.path.isfile(self.output_path))
+        self.assertTrue(os.path.isfile(self.output_path + '.partial'))
+
+    def test_pow_failure_raises_and_partial_preserved(self):
+        """A header that fails PoW is detected during validation"""
+        # Build an archive with a single header that fails PoW. We bypass
+        # HeaderArchive.append_header (which would reject it) and write
+        # the bytes directly.
+        bad_template = os.path.join(self._tmpdir.name, '_bad.bin')
+        a = HeaderArchive(bad_template)
+        a.create('mainnet', 0)
+        bad_header = bitcoin.core.CBlockHeader(
+            nVersion=2,
+            hashPrevBlock=b'\x00' * 32,
+            hashMerkleRoot=b'\x11' * 32,
+            nTime=0, nBits=0x1d00ffff, nNonce=0,
+        )
+        with open(bad_template, 'ab') as fd:
+            fd.write(bad_header.serialize())
+        with open(bad_template, 'rb') as fd:
+            bad_body = fd.read()
+        os.unlink(bad_template)
+
+        with self._patch_urlopen(bad_body):
+            with self.assertRaises(HeaderArchiveChainError) as ctx:
+                bootstrap_archive_from_url(
+                    'http://example.com/headers.bin',
+                    self.output_path, 'mainnet', log=False)
+        self.assertIn('proof-of-work', str(ctx.exception))
+        self.assertFalse(os.path.isfile(self.output_path))
+        self.assertTrue(os.path.isfile(self.output_path + '.partial'))
+
+    def test_overwrites_existing_output_atomically(self):
+        """A successful bootstrap replaces an existing output file"""
+        # Pre-populate output with junk
+        with open(self.output_path, 'wb') as fd:
+            fd.write(b'old contents')
+
+        with self._patch_urlopen(self.valid_archive_bytes):
+            bootstrap_archive_from_url(
+                'http://example.com/headers.bin',
+                self.output_path, 'mainnet', log=False)
+
+        with open(self.output_path, 'rb') as fd:
+            self.assertEqual(fd.read(), self.valid_archive_bytes)
+        self.assertFalse(os.path.isfile(self.output_path + '.partial'))
+
+    def test_download_failure_preserves_partial_message(self):
+        """A urllib failure surfaces a clear error mentioning the partial path"""
+        def _raising_urlopen(*a, **kw):
+            raise OSError("simulated network failure")
+
+        with mock.patch('urllib.request.urlopen', side_effect=_raising_urlopen):
+            with self.assertRaises(HeaderArchiveError) as ctx:
+                bootstrap_archive_from_url(
+                    'http://example.com/headers.bin',
+                    self.output_path, 'mainnet', log=False)
+        self.assertIn('Failed to download', str(ctx.exception))
+        self.assertIn('partial preserved', str(ctx.exception))
+        self.assertFalse(os.path.isfile(self.output_path))
+
+
+class TestWalkValidateArchive(unittest.TestCase):
+    """Direct tests of the bootstrap-time validation walker."""
+
+    def setUp(self):
+        self._tmpdir = tempfile.TemporaryDirectory()
+        self.path = os.path.join(self._tmpdir.name, 'headers.bin')
+
+    def tearDown(self):
+        self._tmpdir.cleanup()
+
+    def test_empty_archive_validates(self):
+        """A zero-header archive is valid (just the file header)"""
+        a = HeaderArchive(self.path)
+        a.create('mainnet', 0)
+        net, start, count = _walk_validate_archive(self.path, 'mainnet')
+        self.assertEqual(net, 'mainnet')
+        self.assertEqual(count, 0)
+
+    def test_genesis_validates(self):
+        """Single genesis header validates"""
+        a = HeaderArchive(self.path)
+        a.create('mainnet', 0)
+        a.append_header(genesis_header())
+        net, start, count = _walk_validate_archive(self.path, 'mainnet')
+        self.assertEqual(count, 1)
+
+    def test_network_mismatch_raises(self):
+        a = HeaderArchive(self.path)
+        a.create('mainnet', 0)
+        with self.assertRaises(HeaderArchiveNetworkMismatch):
+            _walk_validate_archive(self.path, 'testnet')
 
 
 # vim:syntax=python filetype=python

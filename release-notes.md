@@ -42,6 +42,17 @@
   named `headers.bin` are not migrated automatically; pass
   `--output <cache_dir>/headers.bin` to keep using one, or rename it.
 
+* New `ots headers bootstrap <url>` subcommand downloads a prebuilt
+  header archive from any URL (`http(s)://`, `file://`, etc.), validates
+  it end-to-end against PoW + prev-hash continuity, and atomically
+  installs it. Useful for grabbing a snapshot from GitHub Releases,
+  IPFS, a mirror, or a magnet-extracted file without spending the
+  minutes a P2P fetch (or hours an HTTP fetch) would take. The trust
+  model is identical to a self-built archive -- math is the trust
+  signal, so the URL host doesn't have to be trusted. Optional
+  `--sha256 HEX` adds an integrity precheck. `--force` to overwrite an
+  existing archive at the output path.
+
 ## v0.7.2
 
 * Now works in git worktrees

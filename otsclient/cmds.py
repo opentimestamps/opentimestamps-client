@@ -1018,3 +1018,43 @@ def headers_info_command(args):
         info['start_height'],
         info['end_height'] if info['end_height'] is not None else '(empty)'))
     print("File size:    %d bytes" % info['file_size'])
+
+
+def headers_bootstrap_command(args):
+    """Download a prebuilt header archive from a URL and install it locally.
+
+    The trust model is identical to an archive built via `ots headers fetch`:
+    PoW and prev-hash continuity are validated for every header before the
+    file is installed. The source URL doesn't need to be trusted -- the math
+    is the trust signal. Useful for grabbing a snapshot from GitHub Releases,
+    IPFS, a friend's mirror, etc., without spending the minutes a P2P fetch
+    or the hours an HTTP fetch would take.
+    """
+    if args.headers_path is None:
+        appdirs_default = appdirs.AppDirs('ots', 'opentimestamps')
+        args.headers_path = os.path.join(
+            appdirs_default.user_cache_dir,
+            'headers-%s.bin' % args.btc_net)
+
+    if os.path.exists(args.headers_path) and not args.force_overwrite:
+        logging.error(
+            "Output path already exists: %s\n"
+            "Pass --force to overwrite, or pick a different --output path." % (
+                args.headers_path))
+        sys.exit(1)
+
+    try:
+        info = otsclient.headers.bootstrap_archive_from_url(
+            url=args.url,
+            output_path=args.headers_path,
+            network=args.btc_net,
+            expected_sha256=args.expected_sha256)
+    except otsclient.headers.HeaderArchiveError as exp:
+        logging.error("%s" % exp)
+        sys.exit(1)
+
+    end_height = (info['start_height'] + info['header_count'] - 1
+                  if info['header_count'] > 0 else info['start_height'])
+    logging.info("Done. Installed %s (network=%s, headers=%d, heights %d..%d)" % (
+        info['path'], info['network'], info['header_count'],
+        info['start_height'], end_height))

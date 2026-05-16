@@ -1016,4 +1016,163 @@ class BitcoinP2PHeaderFetcher:
                     next_log_at += log_every
 
 
+# Bootstrap a header archive from a URL.
+#
+# `ots headers fetch --p2p` builds an archive in minutes; for users who'd
+# rather not even spend the minutes, a prebuilt archive can be downloaded
+# from any URL (GitHub Releases, IPFS, a friend's mirror, a magnet-extracted
+# file via file://). The trust model is identical to a self-built archive:
+# every header is validated against PoW + prev-hash continuity before the
+# file is installed. The source URL doesn't have to be trusted -- the math
+# is the trust signal. A tampered file fails validation; a benign mirror
+# just speeds things up.
+
+BOOTSTRAP_DEFAULT_TIMEOUT = 60
+BOOTSTRAP_DOWNLOAD_CHUNK = 1024 * 1024  # 1 MB
+
+
+def _walk_validate_archive(path, expected_network, partial_hint=None):
+    """Open the archive at `path`, walk every header, verify PoW + continuity.
+
+    Returns (network, start_height, header_count) on success. Raises
+    HeaderArchiveError or subclass on any validation failure. `partial_hint`
+    is appended to error messages so callers can point users at the
+    preserved partial download.
+    """
+    archive = HeaderArchive(path)
+    network, start_height, header_count = archive.read_file_header()
+    if network != expected_network:
+        suffix = " (partial preserved at %s)" % partial_hint if partial_hint else ""
+        raise HeaderArchiveNetworkMismatch(
+            "Archive network %r does not match expected %r%s" % (
+                network, expected_network, suffix))
+
+    if header_count == 0:
+        return network, start_height, header_count
+
+    with open(path, 'rb') as fd:
+        fd.seek(ARCHIVE_FILE_HEADER_SIZE)
+        prev_hash = None
+        for i in range(header_count):
+            height = start_height + i
+            raw = fd.read(BLOCK_HEADER_SIZE)
+            if len(raw) != BLOCK_HEADER_SIZE:
+                suffix = " (partial preserved at %s)" % partial_hint if partial_hint else ""
+                raise HeaderArchiveFormatError(
+                    "Truncated header at height %d%s" % (height, suffix))
+            header = bitcoin.core.CBlockHeader.deserialize(raw)
+            try:
+                bitcoin.core.CheckProofOfWork(header.GetHash(), header.nBits)
+            except bitcoin.core.CheckProofOfWorkError as exp:
+                suffix = " (partial preserved at %s)" % partial_hint if partial_hint else ""
+                raise HeaderArchiveChainError(
+                    "Header at height %d fails proof-of-work check: %s%s" % (
+                        height, exp, suffix))
+            if prev_hash is not None and header.hashPrevBlock != prev_hash:
+                suffix = " (partial preserved at %s)" % partial_hint if partial_hint else ""
+                raise HeaderArchiveChainError(
+                    "Header at height %d does not chain to height %d: "
+                    "prev_block_hash=%s, expected=%s%s" % (
+                        height, height - 1,
+                        header.hashPrevBlock.hex(), prev_hash.hex(), suffix))
+            prev_hash = header.GetHash()
+
+    return network, start_height, header_count
+
+
+def bootstrap_archive_from_url(url, output_path, network,
+                               expected_sha256=None,
+                               timeout=BOOTSTRAP_DEFAULT_TIMEOUT,
+                               progress_chunk_mb=10,
+                               log=True):
+    """Download a prebuilt header archive from `url` and install it locally.
+
+    The downloaded file is written to `<output_path>.partial`, validated
+    end-to-end (network match + PoW + prev-hash continuity for every
+    header), then atomically renamed to `output_path`. If validation
+    fails, the .partial file is left in place for inspection.
+
+    The trust signal is the per-header math, not the source URL. So the
+    URL can be any scheme `urllib.request` supports: http(s), file://,
+    ftp, etc. The optional `expected_sha256` adds an integrity precheck
+    against tampering or corruption-in-transit -- recommended when the
+    URL points at a third-party host.
+
+    Returns a dict {path, network, start_height, header_count, sha256}
+    on success. Raises HeaderArchiveError (or subclass) on any failure.
+    """
+    if expected_sha256 is not None:
+        expected_sha256 = expected_sha256.lower()
+
+    partial_path = output_path + '.partial'
+    os.makedirs(os.path.dirname(output_path) or '.', exist_ok=True)
+
+    if log:
+        logging.info("Downloading header archive from %s" % url)
+
+    progress_every = progress_chunk_mb * 1024 * 1024 if progress_chunk_mb else 0
+    next_log_at = progress_every
+    bytes_so_far = 0
+    hasher = hashlib.sha256()
+
+    try:
+        req = urllib.request.Request(
+            url, headers={'User-Agent': 'OpenTimestamps-Client headers-bootstrap'})
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            with open(partial_path, 'wb') as fd:
+                while True:
+                    buf = resp.read(BOOTSTRAP_DOWNLOAD_CHUNK)
+                    if not buf:
+                        break
+                    fd.write(buf)
+                    hasher.update(buf)
+                    bytes_so_far += len(buf)
+                    if progress_every and bytes_so_far >= next_log_at and log:
+                        logging.info("... downloaded %d MB" % (
+                            bytes_so_far // (1024 * 1024)))
+                        next_log_at += progress_every
+    except Exception as exp:
+        raise HeaderArchiveError(
+            "Failed to download from %s: %s (partial preserved at %s)" % (
+                url, exp, partial_path))
+
+    if log:
+        logging.info("Downloaded %d bytes" % bytes_so_far)
+
+    actual_sha256 = hasher.hexdigest()
+    if expected_sha256 is not None and actual_sha256 != expected_sha256:
+        raise HeaderArchiveError(
+            "SHA-256 mismatch: expected %s, got %s "
+            "(partial preserved at %s)" % (
+                expected_sha256, actual_sha256, partial_path))
+
+    if log:
+        logging.info(
+            "Validating archive (PoW + chain continuity, every header)...")
+    try:
+        network_in_file, start_height, header_count = _walk_validate_archive(
+            partial_path, network, partial_hint=partial_path)
+    except HeaderArchiveError:
+        # Already includes "partial preserved at ..." in the message.
+        raise
+
+    if log:
+        end_h = start_height + header_count - 1 if header_count > 0 else start_height
+        logging.info("Validated %d header(s) (heights %d..%d)" % (
+            header_count, start_height, end_h))
+
+    # Atomic install. os.replace overwrites an existing file if present.
+    os.replace(partial_path, output_path)
+    if log:
+        logging.info("Installed archive at %s" % output_path)
+
+    return {
+        'path': output_path,
+        'network': network_in_file,
+        'start_height': start_height,
+        'header_count': header_count,
+        'sha256': actual_sha256,
+    }
+
+
 # vim:syntax=python filetype=python
