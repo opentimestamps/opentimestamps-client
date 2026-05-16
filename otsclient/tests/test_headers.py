@@ -33,7 +33,10 @@ from otsclient.headers import (
     P2PProtocolError,
     VerifyCache,
     AutoFetchHeaderSource,
+    LocalVerifyCacheHeaderSource,
     bootstrap_archive_from_url,
+    build_sidecar_from_heights,
+    detect_archive_format,
     _P2PPeerSession,
     _read_p2p_message,
     _parse_headers_body,
@@ -658,6 +661,157 @@ class TestP2PFetcher(unittest.TestCase):
         peers = [('1.2.3.4', 8333), ('5.6.7.8', 8333)]
         f = BitcoinP2PHeaderFetcher(peers=peers)
         self.assertEqual(f.get_peers(), peers)
+
+
+class TestLocalVerifyCacheHeaderSource(unittest.TestCase):
+    """Verify cache wrapped as a BlockHeaderSource for --headers PATH."""
+
+    def setUp(self):
+        self._tmpdir = tempfile.TemporaryDirectory()
+        self.cache_path = os.path.join(self._tmpdir.name, 'verify-cache.bin')
+        self.genesis = genesis_header()
+
+    def tearDown(self):
+        self._tmpdir.cleanup()
+
+    def test_returns_cached_header(self):
+        c = VerifyCache(self.cache_path)
+        c.create('mainnet')
+        c.add(0, self.genesis)
+        src = LocalVerifyCacheHeaderSource(c)
+        out = src.get_header_at_height(0)
+        self.assertEqual(out.serialize(), self.genesis.serialize())
+
+    def test_missing_height_raises_indexerror(self):
+        c = VerifyCache(self.cache_path)
+        c.create('mainnet')
+        c.add(0, self.genesis)
+        src = LocalVerifyCacheHeaderSource(c)
+        with self.assertRaises(IndexError):
+            src.get_header_at_height(42)
+
+    def test_block_count_returns_highest(self):
+        c = VerifyCache(self.cache_path)
+        c.create('mainnet')
+        c.add(0, self.genesis)
+        c.add(42, self.genesis)  # PoW passes; we're just testing tip semantics
+        src = LocalVerifyCacheHeaderSource(c)
+        self.assertEqual(src.get_block_count(), 42)
+
+
+class TestDetectArchiveFormat(unittest.TestCase):
+
+    def setUp(self):
+        self._tmpdir = tempfile.TemporaryDirectory()
+
+    def tearDown(self):
+        self._tmpdir.cleanup()
+
+    def test_detects_dense_archive(self):
+        path = os.path.join(self._tmpdir.name, 'a.bin')
+        a = HeaderArchive(path)
+        a.create('mainnet', 0)
+        self.assertEqual(detect_archive_format(path), ARCHIVE_MAGIC)
+
+    def test_detects_sparse_cache(self):
+        path = os.path.join(self._tmpdir.name, 'c.bin')
+        c = VerifyCache(path)
+        c.create('mainnet')
+        self.assertEqual(detect_archive_format(path), VERIFY_CACHE_MAGIC)
+
+    def test_unknown_magic_returned_as_is(self):
+        path = os.path.join(self._tmpdir.name, 'x.bin')
+        with open(path, 'wb') as fd:
+            fd.write(b'JUNK' + b'\x00' * 12)
+        magic = detect_archive_format(path)
+        self.assertEqual(magic, b'JUNK')
+        self.assertNotEqual(magic, ARCHIVE_MAGIC)
+        self.assertNotEqual(magic, VERIFY_CACHE_MAGIC)
+
+
+class TestBuildSidecarFromHeights(unittest.TestCase):
+
+    def setUp(self):
+        self._tmpdir = tempfile.TemporaryDirectory()
+        self.sidecar_path = os.path.join(self._tmpdir.name, 'side.bin')
+        self.genesis = genesis_header()
+
+    def tearDown(self):
+        self._tmpdir.cleanup()
+
+    def _make_fetcher(self, headers_by_height, fail_for=None):
+        s = _MockHeaderSource(headers_by_height, fail_for_heights=fail_for)
+        return HeaderFetcher([s], quorum=1)
+
+    def test_single_height_builds_sidecar(self):
+        """One height -> sparse cache with one record."""
+        fetcher = self._make_fetcher({358391: self.genesis})
+        info = build_sidecar_from_heights(
+            [358391], self.sidecar_path, 'mainnet', fetcher, log=False)
+        self.assertEqual(info['network'], 'mainnet')
+        self.assertEqual(info['header_count'], 1)
+        self.assertEqual(info['heights'], [358391])
+        self.assertTrue(os.path.isfile(self.sidecar_path))
+        # Sidecar is valid OTSV
+        self.assertEqual(detect_archive_format(self.sidecar_path),
+                         VERIFY_CACHE_MAGIC)
+        cache = VerifyCache(self.sidecar_path)
+        net, count = cache.read_file_header()
+        self.assertEqual(net, 'mainnet')
+        self.assertEqual(count, 1)
+
+    def test_multiple_heights_combined(self):
+        """Multiple heights produce one sidecar with all of them, sorted."""
+        fetcher = self._make_fetcher({
+            358391: self.genesis,
+            129405: self.genesis,
+        })
+        info = build_sidecar_from_heights(
+            [358391, 129405], self.sidecar_path, 'mainnet',
+            fetcher, log=False)
+        self.assertEqual(info['header_count'], 2)
+        # Heights are sorted for predictable on-disk order
+        self.assertEqual(info['heights'], [129405, 358391])
+
+    def test_duplicate_heights_deduped(self):
+        """Duplicate heights in input produce just one record each."""
+        fetcher = self._make_fetcher({100: self.genesis})
+        info = build_sidecar_from_heights(
+            [100, 100, 100], self.sidecar_path, 'mainnet',
+            fetcher, log=False)
+        self.assertEqual(info['header_count'], 1)
+        self.assertEqual(info['heights'], [100])
+
+    def test_empty_heights_raises(self):
+        """Empty heights list is a usage error."""
+        fetcher = self._make_fetcher({})
+        with self.assertRaises(HeaderArchiveError) as ctx:
+            build_sidecar_from_heights(
+                [], self.sidecar_path, 'mainnet', fetcher, log=False)
+        self.assertIn('No heights', str(ctx.exception))
+
+    def test_refuses_overwrite_without_force(self):
+        with open(self.sidecar_path, 'wb') as fd:
+            fd.write(b'preexisting')
+        fetcher = self._make_fetcher({100: self.genesis})
+        with self.assertRaises(HeaderArchiveError) as ctx:
+            build_sidecar_from_heights(
+                [100], self.sidecar_path, 'mainnet', fetcher,
+                force=False, log=False)
+        self.assertIn('already exists', str(ctx.exception))
+        with open(self.sidecar_path, 'rb') as fd:
+            self.assertEqual(fd.read(), b'preexisting')
+
+    def test_force_overwrites(self):
+        with open(self.sidecar_path, 'wb') as fd:
+            fd.write(b'preexisting')
+        fetcher = self._make_fetcher({100: self.genesis})
+        info = build_sidecar_from_heights(
+            [100], self.sidecar_path, 'mainnet', fetcher,
+            force=True, log=False)
+        self.assertEqual(info['header_count'], 1)
+        self.assertEqual(detect_archive_format(self.sidecar_path),
+                         VERIFY_CACHE_MAGIC)
 
 
 class _MockHTTPResponse:

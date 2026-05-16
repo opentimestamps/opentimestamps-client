@@ -196,21 +196,51 @@ def handle_common_options(args, parser):
         """
         headers_path = getattr(args, 'headers_path', None)
         if headers_path is not None:
-            archive = otsclient.headers.HeaderArchive(headers_path)
-            if not archive.exists():
+            if not os.path.isfile(headers_path):
                 logging.error("Header archive not found: %s" % headers_path)
                 sys.exit(1)
+            # Dispatch on the file magic so --headers PATH accepts either
+            # the dense HeaderArchive (OTSH, built by bulk `ots headers fetch`)
+            # or the sparse VerifyCache (OTSV, built by sidecar
+            # `ots headers fetch <file>.ots`).
             try:
-                archive_network, _start, _count = archive.read_file_header()
-            except otsclient.headers.HeaderArchiveError as exp:
-                logging.error("Header archive is invalid: %s" % exp)
+                magic = otsclient.headers.detect_archive_format(headers_path)
+            except OSError as exp:
+                logging.error("Could not read header file %s: %s" % (
+                    headers_path, exp))
                 sys.exit(1)
-            if archive_network != args.btc_net:
+            if magic == otsclient.headers.ARCHIVE_MAGIC:
+                archive = otsclient.headers.HeaderArchive(headers_path)
+                try:
+                    archive_network, _start, _count = archive.read_file_header()
+                except otsclient.headers.HeaderArchiveError as exp:
+                    logging.error("Header archive is invalid: %s" % exp)
+                    sys.exit(1)
+                if archive_network != args.btc_net:
+                    logging.error(
+                        "Header archive network %r does not match selected network %r" % (
+                            archive_network, args.btc_net))
+                    sys.exit(1)
+                return otsclient.headers.LocalArchiveHeaderSource(archive)
+            elif magic == otsclient.headers.VERIFY_CACHE_MAGIC:
+                cache = otsclient.headers.VerifyCache(headers_path)
+                try:
+                    cache_network, _count = cache.read_file_header()
+                except otsclient.headers.HeaderArchiveError as exp:
+                    logging.error("Header sidecar is invalid: %s" % exp)
+                    sys.exit(1)
+                if cache_network != args.btc_net:
+                    logging.error(
+                        "Header sidecar network %r does not match selected network %r" % (
+                            cache_network, args.btc_net))
+                    sys.exit(1)
+                return otsclient.headers.LocalVerifyCacheHeaderSource(cache)
+            else:
                 logging.error(
-                    "Header archive network %r does not match selected network %r" % (
-                        archive_network, args.btc_net))
+                    "Header file %s has unrecognized magic %r; expected "
+                    "OTSH (dense archive) or OTSV (sparse sidecar)" % (
+                        headers_path, magic))
                 sys.exit(1)
-            return otsclient.headers.LocalArchiveHeaderSource(archive)
 
         if args.bitcoin_node is not None:
             proxy = setup_bitcoin()
@@ -331,15 +361,34 @@ def parse_ots_args(raw_args):
 
     parser_headers_fetch = headers_subparsers.add_parser('fetch',
                                                          help='Fetch headers from public sources into a local archive')
-    # The default is network-suffixed so that mainnet and testnet archives
-    # live at distinct paths and don't trigger a network-mismatch error
-    # when a user runs `ots headers fetch --btc-testnet` after building a
-    # mainnet archive (or vice versa). Resolved at parse time against the
-    # current --btc-* flag via set_defaults below.
+    # Two modes share this subcommand:
+    #   1. Bulk fetch (no positional OTS files): contiguous OTSH archive
+    #      built from --since-height/--until-height (or chain tip). Default
+    #      output is network-suffixed in the OS cache dir.
+    #   2. Sidecar fetch (positional OTS files present): sparse OTSV
+    #      archive covering only the heights attested by the given .ots
+    #      files. Default output is derived from the .ots filename so the
+    #      sidecar sits next to its proof.
+    parser_headers_fetch.add_argument('ots_files', metavar='OTS-FILE',
+                                      type=str, nargs='*', default=[],
+                                      help='If provided, build a sparse sidecar archive '
+                                           'covering only the Bitcoin block heights these '
+                                           '.ots files attest to. Pass the .ots files as '
+                                           'positional arguments. Otherwise, do a contiguous '
+                                           'bulk fetch (see --since/--until).')
     parser_headers_fetch.add_argument('--output', metavar='PATH', dest='headers_path', type=str,
                                       default=None,
                                       help='Path to the header archive file. '
-                                           'Default: <cache_dir>/headers-<network>.bin')
+                                           'Default in bulk mode: <cache_dir>/headers-<network>.bin. '
+                                           'Default in sidecar mode (single .ots): '
+                                           '<file>.ots-btc-headers.bin (sibling of the .ots). '
+                                           'Default in sidecar mode (multiple .ots): '
+                                           './ots-btc-headers.bin.')
+    parser_headers_fetch.add_argument('--force', dest='force_overwrite',
+                                      action='store_true', default=False,
+                                      help='In sidecar mode, overwrite an existing output file. '
+                                           'Bulk mode appends to an existing archive and ignores '
+                                           'this flag.')
     parser_headers_fetch.add_argument('--since-height', dest='since_height', type=int,
                                       default=None,
                                       help='Lowest block height to fetch. Default: continue from end of '

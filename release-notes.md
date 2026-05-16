@@ -53,6 +53,24 @@
   `--sha256 HEX` adds an integrity precheck. `--force` to overwrite an
   existing archive at the output path.
 
+* `ots headers fetch <file>.ots [<file>.ots ...]` (passing one or more
+  .ots files as positional arguments) now builds a sparse sidecar
+  archive covering only the Bitcoin block heights those proofs attest
+  to. The default output is derived from the .ots filename
+  (`<file>.ots-btc-headers.bin`) so the sidecar sits next to its proof,
+  matching the existing .ots / .ots.bak naming family. `ots verify
+  --headers <sidecar>.bin <file>.ots` works against either dense or
+  sparse archives -- the verify path detects the magic and dispatches
+  to the right source. Useful for shipping self-verifying disclosure
+  bundles where the recipient may not have OTS installed.
+
+* Internal refactor: shared `_deserialize_timestamp` and
+  `_extract_bitcoin_heights` helpers in `cmds.py` consolidate the
+  open-and-parse and walk-attestations patterns that were previously
+  inlined in `verify_command`, `info_command`, `prune_command`, and
+  `upgrade_command`. No user-visible behavior change for those four
+  commands; the sidecar code reuses the same helpers.
+
 ## v0.7.2
 
 * Now works in git worktrees

@@ -572,6 +572,102 @@ class VerifyCache:
             fd.write(struct.pack('<I', height) + header.serialize())
 
 
+class LocalVerifyCacheHeaderSource(BlockHeaderSource):
+    """BlockHeaderSource backed by a sparse VerifyCache file.
+
+    Symmetric with LocalArchiveHeaderSource (which wraps the dense
+    HeaderArchive format) so a single --headers PATH can transparently
+    read either: see detect_archive_format() and the dispatch in
+    args.get_header_source().
+    """
+
+    def __init__(self, cache):
+        self.cache = cache
+
+    def get_header_at_height(self, height):
+        header = self.cache.get(height)
+        if header is None:
+            raise IndexError(
+                "Height %d not found in verify cache %s" % (height, self.cache.path))
+        return header
+
+    def get_block_count(self):
+        # VerifyCache is sparse: "tip" isn't meaningful. Return the
+        # highest cached height as a best-effort answer.
+        highest = -1
+        for height, _header in self.cache.iter_records():
+            if height > highest:
+                highest = height
+        return highest if highest >= 0 else 0
+
+
+def detect_archive_format(path):
+    """Read the first 4 bytes of `path` and return the magic.
+
+    Returns one of ARCHIVE_MAGIC, VERIFY_CACHE_MAGIC, or the raw bytes
+    if neither matches. Callers can dispatch on this to read either
+    format from the same --headers PATH.
+    """
+    with open(path, 'rb') as fd:
+        magic = fd.read(4)
+    return magic
+
+
+def build_sidecar_from_heights(heights, output_path, network, fetcher,
+                               force=False, log=True):
+    """Build a sparse-archive sidecar covering the given Bitcoin block heights.
+
+    Fetch each height's header via `fetcher` (quorum across HTTP sources),
+    validate PoW, and write the (height, header) records to a new
+    VerifyCache at `output_path`. The resulting file is a self-contained
+    sidecar that a recipient can pass to `ots verify --headers <path>`
+    to verify offline, without an OTS installation, a Bitcoin node, or
+    network access.
+
+    This is a pure cache-building primitive: callers (e.g., the CLI
+    handler in cmds.py) are responsible for sourcing the heights from
+    .ots files (or wherever else). Keeping .ots parsing out of headers.py
+    avoids pulling in opentimestamps.core dependencies here.
+
+    Raises HeaderArchiveError on fetch failure, quorum failure, or if
+    the output path already exists and `force` is False.
+    """
+    if os.path.exists(output_path) and not force:
+        raise HeaderArchiveError(
+            "Output path already exists: %s "
+            "(pass --force to overwrite)" % output_path)
+
+    if not heights:
+        raise HeaderArchiveError("No heights provided; nothing to build")
+
+    # Order heights for predictable on-disk record order and logging.
+    heights = sorted(set(heights))
+    if log:
+        logging.info(
+            "Building sidecar for %d Bitcoin attestation height(s): %s" % (
+                len(heights), ', '.join(str(h) for h in heights)))
+
+    # If overwriting, remove the old file so VerifyCache.create() succeeds.
+    if os.path.exists(output_path):
+        os.unlink(output_path)
+    cache = VerifyCache(output_path)
+    cache.create(network)
+    for height in heights:
+        if log:
+            logging.info("Fetching block %d header..." % height)
+        header = fetcher.fetch_header(height)
+        # VerifyCache.add validates PoW; trust signal is fetcher quorum
+        # plus that per-record PoW check.
+        cache.add(height, header)
+
+    return {
+        'path': output_path,
+        'network': network,
+        'heights': heights,
+        'header_count': len(heights),
+    }
+
+
 class AutoFetchHeaderSource(BlockHeaderSource):
     """Block header source that fetches lazily from public HTTP sources.
 

@@ -209,6 +209,23 @@ third-party hosts), `--force` to overwrite an existing archive, and
 `<cache_dir>/headers-<network>.bin`. Sources can be anything urllib
 supports: `http(s)://`, `file://`, etc.
 
+For shipping a self-verifying disclosure bundle -- where the recipient
+should be able to verify a `.ots` offline without an OTS installation
+or network access -- build a *sidecar* archive that covers only the
+Bitcoin block heights the proof attests to:
+
+    $ ots headers fetch MANIFEST.sha256.asc.ots
+    Building sidecar for 1 Bitcoin attestation height(s): 949414
+    Fetching block 949414 header...
+    Done. Wrote sidecar MANIFEST.sha256.asc.ots-btc-headers.bin
+          (network=mainnet, 1 header(s) for heights 949414)
+
+The sidecar is a small file (~100 bytes per attested height) that sits
+next to the `.ots` and contains exactly what's needed to verify it.
+Pass multiple `.ots` files to combine their heights into one sidecar.
+`ots verify --headers <sidecar>.bin <file>.ots` works against either
+dense archives or sparse sidecars.
+
 Inspect a header archive:
 
     $ ots headers info ~/.cache/opentimestamps/ots/headers.bin
