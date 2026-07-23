@@ -1,5 +1,76 @@
 # OpenTimestamps Client Release Notes
 
+## Unreleased
+
+* New `ots headers` subcommand group (`fetch`, `info`) plus a new `--headers`
+  flag on `ots verify` enable verification of Bitcoin-anchored timestamps
+  against a local archive of Bitcoin block headers, with no local Bitcoin
+  node and no network access at verify time. The archive is built by
+  cross-validating multiple Esplora-compatible sources at fetch time, with
+  per-header proof-of-work and previous-hash continuity checks at append
+  time. At 80 bytes per header (~70 MB for the entire Bitcoin chain),
+  this enables air-gapped and archival-quality verification. Closes the
+  "Lite-Client Support" item from TODO.md.
+
+* `ots headers fetch --p2p` uses Bitcoin's native P2P getheaders protocol
+  for bulk header sync (up to 2000 headers per round trip vs one per HTTP
+  call). DNS-seed discovery by default; `--p2p-peer host[:port]` to
+  override. Headers undergo the same PoW + previous-hash validation as
+  the HTTP path, so a single peer is sufficient.
+
+* `ots verify` no longer requires `--bitcoin-node` or `--headers` to find
+  block headers. When neither flag is given, the no-flag path first
+  probes for a reachable local Bitcoin Core node (short-timeout RPC
+  ping against the default config) and uses it when present --
+  preserving the historical "I run `bitcoind`, just use it" behavior.
+  When no node responds, headers for the attested heights are
+  auto-fetched from public Esplora-compatible sources with quorum
+  agreement and cached on disk (in
+  `<cache_dir>/verify-cache-<network>.bin`) so subsequent verifications
+  of the same proof are network-free. The trust signal is unchanged:
+  per-header proof-of-work + quorum across multiple independent sources.
+  An info-level log line names which path was taken
+  ("Using local Bitcoin Core node ..." vs "Fetching block N header ...")
+  so privacy-conscious users see at a glance whether their proof hit a
+  third party. `--no-cache` disables the verify cache (and the existing
+  timestamp cache) for one-shot invocations.
+
+* `ots headers fetch` default `--output` path is now network-suffixed
+  (`<cache_dir>/headers-<network>.bin`) for the same reason: a mainnet
+  archive and a testnet archive used to collide on the same default
+  path and trigger a network-mismatch error. Existing local archives
+  named `headers.bin` are not migrated automatically; pass
+  `--output <cache_dir>/headers.bin` to keep using one, or rename it.
+
+* New `ots headers bootstrap <url>` subcommand downloads a prebuilt
+  header archive from any URL (`http(s)://`, `file://`, etc.), validates
+  it end-to-end against PoW + prev-hash continuity, and atomically
+  installs it. Useful for grabbing a snapshot from GitHub Releases,
+  IPFS, a mirror, or a magnet-extracted file without spending the
+  minutes a P2P fetch (or hours an HTTP fetch) would take. The trust
+  model is identical to a self-built archive -- math is the trust
+  signal, so the URL host doesn't have to be trusted. Optional
+  `--sha256 HEX` adds an integrity precheck. `--force` to overwrite an
+  existing archive at the output path.
+
+* `ots headers fetch <file>.ots [<file>.ots ...]` (passing one or more
+  .ots files as positional arguments) now builds a sparse sidecar
+  archive covering only the Bitcoin block heights those proofs attest
+  to. The default output is derived from the .ots filename
+  (`<file>.ots-btc-headers.bin`) so the sidecar sits next to its proof,
+  matching the existing .ots / .ots.bak naming family. `ots verify
+  --headers <sidecar>.bin <file>.ots` works against either dense or
+  sparse archives -- the verify path detects the magic and dispatches
+  to the right source. Useful for shipping self-verifying disclosure
+  bundles where the recipient may not have OTS installed.
+
+* Internal refactor: shared `_deserialize_timestamp` and
+  `_extract_bitcoin_heights` helpers in `cmds.py` consolidate the
+  open-and-parse and walk-attestations patterns that were previously
+  inlined in `verify_command`, `info_command`, `prune_command`, and
+  `upgrade_command`. No user-visible behavior change for those four
+  commands; the sidecar code reuses the same helpers.
+
 ## v0.7.2
 
 * Now works in git worktrees

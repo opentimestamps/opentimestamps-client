@@ -11,7 +11,10 @@ files within a Git repository.
 * Python3
 
 While OpenTimestamps can *create* timestamps without a local Bitcoin node, to
-*verify* timestamps you need a local Bitcoin Core node (a pruned node is fine).
+*verify* timestamps you traditionally need a local Bitcoin Core node (a pruned
+node is fine). As of the lite-client support added in `headers.py`, you can
+alternatively verify against a small local archive of Bitcoin block headers
+(~70 MB total for the whole chain) — see "Offline / lite verification" below.
 
 
 ## Installation
@@ -129,6 +132,117 @@ and meaningless digest. Equally, if multiple files are timestamped at once,
 each file is protected by an individual nonce; the timestamp for one file
 reveals nothing about the contents of another file timestamped at the same
 time.
+
+## Offline / lite verification (local header archive)
+
+Bitcoin-anchored OpenTimestamps proofs mathematically resolve to one specific
+Bitcoin block's merkle root. Verifying such a proof traditionally required a
+local Bitcoin Core node, but at 80 bytes per block the entire chain's headers
+fit in around 70 MB.
+
+By default, `ots verify` now Just Works without any flags. When neither
+`--bitcoin-node` nor `--headers` is given, it first probes for a reachable
+local Bitcoin Core node and uses it when present (preserving the historical
+"I run `bitcoind`, just use it" UX); otherwise it auto-fetches the headers
+it needs for the attested heights from public Esplora-compatible sources
+with quorum agreement, and caches them locally so subsequent verifications
+of the same proof are network-free:
+
+    $ ots verify README.md.ots
+    Fetching block 875432 header from public sources...
+    Success! Bitcoin block 875432 attests existence as of 2025-12-14 UTC
+
+No Bitcoin node, no `--headers` flag, no preconfiguration required. The trust
+signal is per-header proof-of-work plus quorum across multiple independent
+public sources. An info-level log line ("Using local Bitcoin Core node ..."
+vs "Fetching block N header ...") indicates which path was taken so
+privacy-conscious users see at a glance whether their proof hit a third
+party.
+
+For air-gapped or archival verification, the `ots headers` subcommand
+maintains a local header archive that can populate a full chain (~70 MB)
+once and verify forever offline. Create or extend an archive by fetching
+from public Esplora-compatible sources (with cross-source quorum agreement
+and per-header PoW + chain continuity validation at append time):
+
+    $ ots headers fetch --until-height 800000
+    Created header archive .../headers.bin (network=mainnet, start_height=0)
+    Auto-detected chain tip height 875432 (from 3 source(s))
+    Fetching headers 0..800000 from 3 source(s), quorum=2
+    ... fetched 100 headers (at height 100)
+    ... fetched 200 headers (at height 200)
+    ...
+
+For bulk fetches like populating from genesis, the `--p2p` flag uses
+Bitcoin's native getheaders protocol instead of per-header HTTP, returning
+up to 2000 headers per round trip. DNS seeds are used for peer discovery
+by default; `--p2p-peer host[:port]` overrides this:
+
+    $ ots headers fetch --p2p
+    Fetching headers via Bitcoin P2P to the chain tip
+    ... fetched 5000 headers (at height 5000)
+    ... fetched 10000 headers (at height 10000)
+    ...
+    Done. Appended 875433 header(s); archive now covers 0..875432
+
+Re-running `ots headers fetch` against an existing archive appends from
+where the last fetch left off; you can keep an evergreen archive by
+running it periodically.
+
+To skip the fetch entirely, download a prebuilt archive from a URL with
+`ots headers bootstrap`. The downloaded file is validated end-to-end
+(PoW + prev-hash continuity for every header) before install, so the
+URL host doesn't need to be trusted -- math is the trust signal:
+
+    $ ots headers bootstrap https://example.com/headers-mainnet.bin
+    Downloading header archive from https://example.com/headers-mainnet.bin
+    ... downloaded 10 MB
+    ... downloaded 20 MB
+    ...
+    Validating archive (PoW + chain continuity, every header)...
+    Validated 949588 header(s) (heights 0..949587)
+    Installed archive at .../headers-mainnet.bin
+
+Pass `--sha256 HEX` to add an integrity precheck (recommended for
+third-party hosts), `--force` to overwrite an existing archive, and
+`--output PATH` to install somewhere other than the default
+`<cache_dir>/headers-<network>.bin`. Sources can be anything urllib
+supports: `http(s)://`, `file://`, etc.
+
+For shipping a self-verifying disclosure bundle -- where the recipient
+should be able to verify a `.ots` offline without an OTS installation
+or network access -- build a *sidecar* archive that covers only the
+Bitcoin block heights the proof attests to:
+
+    $ ots headers fetch MANIFEST.sha256.asc.ots
+    Building sidecar for 1 Bitcoin attestation height(s): 949414
+    Fetching block 949414 header...
+    Done. Wrote sidecar MANIFEST.sha256.asc.ots-btc-headers.bin
+          (network=mainnet, 1 header(s) for heights 949414)
+
+The sidecar is a small file (~100 bytes per attested height) that sits
+next to the `.ots` and contains exactly what's needed to verify it.
+Pass multiple `.ots` files to combine their heights into one sidecar.
+`ots verify --headers <sidecar>.bin <file>.ots` works against either
+dense archives or sparse sidecars.
+
+Inspect a header archive:
+
+    $ ots headers info ~/.cache/opentimestamps/ots/headers.bin
+    Path:         .../headers.bin
+    Network:      mainnet
+    Header count: 800001
+    Height range: 0..800000
+    File size:    64000016 bytes
+
+Verify an OTS proof against the local archive — no Bitcoin node, no internet,
+no public fetch:
+
+    $ ots verify --headers .../headers.bin README.md.ots
+    Success! Bitcoin block 800000 attests existence as of 2023-07-24 UTC
+
+`--headers` and `--bitcoin-node` are mutually exclusive at verify time, and
+each takes precedence over the default auto-fetch. Stamping is unaffected.
 
 ## Compatibility Expectations
 

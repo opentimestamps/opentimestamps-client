@@ -11,6 +11,7 @@
 
 import sys
 
+import appdirs
 import argparse
 import binascii
 import io
@@ -38,6 +39,65 @@ from opentimestamps.bitcoin import *
 import opentimestamps.calendar
 
 import otsclient
+import otsclient.headers
+
+def _deserialize_timestamp(fd, name):
+    """Deserialize a .ots from an already-open file handle.
+
+    Closes the handle and exits the process with a clear error if the
+    file is not a valid timestamp. Returns a DetachedTimestampFile.
+    Shared by verify, info, prune, upgrade, and sidecar-mode `headers
+    fetch`, all of which previously inlined the same try/except block.
+    """
+    try:
+        ctx = StreamDeserializationContext(fd)
+        try:
+            return DetachedTimestampFile.deserialize(ctx)
+        except BadMagicError:
+            logging.error("Error! %r is not a timestamp file." % name)
+            sys.exit(1)
+        except DeserializationError as exp:
+            logging.error("Invalid timestamp file %r: %s" % (name, exp))
+            sys.exit(1)
+    finally:
+        try:
+            fd.close()
+        except Exception:
+            pass
+
+
+def _load_timestamp_from_path(path):
+    """Open and deserialize a .ots file from a path.
+
+    Exits with a clear error on file-not-found or parse failure.
+    """
+    try:
+        fd = open(path, 'rb')
+    except FileNotFoundError:
+        logging.error("OTS file not found: %s" % path)
+        sys.exit(1)
+    except OSError as exp:
+        logging.error("Could not open %s: %s" % (path, exp))
+        sys.exit(1)
+    return _deserialize_timestamp(fd, path)
+
+
+def _extract_bitcoin_heights(timestamp):
+    """Walk a timestamp's attestations and report its Bitcoin heights.
+
+    Returns (sorted_heights_list, has_pending_bool). Callers can use the
+    pending flag to give clearer guidance when an .ots needs `ots upgrade`
+    before any concrete Bitcoin heights are available.
+    """
+    heights = set()
+    has_pending = False
+    for _msg, attestation in timestamp.all_attestations():
+        if attestation.__class__ == BitcoinBlockHeaderAttestation:
+            heights.add(attestation.height)
+        elif attestation.__class__ == PendingAttestation:
+            has_pending = True
+    return sorted(heights), has_pending
+
 
 def remote_calendar(calendar_uri):
     """Create a remote calendar with User-Agent set appropriately"""
@@ -336,19 +396,7 @@ def upgrade_timestamp(timestamp, args):
 def upgrade_command(args):
     for old_stamp_fd in args.files:
         logging.debug("Upgrading %s" % old_stamp_fd.name)
-
-        ctx = StreamDeserializationContext(old_stamp_fd)
-        try:
-            detached_timestamp = DetachedTimestampFile.deserialize(ctx)
-            old_stamp_fd.close()
-
-        # IOError's are already handled by argparse
-        except BadMagicError:
-            logging.error("Error! %r is not a timestamp file" % old_stamp_fd.name)
-            sys.exit(1)
-        except DeserializationError as exp:
-            logging.error("Invalid timestamp file %r: %s" % (old_stamp_fd.name, exp))
-            sys.exit(1)
+        detached_timestamp = _deserialize_timestamp(old_stamp_fd, old_stamp_fd.name)
 
         changed = upgrade_timestamp(detached_timestamp.timestamp, args)
 
@@ -406,21 +454,18 @@ def verify_timestamp(timestamp, args):
                                 (attestation.height, b2lx(msg)))
                 continue
 
-            proxy = args.setup_bitcoin()
+            header_source = args.get_header_source()
 
             try:
-                block_count = proxy.getblockcount()
-                blockhash = proxy.getblockhash(attestation.height)
-            except IndexError:
-                logging.error("Bitcoin block height %d not found; %d is highest known block" % (attestation.height, block_count))
+                block_header = header_source.get_header_at_height(attestation.height)
+            except IndexError as exp:
+                logging.error("%s" % exp)
                 continue
             except ConnectionError as exp:
-                logging.error("Could not connect to local Bitcoin node: %s" % exp)
+                logging.error("Could not connect to header source: %s" % exp)
                 continue
 
-            block_header = proxy.getblockheader(blockhash)
-
-            logging.debug("Attestation block hash: %s" % b2lx(blockhash))
+            logging.debug("Attestation block hash: %s" % b2lx(block_header.GetHash()))
 
             try:
                 attested_time = attestation.verify_against_blockheader(msg, block_header)
@@ -430,7 +475,7 @@ def verify_timestamp(timestamp, args):
 
             logging.info("Success! Bitcoin block %d attests existence as of %s" %
                             (attestation.height,
-                             time.strftime('%Y-%m-%d %Z',
+                             time.strftime('%Y-%m-%d %H:%M:%S %Z',
                                           time.localtime(attested_time))))
             good = True
 
@@ -441,15 +486,8 @@ def verify_timestamp(timestamp, args):
 
 
 def verify_command(args):
-    ctx = StreamDeserializationContext(args.timestamp_fd)
-    try:
-        detached_timestamp = DetachedTimestampFile.deserialize(ctx)
-    except BadMagicError:
-        logging.error("Error! %r is not a timestamp file." % args.timestamp_fd.name)
-        sys.exit(1)
-    except DeserializationError as exp:
-        logging.error("Invalid timestamp file %r: %s" % (args.timestamp_fd.name, exp))
-        sys.exit(1)
+    detached_timestamp = _deserialize_timestamp(
+        args.timestamp_fd, args.timestamp_fd.name)
 
     if args.hex_digest is not None:
         try:
@@ -492,15 +530,7 @@ def verify_command(args):
 
 
 def info_command(args):
-    ctx = StreamDeserializationContext(args.file)
-    try:
-        detached_timestamp = DetachedTimestampFile.deserialize(ctx)
-    except BadMagicError:
-        logging.error("Error! %r is not a timestamp file." % args.file.name)
-        sys.exit(1)
-    except DeserializationError as exp:
-        logging.error("Invalid timestamp file %r: %s" % (args.file.name, exp))
-        sys.exit(1)
+    detached_timestamp = _deserialize_timestamp(args.file, args.file.name)
 
     print("File %s hash: %s" % (detached_timestamp.file_hash_op.HASHLIB_NAME, hexlify(detached_timestamp.file_digest).decode('utf8')))
 
@@ -517,19 +547,16 @@ def verify_all_attestations(timestamp, attestations_to_verify, args):
                     logging.error("Bitcoin disabled, could not check attestations")
                     sys.exit(1)
 
-                proxy = args.setup_bitcoin()
+                header_source = args.get_header_source()
 
                 try:
-                    block_count = proxy.getblockcount()
-                    blockhash = proxy.getblockhash(attestation.height)
-                    block_header = proxy.getblockheader(blockhash)
+                    block_header = header_source.get_header_at_height(attestation.height)
                     attested_time = attestation.verify_against_blockheader(msg, block_header)
-                except IndexError:
-                    logging.error("Bitcoin block height %d not found; %d is highest known block" % (
-                        attestation.height, block_count))
+                except IndexError as exp:
+                    logging.error("%s" % exp)
                     sys.exit(1)
                 except ConnectionError as exp:
-                    logging.error("Could not connect to local Bitcoin node: %s" % exp)
+                    logging.error("Could not connect to header source: %s" % exp)
                     sys.exit(1)
                 except VerificationError as err:
                     logging.error("Bitcoin verification failed: %s" % str(err))
@@ -636,15 +663,8 @@ def prune_timestamp(timestamp, attestations_to_verify, attestations_to_discard, 
 
 
 def prune_command(args):
-    ctx = StreamDeserializationContext(args.timestamp_fd)
-    try:
-        detached_timestamp = DetachedTimestampFile.deserialize(ctx)
-    except BadMagicError:
-        logging.error("Error! %r is not a timestamp file." % args.timestamp_fd.name)
-        sys.exit(1)
-    except DeserializationError as exp:
-        logging.error("Invalid timestamp file %r: %s" % (args.timestamp_fd.name, exp))
-        sys.exit(1)
+    detached_timestamp = _deserialize_timestamp(
+        args.timestamp_fd, args.timestamp_fd.name)
 
     attestations_to_verify = []
     if args.attestations_to_verify:
@@ -827,3 +847,347 @@ def git_extract_command(args):
     except IOError as exp:
         logging.error("Failed to create timestamp %r: %s" % (timestamp_file_path, exp))
         sys.exit(1)
+
+
+def headers_fetch_command(args):
+    """Fetch Bitcoin block headers into a local archive.
+
+    Two modes share this entrypoint:
+
+    1. Bulk mode (no positional .ots files): contiguous OTSH archive
+       built from --since-height/--until-height (or chain tip). HTTP
+       fetcher (default) for small ranges with cross-source quorum;
+       P2P (--p2p, --p2p-peer) for fast bulk fetches via Bitcoin's
+       native getheaders protocol.
+
+    2. Sidecar mode (positional .ots files present): sparse OTSV archive
+       covering only the Bitcoin block heights those .ots files attest
+       to. Self-contained for offline verification of those proofs.
+    """
+    sidecar_mode = bool(args.ots_files)
+
+    if sidecar_mode:
+        _headers_fetch_sidecar(args)
+        return
+
+    if args.headers_path is None:
+        # Bulk default: network-suffixed so mainnet/testnet archives
+        # don't collide on the same path. Lives in the OS cache dir
+        # regardless of --no-cache (which only disables the timestamp
+        # cache).
+        appdirs_default = appdirs.AppDirs('ots', 'opentimestamps')
+        args.headers_path = os.path.join(
+            appdirs_default.user_cache_dir, 'headers-%s.bin' % args.btc_net)
+
+    archive = otsclient.headers.HeaderArchive(args.headers_path)
+
+    use_p2p = args.use_p2p or bool(args.p2p_peers)
+    if use_p2p and args.source_urls:
+        logging.error("--p2p and --source are mutually exclusive")
+        sys.exit(1)
+
+    # If the archive does not exist yet, create it. If it does exist,
+    # the network and start_height are already fixed and we just append.
+    if not archive.exists():
+        start_height = args.since_height if args.since_height is not None else 0
+        try:
+            archive.create(args.btc_net, start_height)
+            logging.info("Created header archive %s (network=%s, start_height=%d)" % (
+                args.headers_path, args.btc_net, start_height))
+        except otsclient.headers.HeaderArchiveError as exp:
+            logging.error("Could not create archive: %s" % exp)
+            sys.exit(1)
+
+    try:
+        archive_network, start_height, header_count = archive.read_file_header()
+    except otsclient.headers.HeaderArchiveError as exp:
+        logging.error("Invalid archive: %s" % exp)
+        sys.exit(1)
+
+    if archive_network != args.btc_net:
+        logging.error("Archive network %r does not match selected network %r" % (
+            archive_network, args.btc_net))
+        sys.exit(1)
+
+    if use_p2p:
+        _headers_fetch_p2p(args, archive)
+        return
+
+    # Resolve fetch sources
+    if args.source_urls:
+        sources = [otsclient.headers.EsploraHeaderFetcher(url) for url in args.source_urls]
+    else:
+        sources = otsclient.headers.make_default_esplora_sources(args.btc_net)
+        if not sources:
+            logging.error("No default fetch sources for network %r; provide --source URL(s)" %
+                          args.btc_net)
+            sys.exit(1)
+
+    fetcher = otsclient.headers.HeaderFetcher(sources, quorum=args.quorum)
+
+    # Resolve since_height: the next height to fetch.
+    next_height = start_height + header_count
+    if args.since_height is not None and args.since_height != next_height:
+        if args.since_height < next_height:
+            logging.info("Skipping --since-height %d; archive already has up to height %d" % (
+                args.since_height, next_height - 1))
+        else:
+            logging.error(
+                "Cannot fetch from height %d: archive ends at %d and headers must be appended in order" % (
+                    args.since_height, next_height - 1))
+            sys.exit(1)
+
+    # Resolve until_height. If not given, query sources for current chain tip
+    # and pick the median (resilient to a single source reporting a stale
+    # or future tip).
+    if args.until_height is None:
+        tip_heights = []
+        for source in sources:
+            try:
+                tip_heights.append(source.get_tip_height())
+            except Exception as exp:
+                logging.debug("Source %r failed tip lookup: %s" % (source.base_url, exp))
+        if not tip_heights:
+            logging.error("Could not determine chain tip from any source; "
+                          "use --until-height to specify explicitly")
+            sys.exit(1)
+        tip_heights.sort()
+        until_height = tip_heights[len(tip_heights) // 2]
+        logging.info("Auto-detected chain tip height %d (from %d source(s))" % (
+            until_height, len(tip_heights)))
+    else:
+        until_height = args.until_height
+
+    if until_height < next_height:
+        logging.info("Nothing to do: archive already covers up to height %d" % (next_height - 1))
+        return
+
+    logging.info("Fetching headers %d..%d from %d source(s), quorum=%d" % (
+        next_height, until_height, len(sources), fetcher.quorum))
+
+    fetched = 0
+    log_every = 100
+    for height in range(next_height, until_height + 1):
+        try:
+            header = fetcher.fetch_header(height)
+            archive.append_header(header)
+            fetched += 1
+        except (otsclient.headers.HeaderArchiveError, ConnectionError) as exp:
+            logging.error("Stopping at height %d: %s" % (height, exp))
+            sys.exit(1)
+
+        if fetched % log_every == 0:
+            logging.info("... fetched %d headers (at height %d)" % (fetched, height))
+
+    logging.info("Done. Fetched %d header(s); archive now covers %d..%d" % (
+        fetched, start_height, until_height))
+
+
+def _parse_p2p_peer_spec(spec):
+    """Parse a 'host' or 'host:port' string into a (host, port) tuple.
+
+    Defaults to the network's default port if no port is given.
+    """
+    if ':' in spec:
+        host, port_str = spec.rsplit(':', 1)
+        try:
+            port = int(port_str)
+        except ValueError:
+            raise ValueError("Invalid port in peer spec %r" % spec)
+    else:
+        host = spec
+        port = bitcoin.params.DEFAULT_PORT
+    return (host, port)
+
+
+def _headers_fetch_p2p(args, archive):
+    """Fetch headers via Bitcoin P2P getheaders."""
+    if args.p2p_peers:
+        try:
+            peers = [_parse_p2p_peer_spec(s) for s in args.p2p_peers]
+        except ValueError as exp:
+            logging.error("%s" % exp)
+            sys.exit(1)
+    else:
+        peers = None  # signals DNS-seed discovery
+
+    fetcher = otsclient.headers.BitcoinP2PHeaderFetcher(
+        network=args.btc_net,
+        peers=peers,
+    )
+
+    if args.until_height is not None:
+        logging.info("Fetching headers via Bitcoin P2P up to height %d" % args.until_height)
+    else:
+        logging.info("Fetching headers via Bitcoin P2P to the chain tip")
+
+    try:
+        appended = fetcher.fetch_into(archive, until_height=args.until_height)
+    except otsclient.headers.P2PFetcherError as exp:
+        logging.error("P2P fetch failed: %s" % exp)
+        sys.exit(1)
+
+    _network, start_height, header_count = archive.read_file_header()
+    end_height = start_height + header_count - 1
+    logging.info("Done. Appended %d header(s); archive now covers %d..%d" % (
+        appended, start_height, end_height))
+
+
+def _default_sidecar_path(ots_files):
+    """Derive the default sidecar output path from the input .ots files.
+
+    Single .ots input: sibling of the .ots, named <file>.ots-btc-headers.bin
+    (matches the existing .ots / .ots.bak naming family).
+    Multiple .ots inputs: generic ./ots-btc-headers.bin in CWD.
+    """
+    if len(ots_files) == 1:
+        path = ots_files[0]
+        if path.endswith('.ots'):
+            return path[:-4] + '.ots-btc-headers.bin'
+        return path + '-btc-headers.bin'
+    return 'ots-btc-headers.bin'
+
+
+def _headers_fetch_sidecar(args):
+    """Build a sparse sidecar covering only heights attested by args.ots_files."""
+    # Reject mode-incompatible flags up front.
+    incompatibilities = []
+    if args.use_p2p or args.p2p_peers:
+        incompatibilities.append(
+            "--p2p/--p2p-peer cannot be used in sidecar mode "
+            "(P2P fetches contiguous ranges; sidecars are sparse)")
+    if args.since_height is not None:
+        incompatibilities.append(
+            "--since-height cannot be used in sidecar mode "
+            "(heights are derived from the .ots files)")
+    if args.until_height is not None:
+        incompatibilities.append(
+            "--until-height cannot be used in sidecar mode "
+            "(heights are derived from the .ots files)")
+    if incompatibilities:
+        for msg in incompatibilities:
+            logging.error(msg)
+        sys.exit(1)
+
+    # Walk each .ots file to collect Bitcoin attestation heights.
+    all_heights = set()
+    for ots_path in args.ots_files:
+        detached = _load_timestamp_from_path(ots_path)
+        heights, has_pending = _extract_bitcoin_heights(detached.timestamp)
+        if not heights:
+            if has_pending:
+                logging.error(
+                    "%s has only PendingAttestations; upgrade it first "
+                    "(`ots upgrade %s`) so the sidecar can cover concrete "
+                    "Bitcoin heights." % (ots_path, ots_path))
+            else:
+                logging.error(
+                    "%s has no BitcoinBlockHeaderAttestation -- nothing "
+                    "to build a sidecar from." % ots_path)
+            sys.exit(1)
+        if has_pending:
+            logging.info(
+                "Note: %s has pending attestations alongside Bitcoin ones; "
+                "sidecar covers only the completed Bitcoin heights." % ots_path)
+        all_heights.update(heights)
+
+    if args.headers_path is None:
+        args.headers_path = _default_sidecar_path(args.ots_files)
+
+    if args.source_urls:
+        sources = [otsclient.headers.EsploraHeaderFetcher(url)
+                   for url in args.source_urls]
+    else:
+        sources = otsclient.headers.make_default_esplora_sources(args.btc_net)
+        if not sources:
+            logging.error(
+                "No public Esplora sources available for network %s. "
+                "Pass --source URL to specify one explicitly." % args.btc_net)
+            sys.exit(1)
+
+    quorum = args.quorum
+    if quorum is None:
+        quorum = (len(sources) + 1) // 2
+    try:
+        fetcher = otsclient.headers.HeaderFetcher(sources, quorum=quorum)
+    except ValueError as exp:
+        logging.error("%s" % exp)
+        sys.exit(1)
+
+    try:
+        info = otsclient.headers.build_sidecar_from_heights(
+            heights=sorted(all_heights),
+            output_path=args.headers_path,
+            network=args.btc_net,
+            fetcher=fetcher,
+            force=args.force_overwrite)
+    except otsclient.headers.HeaderArchiveError as exp:
+        logging.error("%s" % exp)
+        sys.exit(1)
+
+    logging.info(
+        "Done. Wrote sidecar %s (network=%s, %d header(s) for heights %s)" % (
+            info['path'], info['network'], info['header_count'],
+            ', '.join(str(h) for h in info['heights'])))
+
+
+def headers_info_command(args):
+    """Print information about a local header archive."""
+    archive = otsclient.headers.HeaderArchive(args.archive_path)
+    if not archive.exists():
+        logging.error("Archive file not found: %s" % args.archive_path)
+        sys.exit(1)
+
+    try:
+        info = archive.info()
+    except otsclient.headers.HeaderArchiveError as exp:
+        logging.error("Invalid archive: %s" % exp)
+        sys.exit(1)
+
+    print("Path:         %s" % info['path'])
+    print("Network:      %s" % info['network'])
+    print("Header count: %d" % info['header_count'])
+    print("Height range: %d..%s" % (
+        info['start_height'],
+        info['end_height'] if info['end_height'] is not None else '(empty)'))
+    print("File size:    %d bytes" % info['file_size'])
+
+
+def headers_bootstrap_command(args):
+    """Download a prebuilt header archive from a URL and install it locally.
+
+    The trust model is identical to an archive built via `ots headers fetch`:
+    PoW and prev-hash continuity are validated for every header before the
+    file is installed. The source URL doesn't need to be trusted -- the math
+    is the trust signal. Useful for grabbing a snapshot from GitHub Releases,
+    IPFS, a friend's mirror, etc., without spending the minutes a P2P fetch
+    or the hours an HTTP fetch would take.
+    """
+    if args.headers_path is None:
+        appdirs_default = appdirs.AppDirs('ots', 'opentimestamps')
+        args.headers_path = os.path.join(
+            appdirs_default.user_cache_dir,
+            'headers-%s.bin' % args.btc_net)
+
+    if os.path.exists(args.headers_path) and not args.force_overwrite:
+        logging.error(
+            "Output path already exists: %s\n"
+            "Pass --force to overwrite, or pick a different --output path." % (
+                args.headers_path))
+        sys.exit(1)
+
+    try:
+        info = otsclient.headers.bootstrap_archive_from_url(
+            url=args.url,
+            output_path=args.headers_path,
+            network=args.btc_net,
+            expected_sha256=args.expected_sha256)
+    except otsclient.headers.HeaderArchiveError as exp:
+        logging.error("%s" % exp)
+        sys.exit(1)
+
+    end_height = (info['start_height'] + info['header_count'] - 1
+                  if info['header_count'] > 0 else info['start_height'])
+    logging.info("Done. Installed %s (network=%s, headers=%d, heights %d..%d)" % (
+        info['path'], info['network'], info['header_count'],
+        info['start_height'], end_height))

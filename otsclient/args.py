@@ -22,6 +22,7 @@ import opentimestamps.calendar
 import otsclient
 import otsclient.cache
 import otsclient.cmds
+import otsclient.headers
 
 APPDIRS = appdirs.AppDirs('ots','opentimestamps')
 
@@ -75,8 +76,9 @@ def make_common_options_arg_parser():
                               "Format: domain[:port] (e.g. localhost:9050)")
 
     parser.add_argument("--bitcoin-node", dest="bitcoin_node", type=str,
-                        help="Bitcoin node URL to connect to (defaults to local "
-                             "configuration)")
+                        help="Bitcoin node URL to connect to. When set, verify "
+                             "fetches block headers from this node instead of "
+                             "auto-fetching from public block-explorer sources.")
 
     return parser
 
@@ -150,6 +152,141 @@ def handle_common_options(args, parser):
 
     args.setup_bitcoin = setup_bitcoin
 
+    def _try_local_bitcoin_node():
+        """Probe for a reachable local Bitcoin Core node.
+
+        Returns a connected RPC proxy on success, or None if no local
+        node is reachable. Bounded by a short timeout so it doesn't
+        block verify when no node is running. Used by get_header_source
+        to preserve the historical "I have a local node, just use it"
+        behavior without requiring the user to pass --bitcoin-node.
+        """
+        if args.btc_net == 'testnet':
+            bitcoin.SelectParams('testnet')
+        elif args.btc_net == 'regtest':
+            bitcoin.SelectParams('regtest')
+        elif args.btc_net == 'mainnet':
+            bitcoin.SelectParams('mainnet')
+        else:
+            assert False
+        try:
+            proxy = bitcoin.rpc.Proxy(service_url=None, timeout=2)
+            proxy.getblockcount()  # cheap call to confirm reachability + auth
+        except Exception as exp:
+            logging.debug("No reachable local Bitcoin node: %s" % exp)
+            return None
+        return proxy
+
+    def get_header_source():
+        """Return a BlockHeaderSource appropriate for the current args.
+
+        Precedence:
+          1. --headers PATH         -> LocalArchiveHeaderSource
+          2. --bitcoin-node URL     -> BitcoinNodeHeaderSource
+          3. (default, no flags)    -> If a local Bitcoin Core node is
+                                       reachable, use it (preserves the
+                                       historical no-flag behavior for
+                                       node operators). Otherwise
+                                       AutoFetchHeaderSource (lazy HTTP
+                                       fetch with quorum, cached in
+                                       <cache_dir>/verify-cache-<net>.bin).
+
+        Networks without default public sources (regtest) only have the
+        Bitcoin-node path available in case 3.
+        """
+        headers_path = getattr(args, 'headers_path', None)
+        if headers_path is not None:
+            if not os.path.isfile(headers_path):
+                logging.error("Header archive not found: %s" % headers_path)
+                sys.exit(1)
+            # Dispatch on the file magic so --headers PATH accepts either
+            # the dense HeaderArchive (OTSH, built by bulk `ots headers fetch`)
+            # or the sparse VerifyCache (OTSV, built by sidecar
+            # `ots headers fetch <file>.ots`).
+            try:
+                magic = otsclient.headers.detect_archive_format(headers_path)
+            except OSError as exp:
+                logging.error("Could not read header file %s: %s" % (
+                    headers_path, exp))
+                sys.exit(1)
+            if magic == otsclient.headers.ARCHIVE_MAGIC:
+                archive = otsclient.headers.HeaderArchive(headers_path)
+                try:
+                    archive_network, _start, _count = archive.read_file_header()
+                except otsclient.headers.HeaderArchiveError as exp:
+                    logging.error("Header archive is invalid: %s" % exp)
+                    sys.exit(1)
+                if archive_network != args.btc_net:
+                    logging.error(
+                        "Header archive network %r does not match selected network %r" % (
+                            archive_network, args.btc_net))
+                    sys.exit(1)
+                return otsclient.headers.LocalArchiveHeaderSource(archive)
+            elif magic == otsclient.headers.VERIFY_CACHE_MAGIC:
+                cache = otsclient.headers.VerifyCache(headers_path)
+                try:
+                    cache_network, _count = cache.read_file_header()
+                except otsclient.headers.HeaderArchiveError as exp:
+                    logging.error("Header sidecar is invalid: %s" % exp)
+                    sys.exit(1)
+                if cache_network != args.btc_net:
+                    logging.error(
+                        "Header sidecar network %r does not match selected network %r" % (
+                            cache_network, args.btc_net))
+                    sys.exit(1)
+                return otsclient.headers.LocalVerifyCacheHeaderSource(cache)
+            else:
+                logging.error(
+                    "Header file %s has unrecognized magic %r; expected "
+                    "OTSH (dense archive) or OTSV (sparse sidecar)" % (
+                        headers_path, magic))
+                sys.exit(1)
+
+        if args.bitcoin_node is not None:
+            proxy = setup_bitcoin()
+            return otsclient.headers.BitcoinNodeHeaderSource(proxy)
+
+        # Default: prefer a reachable local node (preserves historical
+        # behavior for users who run `bitcoind`), else auto-fetch from
+        # public Esplora-compatible sources with quorum and on-disk
+        # caching.
+        sources = otsclient.headers.make_default_esplora_sources(args.btc_net)
+        if not sources:
+            # No public sources for this network (e.g., regtest, which
+            # has no public peers, DNS seeds, or block explorers by
+            # design). Bitcoin node is the only path; let setup_bitcoin
+            # produce its own clear error if no node is reachable.
+            logging.info(
+                "Network is %s; no public block-explorer sources available, "
+                "falling back to Bitcoin node "
+                "(use --headers PATH for fully offline verification)" % args.btc_net)
+            proxy = setup_bitcoin()
+            return otsclient.headers.BitcoinNodeHeaderSource(proxy)
+
+        local_proxy = _try_local_bitcoin_node()
+        if local_proxy is not None:
+            logging.info(
+                "Using local Bitcoin Core node for header lookup "
+                "(pass --bitcoin-node URL to override, or use --headers PATH "
+                "for an air-gapped archive)")
+            return otsclient.headers.BitcoinNodeHeaderSource(local_proxy)
+
+        if args.cache_path is None:
+            # User passed --no-cache; disable verify-cache too.
+            cache = None
+        else:
+            # One cache file per network so mainnet and testnet proofs
+            # don't collide on the same path.
+            cache_filename = 'verify-cache-%s.bin' % args.btc_net
+            cache_path = os.path.join(args.cache_path, cache_filename)
+            cache = otsclient.headers.VerifyCache(cache_path)
+
+        fetcher = otsclient.headers.HeaderFetcher(sources)
+        return otsclient.headers.AutoFetchHeaderSource(
+            cache, fetcher, args.btc_net)
+
+    args.get_header_source = get_header_source
+
     return args
 
 def parse_ots_args(raw_args):
@@ -205,8 +342,105 @@ def parse_ots_args(raw_args):
                                      default=None,
                                      help='Verify a (hex-encoded) digest rather than a file')
 
+    parser_verify.add_argument('--headers', metavar='PATH', dest='headers_path', type=str,
+                               default=None,
+                               help='Verify using a local Bitcoin header archive (produced by '
+                                    '`ots headers fetch`) instead of the default auto-fetch. '
+                                    'Enables fully offline verification when the archive covers '
+                                    'the attested block heights.')
+
     parser_verify.add_argument('timestamp_fd', metavar='TIMESTAMP', type=argparse.FileType('rb'),
                                help='Timestamp filename')
+
+    # ----- headers -----
+    parser_headers = subparsers.add_parser('headers',
+                                           help='Manage local Bitcoin block header archive')
+    headers_subparsers = parser_headers.add_subparsers(
+        title='Subcommands',
+        description='Header archive operations:')
+
+    parser_headers_fetch = headers_subparsers.add_parser('fetch',
+                                                         help='Fetch headers from public sources into a local archive')
+    # Two modes share this subcommand:
+    #   1. Bulk fetch (no positional OTS files): contiguous OTSH archive
+    #      built from --since-height/--until-height (or chain tip). Default
+    #      output is network-suffixed in the OS cache dir.
+    #   2. Sidecar fetch (positional OTS files present): sparse OTSV
+    #      archive covering only the heights attested by the given .ots
+    #      files. Default output is derived from the .ots filename so the
+    #      sidecar sits next to its proof.
+    parser_headers_fetch.add_argument('ots_files', metavar='OTS-FILE',
+                                      type=str, nargs='*', default=[],
+                                      help='If provided, build a sparse sidecar archive '
+                                           'covering only the Bitcoin block heights these '
+                                           '.ots files attest to. Pass the .ots files as '
+                                           'positional arguments. Otherwise, do a contiguous '
+                                           'bulk fetch (see --since/--until).')
+    parser_headers_fetch.add_argument('--output', metavar='PATH', dest='headers_path', type=str,
+                                      default=None,
+                                      help='Path to the header archive file. '
+                                           'Default in bulk mode: <cache_dir>/headers-<network>.bin. '
+                                           'Default in sidecar mode (single .ots): '
+                                           '<file>.ots-btc-headers.bin (sibling of the .ots). '
+                                           'Default in sidecar mode (multiple .ots): '
+                                           './ots-btc-headers.bin.')
+    parser_headers_fetch.add_argument('--force', dest='force_overwrite',
+                                      action='store_true', default=False,
+                                      help='In sidecar mode, overwrite an existing output file. '
+                                           'Bulk mode appends to an existing archive and ignores '
+                                           'this flag.')
+    parser_headers_fetch.add_argument('--since-height', dest='since_height', type=int,
+                                      default=None,
+                                      help='Lowest block height to fetch. Default: continue from end of '
+                                           'existing archive, or 0 if creating a new archive.')
+    parser_headers_fetch.add_argument('--until-height', dest='until_height', type=int,
+                                      default=None,
+                                      help='Highest block height to fetch (inclusive). '
+                                           'Default: current chain tip according to fetch sources.')
+    parser_headers_fetch.add_argument('--source', metavar='URL', dest='source_urls', action='append',
+                                      type=str, default=[],
+                                      help='Esplora-compatible base URL to fetch from. May be specified '
+                                           'multiple times. Defaults to a network-appropriate set of '
+                                           'public sources if not given.')
+    parser_headers_fetch.add_argument('--quorum', dest='quorum', type=int, default=None,
+                                      help='Minimum number of agreeing sources required per header. '
+                                           'Default: majority of provided sources (rounded up).')
+    parser_headers_fetch.add_argument('--p2p', dest='use_p2p', action='store_true', default=False,
+                                      help='Fetch via the Bitcoin P2P getheaders protocol instead of '
+                                           'HTTP block explorers. Much faster for bulk fetches '
+                                           '(up to 2000 headers per round trip). Uses DNS seeds for '
+                                           'peer discovery by default. Mutually exclusive with --source.')
+    parser_headers_fetch.add_argument('--p2p-peer', metavar='HOST[:PORT]', dest='p2p_peers',
+                                      action='append', type=str, default=[],
+                                      help='Specific Bitcoin P2P peer to connect to (may be repeated). '
+                                           'Implies --p2p.')
+    parser_headers_fetch.set_defaults(cmd_func=otsclient.cmds.headers_fetch_command)
+
+    parser_headers_info = headers_subparsers.add_parser('info',
+                                                        help='Show information about a local header archive')
+    parser_headers_info.add_argument('archive_path', metavar='PATH', type=str,
+                                     help='Path to the header archive file')
+    parser_headers_info.set_defaults(cmd_func=otsclient.cmds.headers_info_command)
+
+    parser_headers_bootstrap = headers_subparsers.add_parser(
+        'bootstrap',
+        help='Download a prebuilt header archive from a URL and install it locally')
+    parser_headers_bootstrap.add_argument('url', metavar='URL', type=str,
+        help='URL to download the archive from. Supports http(s)://, file://, '
+             'and any other scheme urllib.request handles.')
+    parser_headers_bootstrap.add_argument('--output', metavar='PATH',
+        dest='headers_path', type=str, default=None,
+        help='Where to install the validated archive. '
+             'Default: <cache_dir>/headers-<network>.bin')
+    parser_headers_bootstrap.add_argument('--sha256', metavar='HEX',
+        dest='expected_sha256', type=str, default=None,
+        help='Expected SHA-256 of the downloaded file (hex-encoded). '
+             'Optional but recommended when the URL points at a third-party host.')
+    parser_headers_bootstrap.add_argument('--force', dest='force_overwrite',
+        action='store_true', default=False,
+        help='Overwrite an existing archive at the output path. Without this, '
+             'bootstrap refuses to clobber an existing file.')
+    parser_headers_bootstrap.set_defaults(cmd_func=otsclient.cmds.headers_bootstrap_command)
 
     # ----- info -----
     parser_info = subparsers.add_parser('info', aliases=['i'],
