@@ -155,7 +155,10 @@ class HeaderArchive:
                 raise HeaderArchiveFormatError(
                     "Unknown network ID in archive: %d" % network_id)
 
-            file_size = os.path.getsize(self.path)
+            # Stat the already-open descriptor rather than re-resolving the
+            # path, so the size describes the same inode we just read the
+            # header bytes from even if the path is concurrently replaced.
+            file_size = os.fstat(fd.fileno()).st_size
             body_size = file_size - ARCHIVE_FILE_HEADER_SIZE
             if body_size % BLOCK_HEADER_SIZE != 0:
                 raise HeaderArchiveFormatError(
@@ -522,7 +525,8 @@ class VerifyCache:
             if network_id not in NETWORK_ID_TO_NAME:
                 raise HeaderArchiveFormatError(
                     "Unknown network ID in verify cache: %d" % network_id)
-            file_size = os.path.getsize(self.path)
+            # Same inode-consistency reasoning as HeaderArchive.read_file_header.
+            file_size = os.fstat(fd.fileno()).st_size
             body_size = file_size - VERIFY_CACHE_FILE_HEADER_SIZE
             if body_size % VERIFY_CACHE_RECORD_SIZE != 0:
                 raise HeaderArchiveFormatError(
