@@ -1,0 +1,420 @@
+#!/usr/bin/env python3
+# Copyright (C) 2026 The OpenTimestamps developers
+#
+# This file is part of the OpenTimestamps Client.
+#
+# It is subject to the license terms in the LICENSE file found in the top-level
+# directory of this distribution.
+#
+# No part of the OpenTimestamps Client including this file, may be copied,
+# modified, propagated, or distributed except according to the terms contained
+# in the LICENSE file.
+#
+# Verify the OpenTimestamps attestation embedded in a signed git commit and
+# print Bitcoin block height(s), merkle root(s), and attesting calendar URL(s).
+#
+# Usage:
+#   ots-git-verify-commit <commit>
+#   ots-git-verify-commit -C /path/to/repo HEAD
+#   ots-git-verify-commit --bitcoin <commit>   # full check via local bitcoind
+#
+# Exit codes:
+#   0  at least one Bitcoin block attestation found (and verified if --bitcoin used)
+#   1  error (bad args, missing commit, parse failure, corrupt OTS, bitcoind check failed)
+#   2  OTS present but not yet anchored in Bitcoin (only pending calendars)
+#   3  no OpenTimestamps data in the commit
+#
+# JSON output (--json):
+#   status: "attested" (Bitcoin anchor found, verified if --bitcoin)
+#   status: "verification_failed" (anchor found but --bitcoin verification failed)
+#   status: "pending" (no Bitcoin anchor yet, waiting on calendars)
+#   status: "no_timestamp" (no OTS data in commit)
+#   status: "error" (bad args, corrupt OTS, cache/bitcoind error, etc.)
+
+"""Verify OpenTimestamps Bitcoin attestations for a git commit."""
+
+import argparse
+import json
+import logging
+import os
+import subprocess
+import sys
+import time
+
+from bitcoin.core import b2lx
+from opentimestamps.core.notary import (
+    BitcoinBlockHeaderAttestation,
+    PendingAttestation,
+)
+import opentimestamps.calendar as calendar
+
+import otsclient.cache
+import otsclient.cmds
+from otsclient.git import (
+    ASCII_ARMOR_HEADER,
+    deserialize_ascii_armored_timestamp,
+    extract_sig_from_git_commit,
+)
+
+EXIT_OK = 0
+EXIT_ERROR = 1
+EXIT_PENDING = 2
+EXIT_NO_OTS = 3
+
+# Same default cache location as the ots client (otsclient/args.py).
+try:
+    import appdirs
+    DEFAULT_CACHE_PATH = appdirs.AppDirs('ots', 'opentimestamps').user_cache_dir
+except ImportError:
+    # Fallback: same value appdirs produces on Linux.
+    DEFAULT_CACHE_PATH = os.path.expanduser('~/.cache/ots')
+
+
+def git_cat_file_commit(commit, git_dir=None):
+    cmd = ['git']
+    if git_dir:
+        cmd.extend(['-C', git_dir])
+    cmd.extend(['cat-file', 'commit', commit])
+    try:
+        return subprocess.check_output(cmd, stderr=subprocess.STDOUT)
+    except subprocess.CalledProcessError as exc:
+        msg = exc.output.decode('utf-8', errors='replace').strip()
+        raise SystemExit("error: cannot read commit %s: %s" % (commit, msg or exc))
+
+
+def load_timestamp(raw_commit):
+    """Returns (major, minor, timestamp, error_msg, exit_code)."""
+    unsigned, gpg_sig = extract_sig_from_git_commit(raw_commit)
+    if not gpg_sig.strip():
+        return None, None, None, 'no GPG signature on commit', EXIT_ERROR
+    major, minor, timestamp = deserialize_ascii_armored_timestamp(unsigned, gpg_sig)
+    if timestamp is None:
+        # Distinguish: header missing (no OTS) vs header present but corrupt (invalid OTS).
+        # ASCII_ARMOR_HEADER is already bytes (otsclient/git.py), like gpg_sig.
+        if ASCII_ARMOR_HEADER in gpg_sig:
+            return None, None, None, 'invalid/corrupt OpenTimestamps data in commit signature', EXIT_ERROR
+        else:
+            return None, None, None, 'no OpenTimestamps data in commit signature', EXIT_NO_OTS
+    return major, minor, timestamp, None, EXIT_OK
+
+
+def make_args(use_bitcoin, cache_path, wait):
+    class Args(object):
+        pass
+
+    args = Args()
+    args.cache = otsclient.cache.TimestampCache(cache_path)
+    args.whitelist = calendar.DEFAULT_CALENDAR_WHITELIST
+    # Empty list: upgrade_timestamp still follows PendingAttestation URIs
+    # present in the stamp (and cache). Non-empty would *override* those URIs.
+    args.calendar_urls = []
+    args.wait = wait
+    args.wait_interval = 30  # same default as otsclient/args.py
+    args.use_bitcoin = use_bitcoin
+    args.btc_net = 'mainnet'
+    args.bitcoin_node = None
+
+    if use_bitcoin:
+        # Mirror otsclient.args.setup_bitcoin for local bitcoind RPC.
+        def setup_bitcoin():
+            import bitcoin
+            from bitcoin.rpc import Proxy
+            bitcoin.SelectParams('mainnet')
+            return Proxy()
+        args.setup_bitcoin = setup_bitcoin
+
+    return args
+
+
+def collect_bitcoin_attestations(timestamp):
+    """Walk the timestamp tree; pair each Bitcoin attestation with its calendar URI.
+
+    PendingAttestation nodes mark which remote calendar committed a path; the
+    upgraded BitcoinBlockHeaderAttestation lives on that same branch (sibling
+    ops under the pending node, or deeper). Returns (found, pending_uris) where
+    found is a list of (height, merkle_hex, msg, attestation, calendar_uri).
+    """
+    found = []
+    pending_uris = []
+
+    def walk(stamp, calendar_uri):
+        # stamp.attestations is an unordered set: pick up the calendar URI
+        # first so a Bitcoin attestation on the same node is paired with it.
+        uri = calendar_uri
+        for attestation in stamp.attestations:
+            if isinstance(attestation, PendingAttestation):
+                uri = attestation.uri.decode('utf-8') if isinstance(attestation.uri, bytes) else str(attestation.uri)
+                if uri not in pending_uris:
+                    pending_uris.append(uri)
+        for attestation in stamp.attestations:
+            if isinstance(attestation, BitcoinBlockHeaderAttestation):
+                # msg at a Bitcoin attestation is the block merkle root.
+                found.append((
+                    attestation.height,
+                    b2lx(stamp.msg),
+                    stamp.msg,
+                    attestation,
+                    uri,
+                ))
+        for _op, sub in stamp.ops.items():
+            walk(sub, uri)
+
+    walk(timestamp, None)
+    # Earliest block first (strongest lower bound on existence time).
+    found.sort(key=lambda t: t[0])
+    return found, pending_uris
+
+
+def verify_against_bitcoind(height, msg, attestation, proxy):
+    """Return (ok, detail_line) after checking block header via bitcoind."""
+    try:
+        block_count = proxy.getblockcount()
+        blockhash = proxy.getblockhash(height)
+        block_header = proxy.getblockheader(blockhash)
+        attested_time = attestation.verify_against_blockheader(msg, block_header)
+        when = time.strftime('%Y-%m-%d %H:%M:%S %Z', time.localtime(attested_time))
+        return True, "verified via bitcoind; block time %s (tip %d)" % (when, block_count)
+    except Exception as exc:
+        return False, "bitcoind check failed: %s" % exc
+
+
+class ArgumentParser(argparse.ArgumentParser):
+    def error(self, message):
+        # argparse exits with 2 by default, which would collide with
+        # EXIT_PENDING; the documented code for bad args is EXIT_ERROR.
+        self.print_usage(sys.stderr)
+        self.exit(EXIT_ERROR, '%s: error: %s\n' % (self.prog, message))
+
+
+def main(argv=None):
+    parser = ArgumentParser(
+        description=(
+            "Verify OpenTimestamps on a GPG-signed git commit and print "
+            "Bitcoin block height(s) and merkle root(s)."
+        ),
+    )
+    parser.add_argument(
+        'commit',
+        help='Commit hash (or any git revision: HEAD, branch, tag, ...)',
+    )
+    parser.add_argument(
+        '-C', '--git-dir',
+        metavar='PATH',
+        help='Git repository path (default: current directory)',
+    )
+    parser.add_argument(
+        '--bitcoin',
+        action='store_true',
+        help='Fully verify against local bitcoind (RPC)',
+    )
+    parser.add_argument(
+        '--no-calendar',
+        action='store_true',
+        help='Do not contact remote calendars; use only local OTS cache',
+    )
+    parser.add_argument(
+        '-w', '--wait',
+        action='store_true',
+        help='Wait until a complete Bitcoin attestation is available',
+    )
+    parser.add_argument(
+        '--cache',
+        default=DEFAULT_CACHE_PATH,
+        help='OTS cache path (default: %(default)s)',
+    )
+    parser.add_argument(
+        '-v', '--verbose',
+        action='count',
+        default=0,
+        help='Verbose ots logging (-v, -vv)',
+    )
+    parser.add_argument(
+        '-q', '--quiet',
+        action='store_true',
+        help='Only print block/merkle lines (and errors)',
+    )
+    parser.add_argument(
+        '--json',
+        action='store_true',
+        help='Emit a single JSON object on stdout (exit codes unchanged)',
+    )
+    args = parser.parse_args(argv)
+
+    # Normalize cache path: expand ~ and resolve . / ..
+    args.cache = os.path.normpath(os.path.expanduser(args.cache))
+
+    if args.wait and args.no_calendar:
+        parser.error("--wait cannot be combined with --no-calendar: "
+                     "without calendars no new attestation can ever arrive")
+
+    log_level = logging.WARNING
+    if args.quiet:
+        log_level = logging.ERROR
+    elif args.verbose == 1:
+        log_level = logging.INFO
+    elif args.verbose >= 2:
+        log_level = logging.DEBUG
+    logging.basicConfig(format='ots: %(message)s', level=log_level)
+
+    try:
+        raw = git_cat_file_commit(args.commit, args.git_dir)
+    except SystemExit as exc:
+        if args.json:
+            msg = str(exc.code)
+            if msg.startswith('error: '):
+                msg = msg[len('error: '):]
+            print(json.dumps({
+                'commit': args.commit,
+                'status': 'error',
+                'error': msg,
+            }, indent=2))
+            return EXIT_ERROR
+        raise
+
+    # Resolve to full hash for display
+    rev_cmd = ['git']
+    if args.git_dir:
+        rev_cmd.extend(['-C', args.git_dir])
+    rev_cmd.extend(['rev-parse', args.commit])
+    try:
+        full_hash = subprocess.check_output(rev_cmd).decode().strip()
+    except subprocess.CalledProcessError:
+        full_hash = args.commit
+
+    try:
+        major, minor, timestamp, err, err_code = load_timestamp(raw)
+    except SystemExit:
+        # deserialize_ascii_armored_timestamp calls sys.exit on major version mismatch
+        if args.json:
+            print(json.dumps({
+                'commit': full_hash,
+                'status': 'error',
+                'error': 'unknown OpenTimestamps version',
+            }, indent=2))
+        else:
+            print("error: unknown OpenTimestamps version", file=sys.stderr)
+        return EXIT_ERROR
+
+    if err:
+        if args.json:
+            print(json.dumps({
+                'commit': full_hash,
+                'status': 'no_timestamp' if err_code == EXIT_NO_OTS else 'error',
+                'error': err,
+            }, indent=2))
+        else:
+            print("error: %s" % err, file=sys.stderr)
+        return err_code
+
+    version = "%d.%d" % (major, minor)
+
+    if not args.json and not args.quiet:
+        print("commit:  %s" % full_hash)
+        print("ots:     git timestamp v%s" % version)
+
+    try:
+        ots_args = make_args(
+            use_bitcoin=args.bitcoin,
+            cache_path=args.cache,
+            wait=args.wait,
+        )
+    except Exception as exc:
+        if args.json:
+            print(json.dumps({
+                'commit': full_hash,
+                'status': 'error',
+                'error': 'cache initialization failed: %s' % exc,
+            }, indent=2))
+        else:
+            print("error: cache initialization failed: %s" % exc, file=sys.stderr)
+        return EXIT_ERROR
+
+    # Offline: temporarily empty whitelist so remote calendars are skipped.
+    if args.no_calendar:
+        ots_args.whitelist = calendar.UrlWhitelist()
+
+    # Merge cache (+ remote calendars unless offline) into the in-memory stamp.
+    try:
+        otsclient.cmds.upgrade_timestamp(timestamp, ots_args)
+    except Exception as exc:
+        logging.warning("upgrade_timestamp: %s" % exc)
+
+    btc_atts, pending = collect_bitcoin_attestations(timestamp)
+
+    if not btc_atts:
+        if args.json:
+            print(json.dumps({
+                'commit': full_hash,
+                'version': version,
+                'status': 'pending',
+                'attestations': [],
+                'pending_calendars': pending,
+            }, indent=2))
+        else:
+            print("status:  pending (not yet anchored in Bitcoin)", file=sys.stderr)
+            if pending:
+                for uri in pending:
+                    print("pending: %s" % uri, file=sys.stderr)
+            else:
+                print("error: no attestations found", file=sys.stderr)
+        return EXIT_PENDING
+
+    proxy = None
+    proxy_err = None
+    if args.bitcoin:
+        try:
+            proxy = ots_args.setup_bitcoin()
+        except Exception as exc:
+            proxy_err = "cannot connect to bitcoind: %s" % exc
+
+    # Compute results first (earliest block first), render afterwards.
+    results = []
+    best_ok = False
+    for height, merkle_hex, msg, attestation, calendar_uri in btc_atts:
+        entry = {
+            'block': height,
+            'merkle_root': merkle_hex,
+            'calendar': calendar_uri,
+        }
+        if args.bitcoin:
+            if proxy is None:
+                ok, detail = False, proxy_err
+            else:
+                ok, detail = verify_against_bitcoind(height, msg, attestation, proxy)
+            entry['verified'] = ok
+            entry['detail'] = detail
+            best_ok = best_ok or ok
+        results.append(entry)
+
+    if args.json:
+        status = 'attested'
+        if args.bitcoin and not best_ok:
+            status = 'verification_failed'
+        print(json.dumps({
+            'commit': full_hash,
+            'version': version,
+            'status': status,
+            'attestations': results,
+        }, indent=2))
+    else:
+        if not args.quiet:
+            print("status:  %d Bitcoin attestation(s), earliest block %d"
+                  % (len(results), results[0]['block']))
+            print("")
+            print("%-10s  %-64s  %s" % ("BLOCK", "MERKLE_ROOT", "CALENDAR"))
+
+        for entry in results:
+            line = "%-10d  %-64s  %s" % (entry['block'], entry['merkle_root'],
+                                         entry['calendar'] or "?")
+            if args.bitcoin:
+                line += "  %s  %s" % ("OK" if entry['verified'] else "FAIL",
+                                      entry['detail'])
+            print(line)
+
+    if args.bitcoin and not best_ok:
+        return EXIT_ERROR
+    return EXIT_OK
+
+
+if __name__ == '__main__':
+    sys.exit(main())
