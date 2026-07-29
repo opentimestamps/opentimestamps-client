@@ -430,6 +430,7 @@ def verify_timestamp(timestamp, args):
                 logging.error("Bitcoin block height %d not found; %d is highest known block" % (attestation.height, block_count))
                 continue
             except ConnectionError as exp:
+                bitcoin_connect_error = exp
                 logging.error("Could not connect to local Bitcoin node: %s" % exp)
                 continue
 

@@ -51,7 +51,7 @@ class TestVerifyTimestampBitcoinUnreachable(unittest.TestCase):
 
         self.assertFalse(good)
 
-    def test_unreachable_bitcoin_node_logs_once(self):
+    def test_unreachable_bitcoin_node_calls_setup_bitcoin_once(self):
         t = self._make_timestamp([100, 200, 300])
         setup_bitcoin = Mock(side_effect=Exception("Cookie file unusable"))
         args = self._make_args(setup_bitcoin)
@@ -60,3 +60,16 @@ class TestVerifyTimestampBitcoinUnreachable(unittest.TestCase):
 
         self.assertFalse(good)
         self.assertEqual(setup_bitcoin.call_count, 1)
+
+    def test_bitcoin_node_disconnect_mid_rpc_calls_getblockcount_once(self):
+        t = self._make_timestamp([100, 200, 300])
+        proxy = Mock()
+        proxy.getblockcount = Mock(side_effect=ConnectionError("Connection reset"))
+        setup_bitcoin = Mock(return_value=proxy)
+        args = self._make_args(setup_bitcoin)
+
+        good = verify_timestamp(t, args)
+
+        self.assertFalse(good)
+        self.assertEqual(setup_bitcoin.call_count, 1)
+        self.assertEqual(proxy.getblockcount.call_count, 1)
