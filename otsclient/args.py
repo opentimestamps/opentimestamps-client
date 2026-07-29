@@ -142,11 +142,7 @@ def handle_common_options(args, parser):
         else:
             assert False
 
-        try:
-            return bitcoin.rpc.Proxy(service_url=args.bitcoin_node)
-        except Exception as exp:
-            logging.error("Could not connect to Bitcoin node: %s" % exp)
-            sys.exit(1)
+        return bitcoin.rpc.Proxy(service_url=args.bitcoin_node)
 
     args.setup_bitcoin = setup_bitcoin
 

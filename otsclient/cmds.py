@@ -55,7 +55,11 @@ def create_timestamp(timestamp, calendar_urls, args):
 
     setup_bitcoin = args.setup_bitcoin if args.use_btc_wallet else False
     if setup_bitcoin:
-        proxy = setup_bitcoin()
+        try:
+            proxy = setup_bitcoin()
+        except Exception as exp:
+            logging.error("Could not connect to Bitcoin node: %s" % exp)
+            sys.exit(1)
 
         unfunded_tx = CTransaction([], [CTxOut(0, CScript([OP_RETURN, timestamp.msg]))])
         r = proxy.fundrawtransaction(unfunded_tx)  # FIXME: handle errors
@@ -406,9 +410,8 @@ def verify_timestamp(timestamp, args):
                                 (attestation.height, b2lx(msg)))
                 continue
 
-            proxy = args.setup_bitcoin()
-
             try:
+                proxy = args.setup_bitcoin()
                 block_count = proxy.getblockcount()
                 blockhash = proxy.getblockhash(attestation.height)
             except IndexError:
@@ -416,6 +419,9 @@ def verify_timestamp(timestamp, args):
                 continue
             except ConnectionError as exp:
                 logging.error("Could not connect to local Bitcoin node: %s" % exp)
+                continue
+            except Exception as exp:
+                logging.error("Could not connect to Bitcoin node: %s" % exp)
                 continue
 
             block_header = proxy.getblockheader(blockhash)
@@ -517,9 +523,8 @@ def verify_all_attestations(timestamp, attestations_to_verify, args):
                     logging.error("Bitcoin disabled, could not check attestations")
                     sys.exit(1)
 
-                proxy = args.setup_bitcoin()
-
                 try:
+                    proxy = args.setup_bitcoin()
                     block_count = proxy.getblockcount()
                     blockhash = proxy.getblockhash(attestation.height)
                     block_header = proxy.getblockheader(blockhash)
@@ -533,6 +538,9 @@ def verify_all_attestations(timestamp, attestations_to_verify, args):
                     sys.exit(1)
                 except VerificationError as err:
                     logging.error("Bitcoin verification failed: %s" % str(err))
+                    sys.exit(1)
+                except Exception as exp:
+                    logging.error("Could not connect to Bitcoin node: %s" % exp)
                     sys.exit(1)
 
             else:
