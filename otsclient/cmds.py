@@ -55,7 +55,11 @@ def create_timestamp(timestamp, calendar_urls, args):
 
     setup_bitcoin = args.setup_bitcoin if args.use_btc_wallet else False
     if setup_bitcoin:
-        proxy = setup_bitcoin()
+        try:
+            proxy = setup_bitcoin()
+        except Exception as exp:
+            logging.error("Could not connect to Bitcoin node: %s" % exp)
+            sys.exit(1)
 
         unfunded_tx = CTransaction([], [CTxOut(0, CScript([OP_RETURN, timestamp.msg]))])
         r = proxy.fundrawtransaction(unfunded_tx)  # FIXME: handle errors
@@ -394,6 +398,8 @@ def verify_timestamp(timestamp, args):
             return 2**32-1
 
     good = False
+    bitcoin_proxy = None
+    bitcoin_connect_error = None
     for msg, attestation in sorted(timestamp.all_attestations(), key=attestation_key):
         if attestation.__class__ == PendingAttestation:
             # Handled by the upgrade_timestamp() call above.
@@ -406,19 +412,29 @@ def verify_timestamp(timestamp, args):
                                 (attestation.height, b2lx(msg)))
                 continue
 
-            proxy = args.setup_bitcoin()
+            if bitcoin_connect_error is not None:
+                continue
+
+            if bitcoin_proxy is None:
+                try:
+                    bitcoin_proxy = args.setup_bitcoin()
+                except Exception as exp:
+                    bitcoin_connect_error = exp
+                    logging.error("Could not connect to Bitcoin node: %s" % exp)
+                    continue
 
             try:
-                block_count = proxy.getblockcount()
-                blockhash = proxy.getblockhash(attestation.height)
+                block_count = bitcoin_proxy.getblockcount()
+                blockhash = bitcoin_proxy.getblockhash(attestation.height)
             except IndexError:
                 logging.error("Bitcoin block height %d not found; %d is highest known block" % (attestation.height, block_count))
                 continue
             except ConnectionError as exp:
+                bitcoin_connect_error = exp
                 logging.error("Could not connect to local Bitcoin node: %s" % exp)
                 continue
 
-            block_header = proxy.getblockheader(blockhash)
+            block_header = bitcoin_proxy.getblockheader(blockhash)
 
             logging.debug("Attestation block hash: %s" % b2lx(blockhash))
 
@@ -517,9 +533,8 @@ def verify_all_attestations(timestamp, attestations_to_verify, args):
                     logging.error("Bitcoin disabled, could not check attestations")
                     sys.exit(1)
 
-                proxy = args.setup_bitcoin()
-
                 try:
+                    proxy = args.setup_bitcoin()
                     block_count = proxy.getblockcount()
                     blockhash = proxy.getblockhash(attestation.height)
                     block_header = proxy.getblockheader(blockhash)
@@ -533,6 +548,9 @@ def verify_all_attestations(timestamp, attestations_to_verify, args):
                     sys.exit(1)
                 except VerificationError as err:
                     logging.error("Bitcoin verification failed: %s" % str(err))
+                    sys.exit(1)
+                except Exception as exp:
+                    logging.error("Could not connect to Bitcoin node: %s" % exp)
                     sys.exit(1)
 
             else:
