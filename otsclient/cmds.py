@@ -398,6 +398,8 @@ def verify_timestamp(timestamp, args):
             return 2**32-1
 
     good = False
+    bitcoin_proxy = None
+    bitcoin_connect_error = None
     for msg, attestation in sorted(timestamp.all_attestations(), key=attestation_key):
         if attestation.__class__ == PendingAttestation:
             # Handled by the upgrade_timestamp() call above.
@@ -410,21 +412,28 @@ def verify_timestamp(timestamp, args):
                                 (attestation.height, b2lx(msg)))
                 continue
 
+            if bitcoin_connect_error is not None:
+                continue
+
+            if bitcoin_proxy is None:
+                try:
+                    bitcoin_proxy = args.setup_bitcoin()
+                except Exception as exp:
+                    bitcoin_connect_error = exp
+                    logging.error("Could not connect to Bitcoin node: %s" % exp)
+                    continue
+
             try:
-                proxy = args.setup_bitcoin()
-                block_count = proxy.getblockcount()
-                blockhash = proxy.getblockhash(attestation.height)
+                block_count = bitcoin_proxy.getblockcount()
+                blockhash = bitcoin_proxy.getblockhash(attestation.height)
             except IndexError:
                 logging.error("Bitcoin block height %d not found; %d is highest known block" % (attestation.height, block_count))
                 continue
             except ConnectionError as exp:
                 logging.error("Could not connect to local Bitcoin node: %s" % exp)
                 continue
-            except Exception as exp:
-                logging.error("Could not connect to Bitcoin node: %s" % exp)
-                continue
 
-            block_header = proxy.getblockheader(blockhash)
+            block_header = bitcoin_proxy.getblockheader(blockhash)
 
             logging.debug("Attestation block hash: %s" % b2lx(blockhash))
 
