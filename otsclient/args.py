@@ -12,6 +12,7 @@
 import appdirs
 import argparse
 import bitcoin
+import ipaddress
 import logging
 import os
 import socket
@@ -24,6 +25,56 @@ import otsclient.cache
 import otsclient.cmds
 
 APPDIRS = appdirs.AppDirs('ots','opentimestamps')
+
+LOOPBACK_HOSTNAMES = frozenset(['localhost', 'localhost.localdomain',
+                                'ip6-localhost', 'ip6-loopback'])
+
+
+def is_loopback_address(host):
+    """Is host a loopback destination that must not be reached via a proxy?
+
+    A SOCKS5 proxy resolves and connects to the destination on its own side, so
+    sending a loopback destination through it reaches the proxy's loopback
+    interface rather than ours. Local Bitcoin nodes live on ours.
+    """
+    if not isinstance(host, str):
+        return False
+
+    if host.lower() in LOOPBACK_HOSTNAMES:
+        return True
+
+    try:
+        return ipaddress.ip_address(host.split('%')[0]).is_loopback
+    except ValueError:
+        return False
+
+
+def make_socks_socket_class():
+    """Build a socksocket subclass that reaches loopback destinations directly.
+
+    PySocks falls back to a plain socket when a socket has no proxy configured,
+    so bypassing the proxy is a matter of dropping it for the loopback
+    destinations the proxy could never reach anyway.
+    """
+    import socks
+
+    class SocksSocket(socks.socksocket):
+        def connect(self, dest_pair, catch_errors=None):
+            if isinstance(dest_pair, (tuple, list)) and len(dest_pair) == 2 \
+                    and is_loopback_address(dest_pair[0]):
+                logging.debug("Connecting to loopback destination %s without the SOCKS5 proxy"
+                              % (dest_pair[0],))
+                proxy = self.proxy
+                self.proxy = (None, None, None, None, None, None)
+                try:
+                    return super(SocksSocket, self).connect(dest_pair, catch_errors)
+                finally:
+                    self.proxy = proxy
+
+            return super(SocksSocket, self).connect(dest_pair, catch_errors)
+
+    return SocksSocket
+
 
 def make_common_options_arg_parser():
     parser = argparse.ArgumentParser(description="OpenTimestamps client.")
@@ -118,12 +169,18 @@ def handle_common_options(args, parser):
                                 s5_hostname,
                                 s5_port)
 
+        SocksSocket = make_socks_socket_class()
+
         # Monkey patch socket to use SOCKS5 proxy
-        socket.socket = socks.socksocket
+        socket.socket = SocksSocket
 
         # This should prevent DNS leaks
         def create_connection(address, timeout=None, source_address=None):
-            sock = socks.socksocket()
+            sock = SocksSocket()
+            if timeout is not None:
+                sock.settimeout(timeout)
+            if source_address is not None:
+                sock.bind(source_address)
             sock.connect(address)
             return sock
         socket.create_connection = create_connection
