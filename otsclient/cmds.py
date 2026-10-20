@@ -218,6 +218,42 @@ def is_timestamp_complete(stamp, args):
     else:
         return False
 
+# Calendar URL -> thread of the last request to it
+calendar_requests_in_flight = {}
+
+def get_timestamp_within(calendar, commitment, timeout):
+    """Ask a calendar for a commitment, giving up after timeout seconds in total
+
+    The timeout of the request itself applies to each read, so a calendar that
+    sends a byte at a time never trips it. The request runs in a thread that is
+    left behind when time runs out. No new request goes to a calendar while
+    that thread runs, so that a calendar that stalls costs one thread and one
+    socket, however many rounds are made.
+    """
+    earlier = calendar_requests_in_flight.get(calendar.url)
+    if earlier is not None and earlier.is_alive():
+        raise urllib.error.URLError("an earlier request is still running")
+
+    results = Queue()
+
+    def get_timestamp_async():
+        try:
+            results.put((calendar.get_timestamp(commitment, timeout=timeout), None))
+        except BaseException as exp:
+            results.put((None, exp))
+
+    thread = threading.Thread(target=get_timestamp_async, daemon=True)
+    calendar_requests_in_flight[calendar.url] = thread
+    thread.start()
+    try:
+        upgraded_stamp, exp = results.get(timeout=timeout)
+    except Empty:
+        raise urllib.error.URLError("no complete answer within %d seconds" % timeout)
+
+    if exp is not None:
+        raise exp
+    return upgraded_stamp
+
 def upgrade_timestamp(timestamp, args):
     """Attempt to upgrade an incomplete timestamp to make it verifiable
 
@@ -293,7 +329,7 @@ def upgrade_timestamp(timestamp, args):
                         calendar = remote_calendar(calendar_url)
 
                         try:
-                            upgraded_stamp = calendar.get_timestamp(commitment)
+                            upgraded_stamp = get_timestamp_within(calendar, commitment, args.timeout)
                         except opentimestamps.calendar.CommitmentNotFoundError as exp:
                             logging.warning("Calendar %s: %s" % (attestation.uri, exp.reason))
                             continue
