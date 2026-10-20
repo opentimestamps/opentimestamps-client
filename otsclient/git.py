@@ -23,6 +23,9 @@ from opentimestamps.core.serialize import BytesSerializationContext, BytesDeseri
 ASCII_ARMOR_HEADER = b'-----BEGIN OPENTIMESTAMPS GIT TIMESTAMP-----\n\n'
 ASCII_ARMOR_FOOTER = b'-----END OPENTIMESTAMPS GIT TIMESTAMP-----\n'
 
+PGP_ARMOR_HEADER = b'-----BEGIN PGP SIGNATURE-----\n'
+PGP_ARMOR_FOOTER = b'-----END PGP SIGNATURE-----\n'
+
 
 def hash_signed_commit(git_commit, gpg_sig):
     # Note how we use hashlib here: git_commit and gpg_sig could exceed the
@@ -48,14 +51,42 @@ def write_ascii_armored(timestamp, fd, minor_version):
     fd.write(ASCII_ARMOR_FOOTER)
 
 
-def deserialize_ascii_armored_timestamp(git_commit, gpg_sig):
+def find_stamp_start(gpg_sig):
+    """Find where the timestamp starts in a signature carrying one
+
+    The signature must be a single PGP armor block followed by a single
+    OpenTimestamps armor block that ends it. Everything before the returned
+    offset is what the timestamp covers, and is all that GnuPG may see.
+
+    Returns None if gpg_sig does not have that form.
+    """
     stamp_start = gpg_sig.find(ASCII_ARMOR_HEADER)
     if stamp_start == -1:
+        return None
+
+    if gpg_sig.find(ASCII_ARMOR_HEADER, stamp_start + 1) != -1:
+        return None
+
+    stamp_end = gpg_sig.find(b'\n' + ASCII_ARMOR_FOOTER)
+    if stamp_end == -1 or stamp_end + 1 + len(ASCII_ARMOR_FOOTER) != len(gpg_sig):
+        return None
+
+    pgp_sig = gpg_sig[0:stamp_start]
+    if (not pgp_sig.startswith(PGP_ARMOR_HEADER)
+            or not pgp_sig.endswith(PGP_ARMOR_FOOTER)
+            or pgp_sig.count(PGP_ARMOR_HEADER) != 1
+            or pgp_sig.count(PGP_ARMOR_FOOTER) != 1):
+        return None
+
+    return stamp_start
+
+
+def deserialize_ascii_armored_timestamp(git_commit, gpg_sig):
+    stamp_start = find_stamp_start(gpg_sig)
+    if stamp_start is None:
         return None, None, None
 
     stamp_end = gpg_sig.find(b'\n' + ASCII_ARMOR_FOOTER)
-    if stamp_end == -1:
-        return None, None, None
 
     base64_encoded_stamp = gpg_sig[stamp_start + len(ASCII_ARMOR_HEADER):stamp_end]
 

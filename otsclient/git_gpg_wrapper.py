@@ -9,6 +9,7 @@
 # modified, propagated, or distributed except according to the terms contained
 # in the LICENSE file.
 
+import os
 import sys
 
 import argparse
@@ -16,6 +17,7 @@ import base64
 import bitcoin
 import logging
 import subprocess
+import tempfile
 
 import git
 from opentimestamps.core.git import GitTreeTimestamper
@@ -25,7 +27,7 @@ from opentimestamps.core.op import OpAppend, OpSHA256
 from opentimestamps.core.serialize import BytesSerializationContext, BytesDeserializationContext
 
 import otsclient.args
-from otsclient.git import hash_signed_commit, write_ascii_armored, deserialize_ascii_armored_timestamp
+from otsclient.git import hash_signed_commit, write_ascii_armored, deserialize_ascii_armored_timestamp, find_stamp_start
 
 def main():
     parser = otsclient.args.make_common_options_arg_parser()
@@ -155,9 +157,19 @@ def main():
                     logging.warning("Could not verify timestamp!")
             sys.stderr.flush()
 
-            logging.debug("Running GnuPG binary: %r" % ([args.gpg_program] + args.gpgargs))
-            with subprocess.Popen([args.gpg_program] + args.gpgargs, stdin=subprocess.PIPE) as gpg_proc:
-                gpg_proc.stdin.write(git_commit)
-                gpg_proc.stdin.close()
+            # GnuPG must see exactly the bytes the timestamp covers.
+            stamp_start = find_stamp_start(gpg_sig)
+            with tempfile.TemporaryDirectory() as tmpdir:
+                gpg_args = args.gpgargs
+                if stamp_start is not None:
+                    covered_sig_path = os.path.join(tmpdir, 'sig')
+                    with open(covered_sig_path, 'xb') as covered_sig_fd:
+                        covered_sig_fd.write(gpg_sig[0:stamp_start])
+                    gpg_args = [covered_sig_path if arg == gpgargs.verify else arg for arg in gpg_args]
+
+                logging.debug("Running GnuPG binary: %r" % ([args.gpg_program] + gpg_args))
+                with subprocess.Popen([args.gpg_program] + gpg_args, stdin=subprocess.PIPE) as gpg_proc:
+                    gpg_proc.stdin.write(git_commit)
+                    gpg_proc.stdin.close()
 
 # vim:syntax=python filetype=python
