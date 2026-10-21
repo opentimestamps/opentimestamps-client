@@ -47,6 +47,10 @@ from otsclient.headers import (
     VERIFY_CACHE_MAGIC,
     VERIFY_CACHE_FILE_HEADER_SIZE,
     VERIFY_CACHE_RECORD_SIZE,
+    CHECKPOINTS,
+    HeaderNotVerified,
+    check_archive_anchors,
+    check_archive_anchor,
 )
 
 
@@ -678,7 +682,8 @@ class TestLocalVerifyCacheHeaderSource(unittest.TestCase):
         c = VerifyCache(self.cache_path)
         c.create('mainnet')
         c.add(0, self.genesis)
-        src = LocalVerifyCacheHeaderSource(c)
+        # A record is returned only when the user's archive agrees with it.
+        src = LocalVerifyCacheHeaderSource(c, cross_check=_MockHeaderSource({0: self.genesis}))
         out = src.get_header_at_height(0)
         self.assertEqual(out.serialize(), self.genesis.serialize())
 
@@ -1018,6 +1023,412 @@ class TestWalkValidateArchive(unittest.TestCase):
         a.create('mainnet', 0)
         with self.assertRaises(HeaderArchiveNetworkMismatch):
             _walk_validate_archive(self.path, 'testnet')
+
+
+class TestReadPathProofOfWork(unittest.TestCase):
+    """Headers read from a local file are PoW-checked on READ, not only on write.
+
+    Writes a header that fails its own target directly to disk, bypassing the
+    write-path validators, and reads it back -- the test shape that was missing
+    when fametrano reviewed PR #164 (comment 6299632178).
+    """
+
+    def setUp(self):
+        self._tmpdir = tempfile.TemporaryDirectory()
+        self.bad = bitcoin.core.CBlockHeader(
+            nVersion=2, hashPrevBlock=b'\x11' * 32, hashMerkleRoot=b'\x22' * 32,
+            nTime=1420070400, nBits=0x1d00ffff, nNonce=0)
+
+    def tearDown(self):
+        self._tmpdir.cleanup()
+
+    def test_dense_archive_rejects_bad_pow_on_read(self):
+        p = os.path.join(self._tmpdir.name, 'bad.bin')
+        a = HeaderArchive(p)
+        a.create('mainnet', 967692)
+        with open(p, 'ab') as fd:  # bypass append_header's validation
+            fd.write(self.bad.serialize())
+        with self.assertRaises(HeaderArchiveChainError) as ctx:
+            a.get_header_at_height(967692)
+        self.assertIn('proof-of-work', str(ctx.exception))
+
+    def test_sparse_cache_rejects_bad_pow_on_read(self):
+        p = os.path.join(self._tmpdir.name, 'bad-cache.bin')
+        c = VerifyCache(p)
+        c.create('mainnet')
+        with open(p, 'ab') as fd:  # bypass VerifyCache.add's validation
+            fd.write((967692).to_bytes(4, 'little') + self.bad.serialize())
+        with self.assertRaises(HeaderArchiveChainError) as ctx:
+            c.get(967692)
+        self.assertIn('proof-of-work', str(ctx.exception))
+
+    def test_genuine_header_still_reads(self):
+        p = os.path.join(self._tmpdir.name, 'ok.bin')
+        a = HeaderArchive(p)
+        a.create('mainnet', 0)
+        a.append_header(genesis_header())
+        self.assertEqual(a.get_header_at_height(0).serialize(),
+                         genesis_header().serialize())
+
+
+# Real mainnet headers at heights 1 and 2 (80 bytes each), for archives
+# that chain from genesis in tests.
+MAINNET_BLOCK1 = bytes.fromhex(
+    '010000006fe28c0ab6f1b372c1a6a246ae63f74f931e8365e15a089c68d6190000000000'
+    '982051fd1e4ba744bbbe680e1fee14677ba1a3c3540bf7b1cdb606e857233e0e61bc6649'
+    'ffff001d01e36299')
+MAINNET_BLOCK2 = bytes.fromhex(
+    '010000004860eb18bf1b1620e37e9490fc8a427514416fd75159ab86688e9a8300000000'
+    'd5fdcc541e25de1c7a5addedf24858b8bb665c9f36ef744ee42c316022c90f9bb0bc6649'
+    'ffff001d08d2bd61')
+
+
+def _raw_archive(path, network, start_height, raw_headers):
+    """An archive with `raw_headers` (bytes) written straight to disk."""
+    a = HeaderArchive(path)
+    a.create(network, start_height)
+    with open(path, 'ab') as fd:
+        for raw in raw_headers:
+            fd.write(raw)
+    return a
+
+
+class TestArchiveAnchor(unittest.TestCase):
+    """A dense archive is bound to the chain when read: header 0 is the real
+    genesis, the shipped checkpoint matches where the archive reaches it, and
+    PoW + continuity hold between the nearest anchor and the height read."""
+
+    def setUp(self):
+        self._tmpdir = tempfile.TemporaryDirectory()
+        self.genesis = genesis_header().serialize()
+        self.block1 = bitcoin.core.CBlockHeader.deserialize(MAINNET_BLOCK1)
+        self.block2 = bitcoin.core.CBlockHeader.deserialize(MAINNET_BLOCK2)
+
+    def tearDown(self):
+        self._tmpdir.cleanup()
+
+    def path(self, name):
+        return os.path.join(self._tmpdir.name, name)
+
+    def test_genesis_archive_passes(self):
+        a = _raw_archive(self.path('g.bin'), 'mainnet', 0, [self.genesis])
+        self.assertEqual(check_archive_anchors(a), 0)
+        check_archive_anchor(a, 0)
+
+    def test_archive_not_starting_at_zero_refused(self):
+        a = _raw_archive(self.path('p.bin'), 'mainnet', 5, [self.genesis])
+        with self.assertRaises(HeaderArchiveChainError) as ctx:
+            LocalArchiveHeaderSource(a).get_header_at_height(5)
+        self.assertIn('does not start at genesis', str(ctx.exception))
+
+    def test_wrong_genesis_refused(self):
+        bitcoin.SelectParams('testnet')
+        try:
+            other = genesis_header().serialize()
+        finally:
+            bitcoin.SelectParams('mainnet')
+        a = _raw_archive(self.path('w.bin'), 'mainnet', 0, [other])
+        with self.assertRaises(HeaderArchiveChainError) as ctx:
+            check_archive_anchors(a)
+        self.assertIn('not the mainnet genesis', str(ctx.exception))
+
+    def test_checkpoint_match_binds_and_walks(self):
+        a = _raw_archive(self.path('c.bin'), 'mainnet', 0,
+                         [self.genesis, MAINNET_BLOCK1, MAINNET_BLOCK2])
+        with mock.patch.dict(CHECKPOINTS, {'mainnet': (2, self.block2.GetHash())}):
+            self.assertEqual(check_archive_anchors(a), 2)
+            hdr = LocalArchiveHeaderSource(a).get_header_at_height(1)
+        self.assertEqual(hdr.GetHash(), self.block1.GetHash())
+
+    def test_checkpoint_mismatch_refused(self):
+        a = _raw_archive(self.path('m.bin'), 'mainnet', 0,
+                         [self.genesis, MAINNET_BLOCK1, MAINNET_BLOCK2])
+        with mock.patch.dict(CHECKPOINTS, {'mainnet': (2, b'\x11' * 32)}):
+            with self.assertRaises(HeaderArchiveChainError) as ctx:
+                LocalArchiveHeaderSource(a).get_header_at_height(1)
+        self.assertIn('checkpoint', str(ctx.exception))
+
+    def test_continuity_break_refused_on_read(self):
+        # Block 2 placed at height 1: valid work, does not chain to genesis.
+        a = _raw_archive(self.path('b.bin'), 'mainnet', 0, [self.genesis, MAINNET_BLOCK2])
+        with self.assertRaises(HeaderArchiveChainError) as ctx:
+            LocalArchiveHeaderSource(a).get_header_at_height(1)
+        self.assertIn('continuity breaks at height 1', str(ctx.exception))
+
+    def test_retarget_bound_above_checkpoint(self):
+        # Above the checkpoint a header may be at most 4x easier per period
+        # crossed; a difficulty-1 header after a modern checkpoint is far
+        # outside that, a real header is inside it.
+        from otsclient.headers import max_target_above_checkpoint
+        modern = 0x17034a4f                      # a 2026-era mainnet nBits
+        easiest = bitcoin.core.uint256_from_compact(0x1d00ffff)
+        # Same period: no slack at all.
+        self.assertEqual(max_target_above_checkpoint(960000, modern, 960100),
+                         bitcoin.core.uint256_from_compact(modern))
+        # Two period boundaries crossed: 16x.
+        self.assertEqual(max_target_above_checkpoint(960000, modern, 964521),
+                         bitcoin.core.uint256_from_compact(modern) << 4)
+        self.assertGreater(easiest, max_target_above_checkpoint(960000, modern, 964521))
+
+    def test_easy_header_above_checkpoint_refused_before_pow(self):
+        # The bound is checked before PoW, so a header that merely declares
+        # an easy target is refused by name even if it has no valid work.
+        from otsclient.headers import _walk_range
+        a = _raw_archive(self.path('t.bin'), 'mainnet', 0,
+                         [self.genesis, MAINNET_BLOCK1, MAINNET_BLOCK2])
+        modern = 0x17034a4f
+        with self.assertRaises(HeaderArchiveChainError) as ctx:
+            _walk_range(a, 1, 2, bound=(1, modern))
+        self.assertIn('easier target', str(ctx.exception))
+        self.assertIn('height 2', str(ctx.exception))
+
+    def test_partial_archive_without_anchor_has_none(self):
+        # Starts above genesis and does not reach the checkpoint: nothing
+        # binds it, so it is not an archive but supplied headers.
+        a = _raw_archive(self.path('p.bin'), 'mainnet', 1, [MAINNET_BLOCK1, MAINNET_BLOCK2])
+        from otsclient.headers import archive_has_anchor
+        self.assertFalse(archive_has_anchor(a))
+        with self.assertRaises(HeaderArchiveChainError) as ctx:
+            check_archive_anchors(a)
+        self.assertIn('no anchor', str(ctx.exception))
+
+    def test_partial_archive_covering_checkpoint_is_anchored_there(self):
+        a = _raw_archive(self.path('pc.bin'), 'mainnet', 1, [MAINNET_BLOCK1, MAINNET_BLOCK2])
+        with mock.patch.dict(CHECKPOINTS, {'mainnet': (2, self.block2.GetHash())}):
+            from otsclient.headers import archive_has_anchor
+            self.assertTrue(archive_has_anchor(a))
+            self.assertEqual(check_archive_anchors(a), 2)
+            hdr = LocalArchiveHeaderSource(a).get_header_at_height(1)
+        self.assertEqual(hdr.GetHash(), self.block1.GetHash())
+
+    def test_bootstrap_refuses_download_without_anchor(self):
+        from otsclient.headers import bootstrap_archive_from_url
+        src = _raw_archive(self.path('served.bin'), 'mainnet', 1, [MAINNET_BLOCK1, MAINNET_BLOCK2])
+        out = self.path('installed.bin')
+        with self.assertRaises(HeaderArchiveChainError) as ctx:
+            bootstrap_archive_from_url('file:///' + src.path.replace('\\', '/'), out, 'mainnet', log=False)
+        self.assertIn('no anchor', str(ctx.exception))
+        self.assertFalse(os.path.exists(out))
+
+
+class TestSidecarRule(unittest.TestCase):
+    """A sparse sidecar record is verified only by equality with the user's
+    archive at that height. Otherwise verify reports it as not verified."""
+
+    def setUp(self):
+        self._tmpdir = tempfile.TemporaryDirectory()
+        self.genesis = genesis_header()
+        p = os.path.join(self._tmpdir.name, 'side.bin')
+        self.cache = VerifyCache(p)
+        self.cache.create('mainnet')
+        self.cache.add(0, self.genesis)
+
+    def tearDown(self):
+        self._tmpdir.cleanup()
+
+    def test_sidecar_alone_is_not_verified(self):
+        with self.assertRaises(HeaderNotVerified) as ctx:
+            LocalVerifyCacheHeaderSource(self.cache).get_header_at_height(0)
+        self.assertEqual(ctx.exception.height, 0)
+        self.assertEqual(ctx.exception.header.GetHash(), self.genesis.GetHash())
+
+    def test_sidecar_beyond_archive_is_not_verified(self):
+        src = LocalVerifyCacheHeaderSource(self.cache, cross_check=_MockHeaderSource({}))
+        with self.assertRaises(HeaderNotVerified):
+            src.get_header_at_height(0)
+
+    def test_sidecar_equal_to_archive_verifies(self):
+        src = LocalVerifyCacheHeaderSource(self.cache, cross_check=_MockHeaderSource({0: self.genesis}))
+        self.assertEqual(src.get_header_at_height(0).GetHash(), self.genesis.GetHash())
+
+    def test_sidecar_disagreeing_with_archive_fails_naming_height(self):
+        other = bitcoin.core.CBlockHeader(
+            nVersion=1, hashPrevBlock=b'\x00' * 32, hashMerkleRoot=b'\x33' * 32,
+            nTime=1, nBits=0x1d00ffff, nNonce=0)
+        src = LocalVerifyCacheHeaderSource(self.cache, cross_check=_MockHeaderSource({0: other}))
+        with self.assertRaises(HeaderArchiveChainError) as ctx:
+            src.get_header_at_height(0)
+        self.assertIn('height 0', str(ctx.exception))
+        self.assertIn('disagrees', str(ctx.exception))
+
+    def test_verify_reports_not_verified_and_fails(self):
+        import types
+        from opentimestamps.core.notary import BitcoinBlockHeaderAttestation
+        from opentimestamps.core.timestamp import Timestamp
+        from otsclient.cmds import verify_timestamp
+        t = Timestamp(self.genesis.hashMerkleRoot)
+        t.attestations.add(BitcoinBlockHeaderAttestation(0))
+        alone = LocalVerifyCacheHeaderSource(self.cache)
+        args = types.SimpleNamespace(cache={}, use_bitcoin=True, calendar_urls=[],
+                                     get_header_source=lambda: alone)
+        with self.assertLogs(level='INFO') as logs:
+            good = verify_timestamp(t, args)
+        self.assertFalse(good)
+        out = '\n'.join(logs.output)
+        self.assertIn('Not verified', out)
+        self.assertNotIn('Success!', out)
+
+        checked = LocalVerifyCacheHeaderSource(self.cache, cross_check=_MockHeaderSource({0: self.genesis}))
+        args.get_header_source = lambda: checked
+        with self.assertLogs(level='INFO') as logs:
+            good = verify_timestamp(t, args)
+        self.assertTrue(good)
+        self.assertRegex('\n'.join(logs.output), r"Success! Bitcoin block 0 attests existence as of .+$")
+
+
+class TestHeadersDispatch(unittest.TestCase):
+    """`--headers PATH` through the real argument parser: what verifies, what
+    is reported as not verified, and what is refused."""
+
+    def setUp(self):
+        import types
+        import otsclient.args
+        self._params = bitcoin.params.NAME
+        self._tmpdir = tempfile.TemporaryDirectory()
+        self.tmp = self._tmpdir.name
+        self.cache_dir = os.path.join(self.tmp, 'cache')
+        os.makedirs(self.cache_dir)
+        self.dummy_ots = os.path.join(self.tmp, 'dummy.ots')
+        with open(self.dummy_ots, 'wb') as fd:
+            fd.write(b'\x00')
+        self._patch = mock.patch.object(
+            otsclient.args, 'APPDIRS', types.SimpleNamespace(user_cache_dir=self.cache_dir))
+        self._patch.start()
+        self._args = []
+        self.genesis = genesis_header()
+
+    def tearDown(self):
+        for a in self._args:
+            a.timestamp_fd.close()
+        self._patch.stop()
+        self._tmpdir.cleanup()
+        bitcoin.SelectParams(self._params)
+
+    def source_for(self, headers_path, net_flag=None):
+        import otsclient.args
+        argv = ['--cache', os.path.join(self.tmp, 'ts-cache')]
+        if net_flag:
+            argv.append(net_flag)
+        argv += ['verify', '--headers', headers_path, self.dummy_ots]
+        args = otsclient.args.parse_ots_args(argv)
+        self._args.append(args)
+        return args.get_header_source()
+
+    def sparse(self, name, network='mainnet'):
+        p = os.path.join(self.tmp, name)
+        c = VerifyCache(p)
+        c.create(network)
+        c.add(0, self.genesis)
+        return p
+
+    def test_sidecar_without_archive_is_not_verified(self):
+        src = self.source_for(self.sparse('side.bin'))
+        with self.assertRaises(HeaderNotVerified):
+            src.get_header_at_height(0)
+
+    def test_sidecar_equal_to_default_archive_verifies(self):
+        _raw_archive(os.path.join(self.cache_dir, 'headers-mainnet.bin'), 'mainnet', 0,
+                     [self.genesis.serialize()])
+        src = self.source_for(self.sparse('side.bin'))
+        self.assertEqual(src.get_header_at_height(0).GetHash(), self.genesis.GetHash())
+
+    def test_sidecar_disagreeing_with_default_archive_fails(self):
+        bitcoin.SelectParams('testnet')
+        other = genesis_header().serialize()
+        bitcoin.SelectParams('mainnet')
+        # The archive holds a different valid-PoW header at height 0 than
+        # the sidecar does. This exercises the mismatch, not the archive's
+        # anchor, so the anchor check is stubbed.
+        _raw_archive(os.path.join(self.cache_dir, 'headers-mainnet.bin'), 'mainnet', 0, [other])
+        src = self.source_for(self.sparse('side.bin'))
+        with mock.patch('otsclient.headers.check_archive_anchor'):
+            with self.assertRaises(HeaderArchiveChainError) as ctx:
+                src.get_header_at_height(0)
+        self.assertIn('disagrees', str(ctx.exception))
+
+    def test_dense_file_without_anchor_is_supplied_headers(self):
+        p = os.path.join(self.tmp, 'partial.bin')
+        _raw_archive(p, 'mainnet', 1, [MAINNET_BLOCK1])
+        src = self.source_for(p)
+        self.assertIsInstance(src, LocalVerifyCacheHeaderSource)
+        with self.assertRaises(HeaderNotVerified):
+            src.get_header_at_height(1)
+
+    def test_regtest_archive_reads_under_regtest_params(self):
+        bitcoin.SelectParams('regtest')
+        g = genesis_header()
+        p = os.path.join(self.tmp, 'regtest.bin')
+        a = HeaderArchive(p)
+        a.create('regtest', 0)
+        a.append_header(g)
+        bitcoin.SelectParams('mainnet')
+        src = self.source_for(p, '--btc-regtest')
+        self.assertEqual(src.get_header_at_height(0).GetHash(), g.GetHash())
+        self.assertEqual(bitcoin.params.NAME, 'regtest')
+
+
+class TestPruneVerifierStates(unittest.TestCase):
+    """`prune --verify` exits 1 on a rejected or unverified header, never with a traceback."""
+
+    def _run(self, source):
+        import types
+        from opentimestamps.core.notary import BitcoinBlockHeaderAttestation
+        from opentimestamps.core.timestamp import Timestamp
+        from otsclient.cmds import verify_all_attestations
+        g = genesis_header()
+        t = Timestamp(g.hashMerkleRoot)
+        t.attestations.add(BitcoinBlockHeaderAttestation(5))
+        args = types.SimpleNamespace(use_bitcoin=True, get_header_source=lambda: source)
+        with self.assertLogs(level='ERROR') as logs:
+            with self.assertRaises(SystemExit) as ctx:
+                verify_all_attestations(t, [BitcoinBlockHeaderAttestation], args)
+        self.assertEqual(ctx.exception.code, 1)
+        return '\n'.join(logs.output)
+
+    def test_rejected_header_exits(self):
+        class Src(BlockHeaderSource):
+            def get_header_at_height(self, height):
+                raise HeaderArchiveChainError("Header at height 5 fails proof-of-work check")
+        self.assertIn('proof-of-work', self._run(Src()))
+
+    def test_unverified_header_exits(self):
+        g = genesis_header()
+
+        class Src(BlockHeaderSource):
+            def get_header_at_height(self, height):
+                raise HeaderNotVerified(height, g, 'side.bin')
+        self.assertIn('not verified', self._run(Src()))
+
+
+class TestAutoFetchBadCacheRecord(unittest.TestCase):
+    """A verify-cache record that fails PoW is bypassed and fetched again."""
+
+    def test_bad_record_is_bypassed(self):
+        with tempfile.TemporaryDirectory() as td:
+            p = os.path.join(td, 'vc.bin')
+            c = VerifyCache(p)
+            c.create('mainnet')
+            bad = bitcoin.core.CBlockHeader(
+                nVersion=2, hashPrevBlock=b'\x11' * 32, hashMerkleRoot=b'\x22' * 32,
+                nTime=1420070400, nBits=0x1d00ffff, nNonce=0)
+            with open(p, 'ab') as fd:
+                fd.write((967692).to_bytes(4, 'little') + bad.serialize())
+            genesis = genesis_header()
+
+            class Fetcher:
+                calls = []
+
+                def fetch_header(self, height):
+                    self.calls.append(height)
+                    return genesis
+
+            f = Fetcher()
+            src = AutoFetchHeaderSource(c, f, 'mainnet', log=False)
+            with self.assertLogs(level='WARNING') as logs:
+                hdr = src.get_header_at_height(967692)
+            self.assertEqual(hdr.GetHash(), genesis.GetHash())
+            self.assertEqual(f.calls, [967692])
+            self.assertIn(p, '\n'.join(logs.output))
 
 
 # vim:syntax=python filetype=python

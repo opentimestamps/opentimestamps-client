@@ -196,6 +196,9 @@ def handle_common_options(args, parser):
         """
         headers_path = getattr(args, 'headers_path', None)
         if headers_path is not None:
+            # CheckProofOfWork() depends on the selected network's params.
+            # The node paths select them in setup_bitcoin().
+            bitcoin.SelectParams(args.btc_net)
             if not os.path.isfile(headers_path):
                 logging.error("Header archive not found: %s" % headers_path)
                 sys.exit(1)
@@ -209,6 +212,23 @@ def handle_common_options(args, parser):
                 logging.error("Could not read header file %s: %s" % (
                     headers_path, exp))
                 sys.exit(1)
+            # Supplied headers (a sparse sidecar, or a dense file with no
+            # anchor) are checked against the archive at the default
+            # location. Without one they are not verified.
+            cross = None
+            default_archive = os.path.join(
+                APPDIRS.user_cache_dir, 'headers-%s.bin' % args.btc_net)
+            if (os.path.isfile(default_archive) and
+                    os.path.abspath(default_archive) != os.path.abspath(headers_path)):
+                ref = otsclient.headers.HeaderArchive(default_archive)
+                try:
+                    ref_net, _s, _c = ref.read_file_header()
+                    if ref_net == args.btc_net:
+                        cross = otsclient.headers.LocalArchiveHeaderSource(ref)
+                        cross.describe = lambda p=default_archive: 'archive %s' % p
+                except otsclient.headers.HeaderArchiveError as exp:
+                    logging.debug("Not cross-checking against %s: %s" % (
+                        default_archive, exp))
             if magic == otsclient.headers.ARCHIVE_MAGIC:
                 archive = otsclient.headers.HeaderArchive(headers_path)
                 try:
@@ -221,7 +241,12 @@ def handle_common_options(args, parser):
                         "Header archive network %r does not match selected network %r" % (
                             archive_network, args.btc_net))
                     sys.exit(1)
-                return otsclient.headers.LocalArchiveHeaderSource(archive)
+                if otsclient.headers.archive_has_anchor(archive):
+                    return otsclient.headers.LocalArchiveHeaderSource(archive)
+                logging.debug("Header archive %s has no anchor; treating its headers "
+                              "as supplied" % headers_path)
+                return otsclient.headers.LocalVerifyCacheHeaderSource(
+                    archive, cross_check=cross)
             elif magic == otsclient.headers.VERIFY_CACHE_MAGIC:
                 cache = otsclient.headers.VerifyCache(headers_path)
                 try:
@@ -234,7 +259,8 @@ def handle_common_options(args, parser):
                         "Header sidecar network %r does not match selected network %r" % (
                             cache_network, args.btc_net))
                     sys.exit(1)
-                return otsclient.headers.LocalVerifyCacheHeaderSource(cache)
+                return otsclient.headers.LocalVerifyCacheHeaderSource(
+                    cache, cross_check=cross)
             else:
                 logging.error(
                     "Header file %s has unrecognized magic %r; expected "

@@ -430,6 +430,10 @@ def upgrade_command(args):
             sys.exit(1)
 
 
+def _attested_time_str(attested_time):
+    return time.strftime('%Y-%m-%d %H:%M:%S %Z', time.localtime(attested_time))
+
+
 def verify_timestamp(timestamp, args):
     args.calendar_urls = []
     upgrade_timestamp(timestamp, args)
@@ -464,6 +468,32 @@ def verify_timestamp(timestamp, args):
             except ConnectionError as exp:
                 logging.error("Could not connect to header source: %s" % exp)
                 continue
+            except otsclient.headers.HeaderNotVerified as exp:
+                # The header came from a sidecar and nothing confirmed it.
+                # Say what it would attest, and that it is not verified.
+                try:
+                    attested_time = attestation.verify_against_blockheader(msg, exp.header)
+                except VerificationError as err:
+                    logging.error("Bitcoin verification failed: %s" % str(err))
+                    continue
+                logging.error(
+                    "Bitcoin block %d would attest existence as of %s, but its header "
+                    "was supplied by %s and not checked against a header archive. "
+                    "Not verified. To verify: ots headers fetch --p2p, then run verify "
+                    "again; or verify with --bitcoin-node URL." % (
+                        attestation.height, _attested_time_str(attested_time), exp.path))
+                continue
+            except otsclient.headers.HeaderArchiveError as exp:
+                # A local header file that fails validation on read (bad
+                # proof-of-work, corrupt record, network mismatch). Never
+                # verify against it.
+                logging.error("Header source rejected block %d: %s" % (
+                    attestation.height, exp))
+                continue
+            except OSError as exp:
+                # Unreadable local header file, e.g. permission denied.
+                logging.error("Could not read header source: %s" % exp)
+                continue
 
             logging.debug("Attestation block hash: %s" % b2lx(block_header.GetHash()))
 
@@ -474,9 +504,7 @@ def verify_timestamp(timestamp, args):
                 continue
 
             logging.info("Success! Bitcoin block %d attests existence as of %s" %
-                            (attestation.height,
-                             time.strftime('%Y-%m-%d %H:%M:%S %Z',
-                                          time.localtime(attested_time))))
+                            (attestation.height, _attested_time_str(attested_time)))
             good = True
 
             # One Bitcoin attestation is enough
@@ -557,6 +585,16 @@ def verify_all_attestations(timestamp, attestations_to_verify, args):
                     sys.exit(1)
                 except ConnectionError as exp:
                     logging.error("Could not connect to header source: %s" % exp)
+                    sys.exit(1)
+                except otsclient.headers.HeaderNotVerified as exp:
+                    logging.error("%s; not verified" % exp)
+                    sys.exit(1)
+                except otsclient.headers.HeaderArchiveError as exp:
+                    logging.error("Header source rejected block %d: %s" % (
+                        attestation.height, exp))
+                    sys.exit(1)
+                except OSError as exp:
+                    logging.error("Could not read header source: %s" % exp)
                     sys.exit(1)
                 except VerificationError as err:
                     logging.error("Bitcoin verification failed: %s" % str(err))
