@@ -17,11 +17,12 @@
 * `ots headers fetch <file>.ots` writes a sidecar holding the headers a
   proof names, next to the `.ots`.
 * Archives are validated when read, not only when written: proof-of-work
-  on every header, the real genesis block or the shipped checkpoint as
-  the anchor, continuity from there to the attested height, and above the
-  checkpoint Bitcoin's retarget bound on each header's target. A sidecar
-  verifies only against the user's own archive. With no archive to check
-  it against, `verify` reports it as not verified and exits 1.
+  on every header, the real genesis block and the shipped checkpoint where
+  the archive reaches it, continuity between the checkpoint and the
+  attested height, and above the checkpoint Bitcoin's retarget bound on
+  each header's target. A sidecar verifies only against the user's own
+  archive. With no archive to check it against, `verify` reports it as
+  not verified and exits 1.
 * The default archive path is now `<cache_dir>/headers-<network>.bin`.
   Rename an existing `headers.bin` to keep using it.
 * `--headers` now selects the network's parameters, so regtest archives

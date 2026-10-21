@@ -404,8 +404,13 @@ def check_archive_anchor(archive, height):
     """Bind a read of `height` from `archive` to the chain.
 
     Checks the anchors (check_archive_anchors), then walks PoW and
-    continuity from the nearest anchor -- genesis, or the checkpoint when
-    the archive reaches it -- to `height`. Raises HeaderArchiveChainError.
+    continuity between `height` and the checkpoint, or from genesis when
+    the archive does not reach the checkpoint. Raises HeaderArchiveChainError.
+
+    Genesis is never used as the walk's anchor when the checkpoint is
+    present. A walk up from genesis that stops at `height` never has to
+    reach the checkpoint, so a forged header just above genesis would pass
+    on its own difficulty-1 work.
     """
     st = os.stat(archive.path)
     key = (os.path.abspath(archive.path), st.st_size, st.st_mtime_ns)
@@ -413,7 +418,7 @@ def check_archive_anchor(archive, height):
     if entry is None:
         checkpoint_height = check_archive_anchors(archive)
         network, start_height, _count = archive.read_file_header()
-        ranges = [(0, 0)] if start_height == 0 else []
+        ranges = [(0, 0)] if start_height == 0 and not checkpoint_height else []
         bound = None
         if checkpoint_height:
             ranges.append((checkpoint_height, checkpoint_height))

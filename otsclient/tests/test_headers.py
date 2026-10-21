@@ -1077,6 +1077,12 @@ MAINNET_BLOCK1 = bytes.fromhex(
     '010000006fe28c0ab6f1b372c1a6a246ae63f74f931e8365e15a089c68d6190000000000'
     '982051fd1e4ba744bbbe680e1fee14677ba1a3c3540bf7b1cdb606e857233e0e61bc6649'
     'ffff001d01e36299')
+# A difficulty-1 header on top of genesis, mined for the test below (2^32
+# expected hashes). Valid work, not on the chain: block 2 does not follow it.
+FORGED_BLOCK1 = bytes.fromhex(
+    '010000006fe28c0ab6f1b372c1a6a246ae63f74f931e8365e15a089c68d61900000000'
+    '0059ea0ded2446e1d1e0bbcecd29bb34481bb672fbde1e9a4f274288497291d33e7604'
+    'd96affff001dddf92778')
 MAINNET_BLOCK2 = bytes.fromhex(
     '010000004860eb18bf1b1620e37e9490fc8a427514416fd75159ab86688e9a8300000000'
     'd5fdcc541e25de1c7a5addedf24858b8bb665c9f36ef744ee42c316022c90f9bb0bc6649'
@@ -1096,7 +1102,8 @@ def _raw_archive(path, network, start_height, raw_headers):
 class TestArchiveAnchor(unittest.TestCase):
     """A dense archive is bound to the chain when read: header 0 is the real
     genesis, the shipped checkpoint matches where the archive reaches it, and
-    PoW + continuity hold between the nearest anchor and the height read."""
+    PoW + continuity hold between the checkpoint and the height read (or
+    from genesis when the archive stops short of the checkpoint)."""
 
     def setUp(self):
         self._tmpdir = tempfile.TemporaryDirectory()
@@ -1147,6 +1154,21 @@ class TestArchiveAnchor(unittest.TestCase):
             with self.assertRaises(HeaderArchiveChainError) as ctx:
                 LocalArchiveHeaderSource(a).get_header_at_height(1)
         self.assertIn('checkpoint', str(ctx.exception))
+
+    def test_forged_block_below_checkpoint_refused(self):
+        # Real genesis, then a mined difficulty-1 header on top of it, then
+        # the real block 2 as the checkpoint. The forged header has valid
+        # work of its own, so only a walk that reaches the checkpoint can
+        # refuse it: block 2's prev-hash is not the forged block's hash.
+        forged = bitcoin.core.CBlockHeader.deserialize(FORGED_BLOCK1)
+        self.assertEqual(forged.hashPrevBlock, genesis_header().GetHash())
+        bitcoin.core.CheckProofOfWork(forged.GetHash(), forged.nBits)
+        a = _raw_archive(self.path('f.bin'), 'mainnet', 0,
+                         [self.genesis, FORGED_BLOCK1, MAINNET_BLOCK2])
+        with mock.patch.dict(CHECKPOINTS, {'mainnet': (2, self.block2.GetHash())}):
+            with self.assertRaises(HeaderArchiveChainError) as ctx:
+                LocalArchiveHeaderSource(a).get_header_at_height(1)
+        self.assertIn('continuity breaks at height 2', str(ctx.exception))
 
     def test_continuity_break_refused_on_read(self):
         # Block 2 placed at height 1: valid work, does not chain to genesis.
