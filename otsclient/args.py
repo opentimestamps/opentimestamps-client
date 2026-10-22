@@ -308,8 +308,22 @@ def handle_common_options(args, parser):
             cache = otsclient.headers.VerifyCache(cache_path)
 
         fetcher = otsclient.headers.HeaderFetcher(sources)
+
+        # The user's own anchored archive answers first for any height it
+        # covers. Only heights above it go to the cache and the explorers.
+        archive_source = None
+        default_archive = os.path.join(
+            APPDIRS.user_cache_dir, 'headers-%s.bin' % args.btc_net)
+        if os.path.isfile(default_archive):
+            ref = otsclient.headers.HeaderArchive(default_archive)
+            try:
+                ref_net, _s, _c = ref.read_file_header()
+                if ref_net == args.btc_net and otsclient.headers.archive_has_anchor(ref):
+                    archive_source = otsclient.headers.LocalArchiveHeaderSource(ref)
+            except otsclient.headers.HeaderArchiveError as exp:
+                logging.debug("Not reading %s first: %s" % (default_archive, exp))
         return otsclient.headers.AutoFetchHeaderSource(
-            cache, fetcher, args.btc_net)
+            cache, fetcher, args.btc_net, archive=archive_source)
 
     args.get_header_source = get_header_source
 

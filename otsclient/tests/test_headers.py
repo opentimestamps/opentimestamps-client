@@ -193,10 +193,19 @@ class TestHeaderArchive(unittest.TestCase):
             a.read_file_header()
 
 
+def _checkpoint_at_genesis():
+    """Patch the mainnet checkpoint to genesis itself, so a one-header test
+    archive is anchored. Returns the started patcher."""
+    p = mock.patch.dict(CHECKPOINTS, {'mainnet': (0, genesis_header().GetHash())})
+    p.start()
+    return p
+
+
 class TestLocalArchiveHeaderSource(unittest.TestCase):
 
     def setUp(self):
         self._tmpdir = tempfile.TemporaryDirectory()
+        self._cp = _checkpoint_at_genesis()
         self.archive_path = os.path.join(self._tmpdir.name, 'test.headers.bin')
         self.archive = HeaderArchive(self.archive_path)
         self.archive.create('mainnet', 0)
@@ -204,6 +213,7 @@ class TestLocalArchiveHeaderSource(unittest.TestCase):
         self.source = LocalArchiveHeaderSource(self.archive)
 
     def tearDown(self):
+        self._cp.stop()
         self._tmpdir.cleanup()
 
     def test_get_header_at_known_height(self):
@@ -849,6 +859,7 @@ class TestBootstrapFromUrl(unittest.TestCase):
 
     def setUp(self):
         self._tmpdir = tempfile.TemporaryDirectory()
+        self._cp = _checkpoint_at_genesis()
         self.output_path = os.path.join(self._tmpdir.name, 'headers.bin')
         self.genesis = genesis_header()
 
@@ -866,6 +877,7 @@ class TestBootstrapFromUrl(unittest.TestCase):
         self.valid_sha256 = hashlib.sha256(self.valid_archive_bytes).hexdigest()
 
     def tearDown(self):
+        self._cp.stop()
         self._tmpdir.cleanup()
 
     def _patch_urlopen(self, body):
@@ -1117,16 +1129,29 @@ class TestArchiveAnchor(unittest.TestCase):
     def path(self, name):
         return os.path.join(self._tmpdir.name, name)
 
-    def test_genesis_archive_passes(self):
+    def test_genesis_archive_passes_without_a_checkpoint(self):
+        # Genesis is the anchor only on a network with no checkpoint.
         a = _raw_archive(self.path('g.bin'), 'mainnet', 0, [self.genesis])
-        self.assertEqual(check_archive_anchors(a), 0)
-        check_archive_anchor(a, 0)
+        with mock.patch.dict(CHECKPOINTS, {}, clear=True):
+            self.assertEqual(check_archive_anchors(a), 0)
+            check_archive_anchor(a, 0)
+
+    def test_archive_below_checkpoint_is_not_anchored(self):
+        # Real genesis, then a mined difficulty-1 header, and the file ends
+        # there. Every header passes its own proof-of-work and the chain to
+        # genesis holds, so only the missing checkpoint can refuse it.
+        from otsclient.headers import archive_has_anchor
+        a = _raw_archive(self.path('s.bin'), 'mainnet', 0, [self.genesis, FORGED_BLOCK1])
+        self.assertFalse(archive_has_anchor(a))
+        with self.assertRaises(HeaderArchiveChainError) as ctx:
+            LocalArchiveHeaderSource(a).get_header_at_height(1)
+        self.assertIn('does not reach the shipped checkpoint', str(ctx.exception))
 
     def test_archive_not_starting_at_zero_refused(self):
         a = _raw_archive(self.path('p.bin'), 'mainnet', 5, [self.genesis])
         with self.assertRaises(HeaderArchiveChainError) as ctx:
             LocalArchiveHeaderSource(a).get_header_at_height(5)
-        self.assertIn('does not start at genesis', str(ctx.exception))
+        self.assertIn('does not reach the shipped checkpoint', str(ctx.exception))
 
     def test_wrong_genesis_refused(self):
         bitcoin.SelectParams('testnet')
@@ -1172,35 +1197,39 @@ class TestArchiveAnchor(unittest.TestCase):
 
     def test_continuity_break_refused_on_read(self):
         # Block 2 placed at height 1: valid work, does not chain to genesis.
+        # Checked on the genesis walk, which only a network with no
+        # checkpoint still uses.
         a = _raw_archive(self.path('b.bin'), 'mainnet', 0, [self.genesis, MAINNET_BLOCK2])
-        with self.assertRaises(HeaderArchiveChainError) as ctx:
-            LocalArchiveHeaderSource(a).get_header_at_height(1)
+        with mock.patch.dict(CHECKPOINTS, {}, clear=True):
+            with self.assertRaises(HeaderArchiveChainError) as ctx:
+                LocalArchiveHeaderSource(a).get_header_at_height(1)
         self.assertIn('continuity breaks at height 1', str(ctx.exception))
 
-    def test_retarget_bound_above_checkpoint(self):
-        # Above the checkpoint a header may be at most 4x easier per period
-        # crossed; a difficulty-1 header after a modern checkpoint is far
-        # outside that, a real header is inside it.
-        from otsclient.headers import max_target_above_checkpoint
+    def test_target_allowed_after_follows_the_previous_header(self):
+        # Inside a period the target must not change at all. At a period
+        # boundary it may ease by at most 4x. A difficulty-1 target after a
+        # modern one is refused either way, however old the checkpoint is.
+        from otsclient.headers import target_allowed_after
         modern = 0x17034a4f                      # a 2026-era mainnet nBits
-        easiest = bitcoin.core.uint256_from_compact(0x1d00ffff)
-        # Same period: no slack at all.
-        self.assertEqual(max_target_above_checkpoint(960000, modern, 960100),
-                         bitcoin.core.uint256_from_compact(modern))
-        # Two period boundaries crossed: 16x.
-        self.assertEqual(max_target_above_checkpoint(960000, modern, 964521),
-                         bitcoin.core.uint256_from_compact(modern) << 4)
-        self.assertGreater(easiest, max_target_above_checkpoint(960000, modern, 964521))
+        self.assertTrue(target_allowed_after(modern, modern, 960100))
+        self.assertFalse(target_allowed_after(modern, 0x17034a50, 960100))
+        four_x = bitcoin.core.compact_from_uint256(
+            bitcoin.core.uint256_from_compact(modern) * 4)
+        self.assertTrue(target_allowed_after(modern, four_x, 961632))
+        self.assertFalse(target_allowed_after(modern, 0x1d00ffff, 961632))
+        self.assertFalse(target_allowed_after(modern, 0x1d00ffff, 960000 + 24 * 2016))
 
     def test_easy_header_above_checkpoint_refused_before_pow(self):
-        # The bound is checked before PoW, so a header that merely declares
-        # an easy target is refused by name even if it has no valid work.
+        # The rule is checked before PoW, so a header that merely declares
+        # a different target mid-period is refused by name even if it has
+        # no valid work. Block 2 with its nBits altered, after block 1.
         from otsclient.headers import _walk_range
+        altered = bytearray(MAINNET_BLOCK2)
+        altered[72:76] = (0x1d00fffe).to_bytes(4, 'little')
         a = _raw_archive(self.path('t.bin'), 'mainnet', 0,
-                         [self.genesis, MAINNET_BLOCK1, MAINNET_BLOCK2])
-        modern = 0x17034a4f
+                         [self.genesis, MAINNET_BLOCK1, bytes(altered)])
         with self.assertRaises(HeaderArchiveChainError) as ctx:
-            _walk_range(a, 1, 2, bound=(1, modern))
+            _walk_range(a, 1, 2, rule_above=1)
         self.assertIn('easier target', str(ctx.exception))
         self.assertIn('height 2', str(ctx.exception))
 
@@ -1212,7 +1241,7 @@ class TestArchiveAnchor(unittest.TestCase):
         self.assertFalse(archive_has_anchor(a))
         with self.assertRaises(HeaderArchiveChainError) as ctx:
             check_archive_anchors(a)
-        self.assertIn('no anchor', str(ctx.exception))
+        self.assertIn('does not reach the shipped checkpoint', str(ctx.exception))
 
     def test_partial_archive_covering_checkpoint_is_anchored_there(self):
         a = _raw_archive(self.path('pc.bin'), 'mainnet', 1, [MAINNET_BLOCK1, MAINNET_BLOCK2])
@@ -1223,13 +1252,78 @@ class TestArchiveAnchor(unittest.TestCase):
             hdr = LocalArchiveHeaderSource(a).get_header_at_height(1)
         self.assertEqual(hdr.GetHash(), self.block1.GetHash())
 
+    def test_append_refuses_what_read_refuses(self):
+        # A header verify would refuse is never written: the wrong block at
+        # the checkpoint height, and above the checkpoint a target the rule
+        # does not allow. Both leave the file as it was.
+        a = _raw_archive(self.path('w.bin'), 'mainnet', 0, [self.genesis, MAINNET_BLOCK1])
+        with mock.patch.dict(CHECKPOINTS, {'mainnet': (2, b'\x11' * 32)}):
+            with self.assertRaises(HeaderArchiveChainError) as ctx:
+                a.append_header(self.block2)
+        self.assertIn('does not match the shipped checkpoint', str(ctx.exception))
+        raw = bytearray(MAINNET_BLOCK2)
+        raw[72:76] = (0x1d00fffe).to_bytes(4, 'little')
+        altered = bitcoin.core.CBlockHeader.deserialize(bytes(raw))
+        with mock.patch.dict(CHECKPOINTS, {'mainnet': (1, self.block1.GetHash())}):
+            with self.assertRaises(HeaderArchiveChainError) as ctx:
+                a.append_header(altered)
+        self.assertIn('easier target', str(ctx.exception))
+        self.assertEqual(a.read_file_header()[2], 2)
+
+    def test_no_flag_path_reads_covered_heights_from_archive(self):
+        # A record planted in the verify cache (it is a sidecar by another
+        # name) is never read for a height the user's archive covers. Above
+        # the archive the fetcher is asked, as before.
+        from otsclient.headers import AutoFetchHeaderSource
+        forged = bitcoin.core.CBlockHeader.deserialize(FORGED_BLOCK1)
+        cache = VerifyCache(self.path('verify-cache-mainnet.bin'))
+        cache.create('mainnet')
+        cache.add(1, forged)
+
+        class Fetcher:
+            asked = []
+
+            def fetch_header(self, height):
+                self.asked.append(height)
+                raise ConnectionError('offline')
+
+        a = _raw_archive(self.path('arch.bin'), 'mainnet', 0,
+                         [self.genesis, MAINNET_BLOCK1, MAINNET_BLOCK2])
+        with mock.patch.dict(CHECKPOINTS, {'mainnet': (2, self.block2.GetHash())}):
+            src = AutoFetchHeaderSource(cache, Fetcher(), 'mainnet', log=False,
+                                        archive=LocalArchiveHeaderSource(a))
+            self.assertEqual(src.get_header_at_height(1).GetHash(), self.block1.GetHash())
+            with self.assertRaises(ConnectionError):
+                src.get_header_at_height(5)
+        self.assertEqual(Fetcher.asked, [5])
+
+    def test_swapped_archive_is_walked_again(self):
+        # After an honest file has been walked, a forged file of the same
+        # size is swapped in under the path with the old mtime. The read
+        # must not hand back the forged header from the stale walk: the
+        # new file is walked and refused.
+        honest = [self.genesis, MAINNET_BLOCK1, MAINNET_BLOCK2]
+        forged = [self.genesis, FORGED_BLOCK1, MAINNET_BLOCK2]
+        p = self.path('swap.bin')
+        a = _raw_archive(p, 'mainnet', 0, honest)
+        with mock.patch.dict(CHECKPOINTS, {'mainnet': (2, self.block2.GetHash())}):
+            self.assertEqual(LocalArchiveHeaderSource(a).get_header_at_height(1).GetHash(),
+                             self.block1.GetHash())
+            st = os.stat(p)
+            _raw_archive(self.path('forged.bin'), 'mainnet', 0, forged)
+            os.replace(self.path('forged.bin'), p)
+            os.utime(p, ns=(st.st_atime_ns, st.st_mtime_ns))
+            with self.assertRaises(HeaderArchiveChainError) as ctx:
+                LocalArchiveHeaderSource(a).get_header_at_height(1)
+        self.assertIn('continuity breaks at height 2', str(ctx.exception))
+
     def test_bootstrap_refuses_download_without_anchor(self):
         from otsclient.headers import bootstrap_archive_from_url
         src = _raw_archive(self.path('served.bin'), 'mainnet', 1, [MAINNET_BLOCK1, MAINNET_BLOCK2])
         out = self.path('installed.bin')
         with self.assertRaises(HeaderArchiveChainError) as ctx:
             bootstrap_archive_from_url('file:///' + src.path.replace('\\', '/'), out, 'mainnet', log=False)
-        self.assertIn('no anchor', str(ctx.exception))
+        self.assertIn('does not reach the shipped checkpoint', str(ctx.exception))
         self.assertFalse(os.path.exists(out))
 
 
@@ -1316,12 +1410,14 @@ class TestHeadersDispatch(unittest.TestCase):
         self._patch = mock.patch.object(
             otsclient.args, 'APPDIRS', types.SimpleNamespace(user_cache_dir=self.cache_dir))
         self._patch.start()
+        self._cp = _checkpoint_at_genesis()
         self._args = []
         self.genesis = genesis_header()
 
     def tearDown(self):
         for a in self._args:
             a.timestamp_fd.close()
+        self._cp.stop()
         self._patch.stop()
         self._tmpdir.cleanup()
         bitcoin.SelectParams(self._params)

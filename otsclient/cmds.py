@@ -887,6 +887,19 @@ def git_extract_command(args):
         sys.exit(1)
 
 
+def _warn_if_archive_stops_short(archive):
+    """Say at fetch time when the archive cannot verify on its own, rather
+    than at the first verify."""
+    network, start_height, header_count = archive.read_file_header()
+    checkpoint = otsclient.headers.CHECKPOINTS.get(network)
+    if checkpoint is None or header_count == 0:
+        return
+    if not (start_height <= checkpoint[0] <= start_height + header_count - 1):
+        logging.warning(
+            "This archive stops short of the shipped checkpoint at height %d and will "
+            "not verify on its own. Run ots headers fetch --p2p to extend it." % checkpoint[0])
+
+
 def headers_fetch_command(args):
     """Fetch Bitcoin block headers into a local archive.
 
@@ -1019,6 +1032,7 @@ def headers_fetch_command(args):
 
     logging.info("Done. Fetched %d header(s); archive now covers %d..%d" % (
         fetched, start_height, until_height))
+    _warn_if_archive_stops_short(archive)
 
 
 def _parse_p2p_peer_spec(spec):
@@ -1069,6 +1083,7 @@ def _headers_fetch_p2p(args, archive):
     end_height = start_height + header_count - 1
     logging.info("Done. Appended %d header(s); archive now covers %d..%d" % (
         appended, start_height, end_height))
+    _warn_if_archive_stops_short(archive)
 
 
 def _default_sidecar_path(ots_files):

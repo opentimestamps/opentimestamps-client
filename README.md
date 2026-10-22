@@ -162,9 +162,12 @@ Then verify against it:
     Success! Bitcoin block 800000 attests existence as of 2023-07-24 02:04:59 UTC
 
 The archive is checked every time it's read. Each header must pass its
-own proof-of-work. The archive must start at the real genesis block or
-contain the shipped checkpoint block, and the headers must chain from
-there to the block the proof names.
+own proof-of-work. The archive must contain the shipped checkpoint
+block, the headers must chain from there to the block the proof names,
+and above the checkpoint each header's difficulty must follow the one
+before it. A file given with `--headers` that stops short of the
+checkpoint is compared with your own archive instead, or reported as
+not verified.
 
 You can also ship the headers a proof needs alongside it. `ots headers
 fetch <file>.ots` writes a small sidecar file next to the `.ots`.

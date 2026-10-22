@@ -16,13 +16,16 @@
   validating it.
 * `ots headers fetch <file>.ots` writes a sidecar holding the headers a
   proof names, next to the `.ots`.
-* Archives are validated when read, not only when written: proof-of-work
-  on every header, the real genesis block and the shipped checkpoint where
-  the archive reaches it, continuity between the checkpoint and the
-  attested height, and above the checkpoint Bitcoin's retarget bound on
-  each header's target. A sidecar verifies only against the user's own
-  archive. With no archive to check it against, `verify` reports it as
-  not verified and exits 1.
+* Archives are validated when read and when written: proof-of-work on
+  every header, the shipped checkpoint block at its height, continuity
+  between the checkpoint and the attested height, and above the
+  checkpoint Bitcoin's difficulty rule from one header to the next. An
+  archive that does not contain the checkpoint height is treated like a
+  sidecar: it verifies only against the user's own archive, and with no
+  archive to check it against `verify` reports it as not verified and
+  exits 1. `fetch` says so when it writes such a file. With no flags,
+  `verify` reads the local archive first and asks explorers only above
+  it.
 * The default archive path is now `<cache_dir>/headers-<network>.bin`.
   Rename an existing `headers.bin` to keep using it.
 * `--headers` now selects the network's parameters, so regtest archives

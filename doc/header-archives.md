@@ -15,15 +15,15 @@ Bitcoin-anchored OpenTimestamps proofs resolve to one specific Bitcoin block's m
 
 Re-running it against an existing archive appends from where the last fetch left off, so a periodic run keeps the archive current. The default path is `<cache_dir>/headers-<network>.bin` and `--output PATH` changes it.
 
-Without `--p2p`, headers come one at a time from public Esplora-compatible explorers with cross-source quorum agreement, where `--until-height N` bounds the range:
+Without `--p2p`, headers come one at a time from public Esplora-compatible explorers with cross-source quorum agreement, where `--since-height N` and `--until-height N` bound the range:
 
-    $ ots headers fetch --until-height 800000
-    Created header archive .../headers-mainnet.bin (network=mainnet, start_height=0)
-    Auto-detected chain tip height 875432 (from 3 source(s))
-    Fetching headers 0..800000 from 3 source(s), quorum=2
+    $ ots headers fetch --since-height 950000
+    Created header archive .../headers-mainnet.bin (network=mainnet, start_height=950000)
+    Auto-detected chain tip height 975432 (from 3 source(s))
+    Fetching headers 950000..975432 from 3 source(s), quorum=2
     ...
 
-Every header appended by either path is checked for proof-of-work and prev-hash continuity.
+Every header appended by either path is checked for proof-of-work and prev-hash continuity, must be the shipped checkpoint block at the checkpoint height, and above the checkpoint must follow Bitcoin's difficulty rule from the header before it. A fetch that stops below the checkpoint says so when it finishes, since such an archive cannot verify on its own (see below).
 
 ## Downloading an archive
 
@@ -41,21 +41,21 @@ The file is validated before install: proof-of-work and continuity for every hea
 
 ## How an archive is checked when verify reads it
 
-Every header read from a local file is checked against its own proof-of-work. A dense archive is also bound to the chain. It must start at the real genesis block, or contain the shipped checkpoint block. Where it holds the checkpoint height, the block there must match. Proof-of-work and prev-hash continuity are then walked between the checkpoint and the attested height, so every header `verify` uses sits on the chain that ends at the checkpoint block. The walk costs about 10 ms per thousand headers and is cached per process. For heights near the checkpoint it takes milliseconds, and for heights near genesis it is one walk of most of the chain, a few seconds, once per process. An archive that stops short of the checkpoint is walked from genesis instead. An archive that fails any of this is refused with the reason.
+Every header read from a local file is checked against its own proof-of-work. A dense archive is also bound to the chain. It must contain the shipped checkpoint block at the checkpoint height, wherever the file starts, and a file that starts at height 0 must start with the real genesis block. Proof-of-work and prev-hash continuity are then walked between the checkpoint and the attested height, so every header `verify` uses sits on the chain that ends at the checkpoint block. The walk costs about 10 ms per thousand headers and is cached per process. For heights near the checkpoint it takes milliseconds, and for heights near genesis it is one walk of most of the chain, a few seconds, once per process. An archive that fails any of this is refused with the reason.
 
-The checkpoint is one `(height, hash)` per network in `otsclient/headers.py`, the same kind of per-network constant Bitcoin Core keeps as `nMinimumChainWork` and `assumevalid`, and that SPV wallets commonly ship as checkpoints. A dense file that neither starts at genesis nor contains the checkpoint (for example a window built with `--since-height`) cannot be bound to the chain. `verify` treats its headers as supplied, exactly like a sidecar.
+The checkpoint is one `(height, hash)` per network in `otsclient/headers.py`, the same kind of per-network constant Bitcoin Core keeps as `nMinimumChainWork` and `assumevalid`, and that SPV wallets commonly ship as checkpoints. A dense file that does not contain the checkpoint height, whether it stops short of it or is a window built with `--since-height` below it, cannot be bound to the chain. `verify` treats its headers as supplied, exactly like a sidecar: they verify by agreement with the archive at the default location, and otherwise are reported as not verified. One `ots headers fetch --p2p` extends such a file past the checkpoint. Regtest has no checkpoint, so there an archive from its genesis is the anchor.
 
 ### Why a checkpoint, and how to check it
 
-Proof-of-work and continuity on their own do not bind an archive to the real chain. Each header is checked against the difficulty it declares, so a chain of difficulty-1 blocks from genesis passes both and costs about 2^52 hashes to make.
+Proof-of-work and continuity on their own do not bind an archive to the real chain. Each header is checked against the difficulty it declares, so the real headers up to some height followed by one header mined at difficulty 1, about 2^32 hashes, passes both. The real headers are public and cost nothing.
 
 Bitcoin Core rules that out two ways: every header's `nBits` must equal what the retarget rule requires, and a chain is not accepted until its total work reaches `nMinimumChainWork`, a constant per network in [`src/kernel/chainparams.cpp`](https://github.com/bitcoin/bitcoin/blob/4303f3b7f0775cdbbe77faddf142e1e44fa590ca/src/kernel/chainparams.cpp#L141). Core also ships one block hash per network, [`assumevalid`](https://github.com/bitcoin/bitcoin/blob/4303f3b7f0775cdbbe77faddf142e1e44fa590ca/src/kernel/chainparams.cpp#L142), that it treats as known-good. One known block hash does most of the same job for this client with far less code, and one bound does the rest.
 
 Below the checkpoint, a forger has no path forward, provided the walk always reaches the checkpoint. Every header's hash depends on the header before it, so changing any block below the checkpoint changes every hash above it, and the chain no longer contains the real checkpoint block. The only chain that reaches the real block at that height is the real chain. This is why the walk runs between the attested height and the checkpoint rather than up from genesis: a walk from genesis that stops at the attested height never has to connect to the checkpoint, and a forged block just above genesis would pass on its own difficulty-1 work.
 
-Above the checkpoint, a forger could take the real chain as far as the checkpoint and append fake headers, each declaring difficulty 1 and costing about 2^32 hashes. So `verify` also applies Bitcoin's retarget bound there. Difficulty may fall by at most 4x per 2016-block period, so a header above the checkpoint may not declare a target easier than the checkpoint's times 4 for each period boundary crossed. Real headers always satisfy this. A forged header must then meet roughly the real difficulty, about 2^79 hashes each today, which is the same cost as mining the real chain. The check is a walk from the checkpoint to the attested height, not the whole chain, and no retarget calculation is reimplemented.
+Above the checkpoint, a forger could take the real chain as far as the checkpoint and append fake headers, each declaring difficulty 1 and costing about 2^32 hashes. So `verify` also holds each header above the checkpoint to Bitcoin's difficulty rule against the header before it: inside a 2016-block retarget period the target does not change, and at a period boundary it may ease by at most 4x. Real headers always satisfy this. A forged header must then meet about the real difficulty, around 2^77 to 2^79 hashes today, which is the cost of mining the real chain, and that cost does not fall as the checkpoint ages. The check is a walk from the checkpoint to the attested height, not the whole chain, and no retarget calculation is reimplemented. Testnet allows minimum-difficulty blocks by rule, so the difficulty rule is not applied there and a testnet attestation above its checkpoint is bound by continuity only.
 
-Archives that stop short of the checkpoint are walked from genesis, where the bound gives nothing (difficulty 1 is genuine there), so for them the 2^52 cost of a difficulty-1 chain is the residual. A short script that runs each of these attacks against a copy of your own archive, and prints what refused it and what it would cost, is at https://gist.github.com/djdarcy/facb2b42ccc561b47bbaf479b33494d7.
+The same checks run when `fetch` appends a header and when `bootstrap` installs a file, so a header `verify` would refuse is never written. A short script that runs each of these attacks against a copy of your own archive, and prints what refused it and what it would cost, is at https://gist.github.com/djdarcy/facb2b42ccc561b47bbaf479b33494d7.
 
 The constant is only as good as its provenance, so it is meant to be checked, not trusted. Any node or explorer answers in one call:
 

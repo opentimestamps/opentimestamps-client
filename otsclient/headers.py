@@ -148,49 +148,60 @@ class HeaderArchive:
             b'\x00\x00\x00\x00',  # 4 reserved bytes
         )
 
-    def read_file_header(self):
-        """Read and return (network, start_height, header_count)."""
+    def read_file_header(self, fd=None):
+        """Read and return (network, start_height, header_count).
+
+        `fd` is an already open file; the read path passes one handle
+        through every check so they all see the same file.
+        """
+        if fd is not None:
+            fd.seek(0)
+            return self._parse_file_header(fd)
         with open(self.path, 'rb') as fd:
-            buf = fd.read(ARCHIVE_FILE_HEADER_SIZE)
-            if len(buf) < ARCHIVE_FILE_HEADER_SIZE:
-                raise HeaderArchiveFormatError(
-                    "Archive file too short to contain a file header: %s" % self.path)
+            return self._parse_file_header(fd)
 
-            magic, ver_maj, ver_min, network_id, _reserved1, start_height, _reserved2 = \
-                struct.unpack('<4sBBBBI4s', buf)
+    def _parse_file_header(self, fd):
+        buf = fd.read(ARCHIVE_FILE_HEADER_SIZE)
+        if len(buf) < ARCHIVE_FILE_HEADER_SIZE:
+            raise HeaderArchiveFormatError(
+                "Archive file too short to contain a file header: %s" % self.path)
 
-            if magic != ARCHIVE_MAGIC:
-                raise HeaderArchiveFormatError(
-                    "Archive magic mismatch: got %r, expected %r" % (magic, ARCHIVE_MAGIC))
+        magic, ver_maj, ver_min, network_id, _reserved1, start_height, _reserved2 = \
+            struct.unpack('<4sBBBBI4s', buf)
 
-            if ver_maj != ARCHIVE_VERSION_MAJOR:
-                raise HeaderArchiveFormatError(
-                    "Unsupported archive version: %d.%d (this client supports %d.x)" % (
-                        ver_maj, ver_min, ARCHIVE_VERSION_MAJOR))
+        if magic != ARCHIVE_MAGIC:
+            raise HeaderArchiveFormatError(
+                "Archive magic mismatch: got %r, expected %r" % (magic, ARCHIVE_MAGIC))
 
-            if network_id not in NETWORK_ID_TO_NAME:
-                raise HeaderArchiveFormatError(
-                    "Unknown network ID in archive: %d" % network_id)
+        if ver_maj != ARCHIVE_VERSION_MAJOR:
+            raise HeaderArchiveFormatError(
+                "Unsupported archive version: %d.%d (this client supports %d.x)" % (
+                    ver_maj, ver_min, ARCHIVE_VERSION_MAJOR))
 
-            # Stat the already-open descriptor rather than re-resolving the
-            # path, so the size describes the same inode we just read the
-            # header bytes from even if the path is concurrently replaced.
-            file_size = os.fstat(fd.fileno()).st_size
-            body_size = file_size - ARCHIVE_FILE_HEADER_SIZE
-            if body_size % BLOCK_HEADER_SIZE != 0:
-                raise HeaderArchiveFormatError(
-                    "Archive body size %d is not a multiple of %d" % (
-                        body_size, BLOCK_HEADER_SIZE))
+        if network_id not in NETWORK_ID_TO_NAME:
+            raise HeaderArchiveFormatError(
+                "Unknown network ID in archive: %d" % network_id)
 
-            header_count = body_size // BLOCK_HEADER_SIZE
-            return NETWORK_ID_TO_NAME[network_id], start_height, header_count
+        # Stat the already-open descriptor rather than re-resolving the
+        # path, so the size describes the same inode we just read the
+        # header bytes from even if the path is concurrently replaced.
+        file_size = os.fstat(fd.fileno()).st_size
+        body_size = file_size - ARCHIVE_FILE_HEADER_SIZE
+        if body_size % BLOCK_HEADER_SIZE != 0:
+            raise HeaderArchiveFormatError(
+                "Archive body size %d is not a multiple of %d" % (
+                    body_size, BLOCK_HEADER_SIZE))
 
-    def get_header_at_height(self, height):
+        header_count = body_size // BLOCK_HEADER_SIZE
+        return NETWORK_ID_TO_NAME[network_id], start_height, header_count
+
+    def get_header_at_height(self, height, fd=None):
         """Return the bitcoin.core.CBlockHeader at this height.
 
         Raises IndexError if the height is outside the archive's range.
+        `fd` is an already open file to read through instead of the path.
         """
-        _network, start_height, header_count = self.read_file_header()
+        _network, start_height, header_count = self.read_file_header(fd)
         end_height = start_height + header_count - 1
 
         if height < start_height or height > end_height:
@@ -198,16 +209,21 @@ class HeaderArchive:
                 "Height %d outside archive range %d-%d" % (height, start_height, end_height))
 
         offset = ARCHIVE_FILE_HEADER_SIZE + (height - start_height) * BLOCK_HEADER_SIZE
+        if fd is not None:
+            return self._read_header_at(fd, offset, height)
         with open(self.path, 'rb') as fd:
-            fd.seek(offset)
-            raw = fd.read(BLOCK_HEADER_SIZE)
-            if len(raw) != BLOCK_HEADER_SIZE:
-                raise HeaderArchiveFormatError(
-                    "Short read at offset %d: got %d bytes, expected %d" % (
-                        offset, len(raw), BLOCK_HEADER_SIZE))
-            header = bitcoin.core.CBlockHeader.deserialize(raw)
-            _check_pow(header, height)
-            return header
+            return self._read_header_at(fd, offset, height)
+
+    def _read_header_at(self, fd, offset, height):
+        fd.seek(offset)
+        raw = fd.read(BLOCK_HEADER_SIZE)
+        if len(raw) != BLOCK_HEADER_SIZE:
+            raise HeaderArchiveFormatError(
+                "Short read at offset %d: got %d bytes, expected %d" % (
+                    offset, len(raw), BLOCK_HEADER_SIZE))
+        header = bitcoin.core.CBlockHeader.deserialize(raw)
+        _check_pow(header, height)
+        return header
 
     def append_header(self, header):
         """Append a single header, validating prev-hash continuity and PoW.
@@ -228,13 +244,25 @@ class HeaderArchive:
                         next_height, next_height - 1,
                         header.hashPrevBlock.hex(), prev_header.GetHash().hex()))
 
+        # The same checks a read applies, so a header verify would refuse is
+        # never written: the shipped checkpoint block at its height, and on
+        # mainnet above it the target rule against the previous header.
+        checkpoint = CHECKPOINTS.get(network)
+        if checkpoint is not None:
+            if next_height == checkpoint[0] and header.GetHash() != checkpoint[1]:
+                raise HeaderArchiveChainError(
+                    "Header at height %d does not match the shipped checkpoint" % next_height)
+            if (network == 'mainnet' and header_count > 0
+                    and start_height <= checkpoint[0] < next_height
+                    and not target_allowed_after(prev_header.nBits, header.nBits, next_height)):
+                raise HeaderArchiveChainError(
+                    "Header at height %d declares an easier target than Bitcoin's retarget "
+                    "rule allows after height %d (nBits %08x after %08x)" % (
+                        next_height, next_height - 1, header.nBits, prev_header.nBits))
+
         # Proof of work: hash(header) must satisfy the difficulty target
-        # claimed in the header itself. This does NOT validate that the
-        # nBits value is correct relative to the difficulty-adjustment
-        # algorithm (which would require knowledge of the previous 2016
-        # blocks); the fetcher's quorum logic provides that protection.
-        #
-        # CheckProofOfWork raises on failure and returns None on success.
+        # claimed in the header itself. CheckProofOfWork raises on failure
+        # and returns None on success.
         try:
             bitcoin.core.CheckProofOfWork(header.GetHash(), header.nBits)
         except bitcoin.core.CheckProofOfWorkError as exp:
@@ -265,11 +293,12 @@ class HeaderArchive:
 # One shipped checkpoint per network: the hash of a block well below the
 # chain tip when this was written, a per-network constant of the same kind
 # as Core's nMinimumChainWork and assumevalid in chainparams.cpp. PoW and
-# continuity alone accept a difficulty-1
-# chain from genesis (about 2^52 of work). A known block hash is what rules
-# that out, and one is enough: an archive that reaches this height must
-# hold exactly this block there, and an archive that does not is anchored
-# at genesis only. Check or regenerate with any node or explorer:
+# continuity alone accept the real headers followed by one difficulty-1
+# header (about 2^32 of work). A known block hash is what rules that out,
+# and one is enough: an archive is bound to the chain only when it holds
+# exactly this block at this height, and a file that does not reach it is
+# supplied headers, not an archive. Check or regenerate with any node or
+# explorer:
 #
 #   bitcoin-cli getblockhash 960000
 #   bitcoin-cli -testnet getblockhash 5193919         (testnet3)
@@ -303,95 +332,115 @@ def _genesis_header():
     return gb.get_header() if hasattr(gb, 'get_header') else gb
 
 
-def check_archive_anchors(archive):
-    """Check that `archive` starts at the real genesis and, where it reaches
-    the shipped checkpoint, holds that block there.
+def check_archive_anchors(archive, fd=None):
+    """Check that `archive` holds the shipped checkpoint block at its height
+    and, where the file starts at 0, the real genesis block.
+
+    On a network with a checkpoint the archive must contain the checkpoint
+    height. A file that stops below it is bound to nothing: the headers
+    before a forged one can all be real, and proof-of-work against a
+    header's own target cannot tell a mined header from the chain's. On a
+    network without a checkpoint (regtest) the file must start at genesis.
 
     Returns the checkpoint height if it was checked, else 0. Raises
     HeaderArchiveChainError.
     """
-    network, start_height, header_count = archive.read_file_header()
+    network, start_height, header_count = archive.read_file_header(fd)
     end_height = start_height + header_count - 1
     if start_height == 0 and header_count > 0:
-        if archive.get_header_at_height(0).GetHash() != _genesis_header().GetHash():
+        if archive.get_header_at_height(0, fd).GetHash() != _genesis_header().GetHash():
             raise HeaderArchiveChainError(
                 "Archive %s: header 0 is not the %s genesis block" % (archive.path, network))
     checkpoint = CHECKPOINTS.get(network)
-    if checkpoint is not None and start_height <= checkpoint[0] <= end_height:
-        if archive.get_header_at_height(checkpoint[0]).GetHash() != checkpoint[1]:
+    if checkpoint is not None:
+        if not (header_count > 0 and start_height <= checkpoint[0] <= end_height):
+            raise HeaderArchiveChainError(
+                "Archive %s does not reach the shipped checkpoint at height %d "
+                "(it covers %d..%d), so nothing binds it to the chain" % (
+                    archive.path, checkpoint[0], start_height, max(start_height, end_height)))
+        if archive.get_header_at_height(checkpoint[0], fd).GetHash() != checkpoint[1]:
             raise HeaderArchiveChainError(
                 "Archive %s: header at height %d does not match the shipped checkpoint" % (
                     archive.path, checkpoint[0]))
         return checkpoint[0]
     if start_height != 0 or header_count == 0:
-        # Neither genesis nor the checkpoint is in the file, so nothing binds it.
         raise HeaderArchiveChainError(
             "Archive %s has no anchor: it does not start at genesis (start_height=%d, "
-            "%d headers) and does not reach the shipped checkpoint" % (
-                archive.path, start_height, header_count))
+            "%d headers)" % (archive.path, start_height, header_count))
     return 0
 
 
 def archive_has_anchor(archive):
-    """True if `archive` starts at height 0 or contains the shipped
-    checkpoint height. Such a file can be bound to the chain on read."""
+    """True if `archive` contains the shipped checkpoint height, or starts
+    at height 0 on a network without one. Such a file can be bound to the
+    chain on read. Anything else is supplied headers."""
     network, start_height, header_count = archive.read_file_header()
     if header_count == 0:
         return False
-    if start_height == 0:
-        return True
     checkpoint = CHECKPOINTS.get(network)
-    return (checkpoint is not None and
-            start_height <= checkpoint[0] <= start_height + header_count - 1)
+    if checkpoint is None:
+        return start_height == 0
+    return start_height <= checkpoint[0] <= start_height + header_count - 1
 
 
 RETARGET_INTERVAL = 2016
 
 
-def max_target_above_checkpoint(checkpoint_height, checkpoint_nbits, height):
-    """The easiest target a header at `height` may declare, given the
-    checkpoint's. Bitcoin lets difficulty fall by at most 4x per
-    retarget period, so above the checkpoint a header may not be easier
-    than the checkpoint's target times 4 per period boundary crossed.
-    Without this, a forger could take the real chain up to the checkpoint
-    and append difficulty-1 headers at 2^32 each."""
-    periods = height // RETARGET_INTERVAL - checkpoint_height // RETARGET_INTERVAL
-    return bitcoin.core.uint256_from_compact(checkpoint_nbits) << (2 * periods)
+def target_allowed_after(prev_nbits, nbits, height):
+    """Whether a header at `height` may declare `nbits` when the header
+    before it declared `prev_nbits`. Two facts about mainnet: the target
+    does not change inside a retarget period, and at a period boundary it
+    may ease by at most 4x. Checking each header against the one before
+    it means a forged header on top of real ones must meet about the real
+    difficulty, however far above the checkpoint it sits. No retarget
+    calculation is reimplemented."""
+    if height % RETARGET_INTERVAL != 0:
+        return nbits == prev_nbits
+    return (bitcoin.core.uint256_from_compact(nbits) <=
+            bitcoin.core.uint256_from_compact(prev_nbits) * 4)
 
 
-def _walk_range(archive, lo, hi, bound=None):
+def _walk_range(archive, lo, hi, rule_above=None, fd=None):
     """Check PoW and prev-hash continuity for heights lo..hi inclusive.
 
-    `bound` is (checkpoint_height, checkpoint_nbits) when the range lies
-    above the checkpoint on a network without min-difficulty blocks;
-    each header is then also held to max_target_above_checkpoint().
+    `rule_above` is the checkpoint height when the range lies above it on
+    a network without min-difficulty blocks. Each header above that height
+    is then also held to target_allowed_after() against the header before
+    it. The first header of the range seeds the comparison, which works
+    because an upward walk always starts from a header already walked.
+    `fd` is an already open file to read through.
     """
-    _network, start_height, _count = archive.read_file_header()
+    _network, start_height, _count = archive.read_file_header(fd)
     offset = ARCHIVE_FILE_HEADER_SIZE + (lo - start_height) * BLOCK_HEADER_SIZE
     count = hi - lo + 1
-    with open(archive.path, 'rb') as fd:
+    if fd is not None:
         fd.seek(offset)
         raw = fd.read(count * BLOCK_HEADER_SIZE)
+    else:
+        with open(archive.path, 'rb') as f:
+            f.seek(offset)
+            raw = f.read(count * BLOCK_HEADER_SIZE)
     if len(raw) != count * BLOCK_HEADER_SIZE:
         raise HeaderArchiveFormatError(
             "Short read in %s at heights %d..%d" % (archive.path, lo, hi))
     prev_hash = None
+    prev_nbits = None
     for i in range(count):
         height = lo + i
         header = bitcoin.core.CBlockHeader.deserialize(
             raw[i * BLOCK_HEADER_SIZE:(i + 1) * BLOCK_HEADER_SIZE])
-        if bound is not None and height > bound[0]:
-            if bitcoin.core.uint256_from_compact(header.nBits) > \
-                    max_target_above_checkpoint(bound[0], bound[1], height):
-                raise HeaderArchiveChainError(
-                    "Archive %s: header at height %d declares an easier target than "
-                    "Bitcoin's retarget rule allows above the checkpoint at height %d" % (
-                        archive.path, height, bound[0]))
+        if (rule_above is not None and height > rule_above and prev_nbits is not None
+                and not target_allowed_after(prev_nbits, header.nBits, height)):
+            raise HeaderArchiveChainError(
+                "Archive %s: header at height %d declares an easier target than "
+                "Bitcoin's retarget rule allows after height %d (nBits %08x after %08x)" % (
+                    archive.path, height, height - 1, header.nBits, prev_nbits))
         _check_pow(header, height)
         if prev_hash is not None and header.hashPrevBlock != prev_hash:
             raise HeaderArchiveChainError(
                 "Archive %s: continuity breaks at height %d" % (archive.path, height))
         prev_hash = header.GetHash()
+        prev_nbits = header.nBits
 
 
 # (path, size, mtime) -> list of (lo, hi) height ranges already walked,
@@ -401,46 +450,55 @@ _anchor_cache = {}
 
 
 def check_archive_anchor(archive, height):
-    """Bind a read of `height` from `archive` to the chain.
+    """Bind a read of `height` from `archive` to the chain and return the
+    header there, read through the same open file the walk used.
 
     Checks the anchors (check_archive_anchors), then walks PoW and
-    continuity between `height` and the checkpoint, or from genesis when
-    the archive does not reach the checkpoint. Raises HeaderArchiveChainError.
+    continuity between `height` and the checkpoint. Only on a network
+    without a checkpoint (regtest) does the walk start from genesis.
+    Raises HeaderArchiveChainError.
 
-    Genesis is never used as the walk's anchor when the checkpoint is
-    present. A walk up from genesis that stops at `height` never has to
-    reach the checkpoint, so a forged header just above genesis would pass
-    on its own difficulty-1 work.
+    Genesis is never the walk's anchor when a checkpoint exists. A walk up
+    from genesis that stops at `height` never has to reach the checkpoint,
+    so a forged header on top of real ones would pass on its own
+    difficulty-1 work.
     """
-    st = os.stat(archive.path)
-    key = (os.path.abspath(archive.path), st.st_size, st.st_mtime_ns)
-    entry = _anchor_cache.get(key)
-    if entry is None:
-        checkpoint_height = check_archive_anchors(archive)
-        network, start_height, _count = archive.read_file_header()
-        ranges = [(0, 0)] if start_height == 0 and not checkpoint_height else []
-        bound = None
-        if checkpoint_height:
-            ranges.append((checkpoint_height, checkpoint_height))
-            # Testnet and regtest allow min-difficulty blocks by rule, so
-            # the retarget bound only holds on mainnet.
-            if network == 'mainnet':
-                bound = (checkpoint_height,
-                         archive.get_header_at_height(checkpoint_height).nBits)
-        entry = _anchor_cache[key] = (ranges, bound)
-    ranges, bound = entry
-    for lo, hi in ranges:
-        if lo <= height <= hi:
-            return
-    # Extend the range whose end is nearest to height.
-    idx, lo, hi = min(((i, r[0], r[1]) for i, r in enumerate(ranges)),
-                      key=lambda t: min(abs(height - t[1]), abs(height - t[2])))
-    if height < lo:
-        _walk_range(archive, height, lo, bound)
-        ranges[idx] = (height, hi)
-    else:
-        _walk_range(archive, hi, height, bound)
-        ranges[idx] = (lo, height)
+    # One open for everything: the stat that keys the cache, the anchor
+    # checks, the walk and the header handed back all read the same file,
+    # so a file swapped under the path between two of them cannot return
+    # a header the walk never saw.
+    with open(archive.path, 'rb') as fd:
+        st = os.fstat(fd.fileno())
+        key = (os.path.abspath(archive.path), st.st_ino, st.st_size,
+               st.st_mtime_ns, st.st_ctime_ns)
+        header = archive.get_header_at_height(height, fd)
+        entry = _anchor_cache.get(key)
+        if entry is None:
+            checkpoint_height = check_archive_anchors(archive, fd)
+            network, start_height, _count = archive.read_file_header(fd)
+            ranges = [(0, 0)] if start_height == 0 and not checkpoint_height else []
+            rule_above = None
+            if checkpoint_height:
+                ranges.append((checkpoint_height, checkpoint_height))
+                # Testnet and regtest allow min-difficulty blocks by rule, so
+                # the difficulty rule only holds on mainnet.
+                if network == 'mainnet':
+                    rule_above = checkpoint_height
+            entry = _anchor_cache[key] = (ranges, rule_above)
+        ranges, rule_above = entry
+        for lo, hi in ranges:
+            if lo <= height <= hi:
+                return header
+        # Extend the range whose end is nearest to height.
+        idx, lo, hi = min(((i, r[0], r[1]) for i, r in enumerate(ranges)),
+                          key=lambda t: min(abs(height - t[1]), abs(height - t[2])))
+        if height < lo:
+            _walk_range(archive, height, lo, rule_above, fd)
+            ranges[idx] = (height, hi)
+        else:
+            _walk_range(archive, hi, height, rule_above, fd)
+            ranges[idx] = (lo, height)
+        return header
 
 
 class BlockHeaderSource:
@@ -493,10 +551,9 @@ class LocalArchiveHeaderSource(BlockHeaderSource):
         self.archive = archive
 
     def get_header_at_height(self, height):
-        header = self.archive.get_header_at_height(height)
-        # Bind the archive to the chain before trusting anything in it.
-        check_archive_anchor(self.archive, height)
-        return header
+        # Bind the archive to the chain before trusting anything in it. The
+        # header comes back from the same open file the walk read.
+        return check_archive_anchor(self.archive, height)
 
     def get_block_count(self):
         _network, start_height, header_count = self.archive.read_file_header()
@@ -930,13 +987,19 @@ class AutoFetchHeaderSource(BlockHeaderSource):
     header at the requested height, plus per-header proof-of-work
     validation. A tampered cache record is rejected when read (see
     _check_pow) and fetched again.
+
+    `archive`, when given, is the user's own anchored header archive. Any
+    height it covers is read from it and never from the cache or the
+    network. The cache shares its format with a sidecar, so a record
+    planted there would otherwise be trusted without any check.
     """
 
-    def __init__(self, cache, fetcher, network, log=True):
+    def __init__(self, cache, fetcher, network, log=True, archive=None):
         self.cache = cache  # VerifyCache or None (caching disabled)
         self.fetcher = fetcher
         self.network = network
         self.log = log
+        self.archive = archive  # BlockHeaderSource over the anchored archive, or None
 
     def _ensure_cache_for_network(self):
         """Create the cache file if absent, or validate its network if present."""
@@ -952,6 +1015,8 @@ class AutoFetchHeaderSource(BlockHeaderSource):
             self.cache.create(self.network)
 
     def get_header_at_height(self, height):
+        if self.archive is not None and height <= self.archive.get_block_count():
+            return self.archive.get_header_at_height(height)
         if self.cache is not None and self.cache.exists():
             cache_network, _count = self.cache.read_file_header()
             if cache_network != self.network:
@@ -1522,10 +1587,14 @@ def bootstrap_archive_from_url(url, output_path, network,
         logging.info("Validated %d header(s) (heights %d..%d)" % (
             header_count, start_height, end_h))
 
-    # Continuity alone binds the file to nothing. It must start at the
-    # real genesis or match the shipped checkpoint where it reaches it.
+    # Continuity alone binds the file to nothing. Apply the same checks a
+    # read applies, the shipped checkpoint and the target rule above it, so
+    # the install refuses what verify would refuse.
     try:
-        check_archive_anchors(HeaderArchive(partial_path))
+        partial = HeaderArchive(partial_path)
+        check_archive_anchors(partial)
+        if header_count > 0:
+            check_archive_anchor(partial, start_height + header_count - 1)
     except HeaderArchiveChainError as exp:
         raise HeaderArchiveChainError("%s (partial preserved at %s)" % (exp, partial_path))
 
