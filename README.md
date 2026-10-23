@@ -11,7 +11,10 @@ files within a Git repository.
 * Python3
 
 While OpenTimestamps can *create* timestamps without a local Bitcoin node, to
-*verify* timestamps you need a local Bitcoin Core node (a pruned node is fine).
+*verify* timestamps you traditionally need a local Bitcoin Core node (a pruned
+node is fine). As of the lite-client support added in `headers.py`, you can
+alternatively verify against a small local archive of Bitcoin block headers
+(~70 MB total for the whole chain) — see "Offline / lite verification" below.
 
 
 ## Installation
@@ -129,6 +132,51 @@ and meaningless digest. Equally, if multiple files are timestamped at once,
 each file is protected by an individual nonce; the timestamp for one file
 reveals nothing about the contents of another file timestamped at the same
 time.
+
+## Offline / lite verification (local header archive)
+
+You no longer need a Bitcoin node to verify. With no flags, `ots verify`
+looks for a local Bitcoin Core node first and uses it if one is running.
+Otherwise it fetches the block headers the proof needs from public block
+explorers, checks that they agree with each other, and caches them so you
+can verify the same proof again without the network:
+
+    $ ots verify README.md.ots
+    Fetching block 875432 header from public sources...
+    Success! Bitcoin block 875432 attests existence as of 2025-12-14 09:41:17 UTC
+
+You'll see either "Using local Bitcoin Core node" or "Fetching block N
+header", so you know whether the proof went to a third party.
+
+If you'd rather not touch the network at all, build a local archive of
+every block header once. It's about 70 MB and takes a few minutes over
+Bitcoin's P2P protocol:
+
+    $ ots headers fetch --p2p
+    ...
+    Done. Appended 875433 header(s); archive now covers 0..875432
+
+Then verify against it:
+
+    $ ots verify --headers .../headers-mainnet.bin README.md.ots
+    Success! Bitcoin block 800000 attests existence as of 2023-07-24 02:04:59 UTC
+
+The archive is checked every time it's read. Each header must pass its
+own proof-of-work. The archive must contain the shipped checkpoint
+block, the headers must chain from there to the block the proof names,
+and above the checkpoint each header's difficulty must follow the one
+before it. A file given with `--headers` that stops short of the
+checkpoint is compared with your own archive instead, or reported as
+not verified.
+
+You can also ship the headers a proof needs alongside it. `ots headers
+fetch <file>.ots` writes a small sidecar file next to the `.ots`.
+Whoever receives it verifies with `--headers <sidecar>` against their own
+archive. If they don't have one, `verify` says so and tells them how to
+get one.
+
+See [doc/header-archives.md](doc/header-archives.md) for downloading a
+prebuilt archive, sidecars, and the details of the checks.
 
 ## Compatibility Expectations
 
