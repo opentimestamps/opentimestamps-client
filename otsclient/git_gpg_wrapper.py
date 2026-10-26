@@ -92,10 +92,11 @@ def main():
             gpg_proc.stdin.close()
 
             gpg_sig = gpg_proc.stdout.read()
+            gpg_returncode = gpg_proc.wait()
 
             # GnuPG produces no output on failure
-            if not gpg_sig:
-                sys.exit(1)
+            if gpg_returncode != 0 or not gpg_sig:
+                sys.exit(gpg_returncode or 1)
 
             logging.debug("PGP sig: %r" % gpg_sig)
 
@@ -159,5 +160,7 @@ def main():
             with subprocess.Popen([args.gpg_program] + args.gpgargs, stdin=subprocess.PIPE) as gpg_proc:
                 gpg_proc.stdin.write(git_commit)
                 gpg_proc.stdin.close()
+
+            sys.exit(gpg_proc.returncode)
 
 # vim:syntax=python filetype=python
