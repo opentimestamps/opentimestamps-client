@@ -320,9 +320,10 @@ def upgrade_timestamp(timestamp, args):
         if not args.wait:
             break
 
-        elif found_new_attestations:
-            # We got something new, so loop around immediately to check if
-            # we're now complete
+        elif found_new_attestations and is_timestamp_complete(timestamp, args):
+            # We got something new that completes the timestamp, so loop
+            # around immediately. Anything else must not skip the wait:
+            # calendars can answer with new attestations on every request.
             continue
 
         else:
