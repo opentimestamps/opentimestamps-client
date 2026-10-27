@@ -128,10 +128,11 @@ def handle_common_options(args, parser):
             return sock
         socket.create_connection = create_connection
 
-    def setup_bitcoin():
+    def setup_bitcoin(quiet=False):
         """Setup Bitcoin-related functionality
 
-        Sets mainnet/testnet and returns a RPC proxy.
+        Sets mainnet/testnet and returns a RPC proxy. With quiet, a failure is
+        logged at debug level, for callers that can do without a node.
         """
         if args.btc_net == 'testnet':
            bitcoin.SelectParams('testnet')
@@ -145,7 +146,8 @@ def handle_common_options(args, parser):
         try:
             return bitcoin.rpc.Proxy(service_url=args.bitcoin_node)
         except Exception as exp:
-            logging.error("Could not connect to Bitcoin node: %s" % exp)
+            log = logging.debug if quiet else logging.error
+            log("Could not connect to Bitcoin node: %s" % exp)
             sys.exit(1)
 
     args.setup_bitcoin = setup_bitcoin

@@ -13,6 +13,7 @@ import sys
 
 import argparse
 import binascii
+import http.client
 import io
 import logging
 import os
@@ -208,12 +209,68 @@ def stamp_command(args):
             logging.error("Failed to create timestamp %r: %s" % (timestamp_file_path, exp))
             sys.exit(1)
 
+# Errors that mean the node can't be asked, as opposed to answering "no"
+NODE_ERRORS = (OSError, http.client.HTTPException, bitcoin.rpc.JSONRPCError)
+
+def is_bitcoin_attestation_refuted(msg, attestation, args):
+    """Determine if the Bitcoin node shows that an attestation does not hold
+
+    Returns False if the attestation holds, or if it can't be checked because
+    Bitcoin is disabled or the node can't be reached.
+    """
+    if not args.use_bitcoin:
+        return False
+
+    # A failed setup is remembered, so that it is tried once per command. A
+    # proxy is not: after a connection error it fails on every later call.
+    if getattr(args, 'bitcoin_setup_failed', False):
+        return False
+
+    try:
+        proxy = args.setup_bitcoin(quiet=True)
+    except (SystemExit, Exception) as exp:
+        # No usable node configuration
+        logging.debug("Could not set up Bitcoin: %r" % (exp,))
+        args.bitcoin_setup_failed = True
+        return False
+
+    try:
+        block_count = proxy.getblockcount()
+    except NODE_ERRORS:
+        return False
+
+    # The node may not parse a height this large, so don't ask it for one
+    if attestation.height > block_count:
+        logging.debug("Bitcoin block height %d not found; %d is highest known block" % (attestation.height, block_count))
+        return True
+
+    try:
+        blockhash = proxy.getblockhash(attestation.height)
+    except IndexError:
+        logging.debug("Bitcoin block height %d not found; %d is highest known block" % (attestation.height, block_count))
+        return True
+    except NODE_ERRORS:
+        return False
+
+    try:
+        block_header = proxy.getblockheader(blockhash)
+    except NODE_ERRORS:
+        return False
+
+    try:
+        attestation.verify_against_blockheader(msg, block_header)
+    except VerificationError as err:
+        logging.debug("Bitcoin verification failed: %s" % str(err))
+        return True
+
+    return False
+
 def is_timestamp_complete(stamp, args):
     """Determine if timestamp is complete and can be verified"""
     for msg, attestation in stamp.all_attestations():
         if attestation.__class__ == BitcoinBlockHeaderAttestation:
-            # FIXME: we should actually check this attestation, rather than
-            # assuming it's valid
+            if is_bitcoin_attestation_refuted(msg, attestation, args):
+                continue
             return True
     else:
         return False
@@ -301,7 +358,11 @@ def upgrade_timestamp(timestamp, args):
         for new_att in new_attestations_from_cache:
             logging.debug("    %r" % new_att)
 
-    while not is_timestamp_complete(timestamp, args):
+    def has_pending(stamp):
+        return any(attest.__class__ == PendingAttestation for msg, attest in stamp.all_attestations())
+
+    # With nothing pending there is nothing to ask a calendar for
+    while has_pending(timestamp) and not is_timestamp_complete(timestamp, args):
         # Check remote calendars for upgrades.
         #
         # This time we only check PendingAttestations - we can't be as
