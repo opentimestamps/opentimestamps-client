@@ -105,6 +105,25 @@ commitment operations and attestations in it:
         append 647b90ea1b270a97
         verify PendingAttestation('https://bob.btc.calendar.opentimestamps.org')
 
+### Timestamping without a calendar service with your own wallet
+
+It's possible to create a timestamp using your own Bitcoin Core wallet. This
+is generally not necessary, can harm your privacy and is somewhat risky because
+the code is not well tested.
+
+Use the `--btc-wallet` argument after `stamp` command to use this feature,
+optionally specifying a fee rate in sat/vbyte with `--fee-rate`.
+
+If the process is interrupted, a `.ots.pending` recovery file is written so
+stamping resumes automatically. Alternatively use `--txid` and `--nonce`.
+
+It's possible to RBF the resulting transaction while waiting for confirmation.
+
+For multi-wallet setups, specify the wallet name in the node URL:
+`--bitcoin-node http://user:pass@localhost:8332/wallet/NAME`
+
+See `ots stamp --help` for more info.
+
 ### Timestamping and Verifying PGP Signed Git Commits
 
 See `doc/git-integration.md`
