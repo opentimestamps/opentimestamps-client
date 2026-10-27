@@ -9,7 +9,7 @@
 # modified, propagated, or distributed except according to the terms contained
 # in the LICENSE file.
 
-import appdirs
+import platformdirs
 import argparse
 import bitcoin
 import logging
@@ -23,7 +23,7 @@ import otsclient
 import otsclient.cache
 import otsclient.cmds
 
-APPDIRS = appdirs.AppDirs('ots','opentimestamps')
+APPDIRS = platformdirs.PlatformDirs('ots','opentimestamps')
 
 def make_common_options_arg_parser():
     parser = argparse.ArgumentParser(description="OpenTimestamps client.")

@@ -1,0 +1,55 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "opentimestamps-client"
+description = "Command-line tool to create and verify OpenTimestamps proofs"
+readme = "README.md"
+license = {text = "LGPL-3.0-or-later"}
+requires-python = ">=3.8"
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: End Users/Desktop",
+    "Topic :: Security :: Cryptography",
+    "License :: OSI Approved :: GNU Lesser General Public License v3 or later (LGPLv3+)",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
+keywords = ["cryptography", "timestamping", "bitcoin"]
+dependencies = [
+    "opentimestamps>=0.4.0,<0.5.0",
+    "platformdirs>=3.0.0",
+    "GitPython>=2.0.8",
+    "PySocks>=1.5.0",
+]
+dynamic = ["version"]
+
+[[project.authors]]
+name = "Peter Todd"
+email = "pete@petertodd.org"
+
+[project.urls]
+Homepage = "https://github.com/opentimestamps/opentimestamps-client"
+
+[project.scripts]
+ots = "otsclient.ots:main"
+ots-git-gpg-wrapper = "otsclient.git_gpg_wrapper:main"
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "flake8",
+]
+
+[tool.setuptools.packages.find]
+exclude = ["contrib", "doc", "tests"]
+
+[tool.setuptools.dynamic]
+version = {attr = "otsclient.__version__"}

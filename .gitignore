@@ -13,6 +13,27 @@ sdist
 develop-eggs
 .installed.cfg
 
+# Modern Python packaging
+*.whl
+.eggs/
+*.egg-info/
+# Wheels and pip
+pip-wheel-metadata/
+wheels/
+# hatch, flit, pdm, rye
+.hatch/
+.pdm.toml
+.pdm-python
+.pdm-build/
+.venv/
+venv/
+env/
+ENV/
+# uv
+uv.lock
+# Poetry
+poetry.lock
+
 # Installer logs
 pip-log.txt
 

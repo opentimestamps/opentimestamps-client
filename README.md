@@ -22,7 +22,7 @@ Either via PyPi:
 
 or from source:
 
-    $ python3 setup.py install
+    $ python3 -m pip install -e .
 
 On Debian (Stretch) you can install the necessary system dependencies with:
 
@@ -156,7 +156,7 @@ tool from the [OpenTimestamps Server](https://github.com/opentimestamps/opentime
 
 Use the setuptools development mode:
 
-    python3 setup.py develop --user
+    python3 -m pip install -e ".[dev]" --user
 
 
 ## Known Issues
