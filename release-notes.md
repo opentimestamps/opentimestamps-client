@@ -1,5 +1,26 @@
 # OpenTimestamps Client Release Notes
 
+## 0.8.0
+
+### Security Related Changes
+
+* The underlying `python-opentimestamps` library was upgraded, fixing a few
+  fairly minor issues with calendar redirects, the calendar whitelist, and
+  malformed OTS proofs.
+* Previously the Git GnuPG support could, in some circumstances, pass PGP
+  signature data to `gpg` that had been added *after* the timestamped data, and
+  thus was not covered by the timestamp proof. Now only data covered by the
+  proof will be passed to `gpg`.
+
+### Other Changes
+
+* `--timeout` option now applies to the `upgrade` command.
+* The `--wait` option now always waits between responses from the calendar;
+  previously in certain circumstances triggered by a broken calendar requests
+  could be made in a tight loop.
+* `ots-git-gpg-wrapper` now exits with GnuPG's actual exit status rather than
+  always exiting 0.
+
 ## v0.7.2
 
 * Now works in git worktrees
