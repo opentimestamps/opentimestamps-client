@@ -51,3 +51,4 @@ pip-log.txt
 #Idea IDE
 .idea/
 
+doc/_build
