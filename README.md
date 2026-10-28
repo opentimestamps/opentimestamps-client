@@ -105,6 +105,131 @@ commitment operations and attestations in it:
         append 647b90ea1b270a97
         verify PendingAttestation('https://bob.btc.calendar.opentimestamps.org')
 
+Machine-readable JSON output is also available for `info`:
+
+    $ ots info --json examples/two-calendars.txt.ots
+    {
+      "command": "info",
+      "file": "examples/two-calendars.txt.ots",
+      "file_digest": "efaa174f68e59705757460f4f7d204bd2b535cfd194d9d945418732129404ddb",
+      "hash_algorithm": "sha256",
+      "timestamp": {
+        "attestation_count": 2,
+        "attestations": [
+          {
+            "calendar": "https://alice.btc.calendar.opentimestamps.org",
+            "status": "pending",
+            "type": "PendingAttestation"
+          },
+          {
+            "calendar": "https://bob.btc.calendar.opentimestamps.org",
+            "status": "pending",
+            "type": "PendingAttestation"
+          }
+        ]
+      }
+    }
+
+Likewise, `verify` can emit structured status output:
+
+    $ ots --no-bitcoin verify --json examples/incomplete.txt.ots
+    {
+      "command": "verify",
+      "status": "pending",
+      "verified": false,
+      "exit_code": 2,
+      "attestations": [
+        {
+          "chain": "bitcoin",
+          "height": 428648,
+          "reason": "bitcoin_disabled",
+          "status": "manual_check_required",
+          "type": "BitcoinBlockHeaderAttestation"
+        },
+        {
+          "calendar": "https://alice.btc.calendar.opentimestamps.org",
+          "status": "pending",
+          "type": "PendingAttestation"
+        }
+      ]
+    }
+
+For `verify --json`, the exit codes are:
+
+- `0` for verified
+- `2` for pending / not yet complete
+- `1` for hard verification failure
+
+Machine-readable JSON output is also available for `info`.
+Abbreviated example output:
+
+    $ ots info --json examples/two-calendars.txt.ots
+    {
+      "command": "info",
+      "file": "examples/two-calendars.txt.ots",
+      "file_digest": "efaa174f68e59705757460f4f7d204bd2b535cfd194d9d945418732129404ddb",
+      "hash_algorithm": "sha256",
+      "timestamp": {
+        "attestation_count": 2,
+        "attestations": [
+          {
+            "calendar": "https://alice.btc.calendar.opentimestamps.org",
+            "commitment": "74558d68b166ddea5d752316f399a0d35932a1cd7d8d9823e5738d17b28b3304f2b1774c33c2d8fd1565d457",
+            "status": "pending",
+            "type": "PendingAttestation"
+          },
+          {
+            "calendar": "https://bob.btc.calendar.opentimestamps.org",
+            "commitment": "970a271bea907b64f5e087f3ba1c4d61b8a1697cc8033a48969c976251ea284858c1573b3bace9761665d457",
+            "status": "pending",
+            "type": "PendingAttestation"
+          }
+        ]
+      },
+      "tree": "append 839037eef449dec6..."
+    }
+
+Likewise, `verify` can emit structured status output.
+Abbreviated example output:
+
+    $ ots --no-bitcoin verify --json examples/incomplete.txt.ots
+    {
+      "digest": "05c4f616a8e5310d19d938cfd769864d7f4ccdc2ca8b479b10af83564b097af9",
+      "command": "verify",
+      "hash_algorithm": "sha256",
+      "status": "pending",
+      "verified": false,
+      "exit_code": 2,
+      "target": {
+        "type": "file",
+        "value": "examples/incomplete.txt"
+      },
+      "timestamp_file": "examples/incomplete.txt.ots",
+      "upgraded": true,
+      "attestations": [
+        {
+          "chain": "bitcoin",
+          "commitment": "078cdde9c89f2e3c58c96b1658627fd9298c63c6618954ea24ac3b5a13fe18da",
+          "height": 428648,
+          "reason": "bitcoin_disabled",
+          "status": "manual_check_required",
+          "type": "BitcoinBlockHeaderAttestation"
+        },
+        {
+          "calendar": "https://alice.btc.calendar.opentimestamps.org",
+          "commitment": "e7b04e4e8dacb16fc612d79ec7a61f3f1c73c6d4308f67c1fcd80881c539e4bc9535e8d99bdf1667c4a5cf57",
+          "status": "pending",
+          "type": "PendingAttestation"
+        }
+      ]
+    }
+
+For `verify --json`, the exit codes are:
+
+- `0` for verified
+- `2` for pending / not yet complete
+- `1` for hard verification failure
+
 ### Timestamping and Verifying PGP Signed Git Commits
 
 See `doc/git-integration.md`
