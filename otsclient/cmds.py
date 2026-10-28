@@ -140,7 +140,9 @@ def submit_async(calendar_url, msg, q, timeout):
 
     logging.info('Submitting to remote calendar %s' % calendar_url)
     remote = remote_calendar(calendar_url)
-    t = threading.Thread(target=submit_async_thread, args=(remote, msg, q, timeout))
+    # A daemon thread: a calendar still sending its answer after the timeout
+    # must not keep ots from exiting
+    t = threading.Thread(target=submit_async_thread, args=(remote, msg, q, timeout), daemon=True)
     t.start()
 
 
