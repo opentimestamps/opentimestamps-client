@@ -12,7 +12,7 @@ from opentimestamps.core.notary import PendingAttestation
 from opentimestamps.core.op import OpSHA256
 from opentimestamps.core.timestamp import Timestamp
 from otsclient.args import parse_ots_args
-from otsclient.cmds import upgrade_timestamp
+from otsclient.cmds import create_timestamp, upgrade_timestamp
 
 
 class FakeCache:
@@ -136,3 +136,30 @@ class TestTimeout(unittest.TestCase):
             release.set()
 
         self.assertEqual(len(requests), 1)
+
+    def test_stamp_does_not_wait_for_a_slow_calendar_on_exit(self):
+        release = threading.Event()
+        submitting = []
+
+        class Calendar:
+            def __init__(self, url):
+                self.url = url
+
+            def submit(self, msg, timeout=None):
+                if 'slow' in self.url:
+                    submitting.append(threading.current_thread())
+                    release.wait(30)
+                stamp = Timestamp(msg)
+                stamp.attestations.add(PendingAttestation(self.url))
+                return stamp
+
+        args = types.SimpleNamespace(use_btc_wallet=False, m=1, timeout=0.5)
+        try:
+            with mock.patch('otsclient.cmds.remote_calendar', Calendar):
+                create_timestamp(Timestamp(b'x' * 32), ['http://fast.example', 'http://slow.example'], args)
+
+            # The request is still running, and the interpreter does not wait for it at exit
+            self.assertTrue(submitting[0].is_alive())
+            self.assertTrue(submitting[0].daemon)
+        finally:
+            release.set()
