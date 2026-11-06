@@ -78,6 +78,10 @@ def make_common_options_arg_parser():
                         help="Bitcoin node URL to connect to (defaults to local "
                              "configuration)")
 
+    parser.add_argument('--bitcoin-dns', metavar='DOMAIN', action='store', type=str,
+                         default=None,
+                         help='Fetch Bitcoin headers over DNS if local node is unavailable')
+
     return parser
 
 def handle_common_options(args, parser):
@@ -142,11 +146,7 @@ def handle_common_options(args, parser):
         else:
             assert False
 
-        try:
-            return bitcoin.rpc.Proxy(service_url=args.bitcoin_node)
-        except Exception as exp:
-            logging.error("Could not connect to Bitcoin node: %s" % exp)
-            sys.exit(1)
+        return bitcoin.rpc.Proxy(service_url=args.bitcoin_node)
 
     args.setup_bitcoin = setup_bitcoin
 
