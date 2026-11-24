@@ -208,6 +208,47 @@ def stamp_command(args):
             logging.error("Failed to create timestamp %r: %s" % (timestamp_file_path, exp))
             sys.exit(1)
 
+def stamp_digest_command(args):
+    try:
+        digest = binascii.unhexlify(args.hex_digest.encode('utf8'))
+    except binascii.Error as exp:
+        logging.error("Bad digest %r: %s" % (args.hex_digest, exp))
+        sys.exit(1)
+
+    if len(digest) != 32:
+        logging.error("Bad digest %r: got %s bytes; expected 32" % (args.hex_digest, len(digest)))
+        sys.exit(1)
+
+    timestamp_file = DetachedTimestampFile(OpSHA256(), Timestamp(digest))
+
+    # Add nonce
+    #
+    # Remember that the files - and their timestamps - might get separated
+    # later, so if we didn't use a nonce for every file, the timestamp
+    # would leak information on the digests of adjacent files.
+    nonce_appended_stamp = timestamp_file.timestamp.ops.add(OpAppend(os.urandom(16)))
+    merkle_tip = nonce_appended_stamp.ops.add(OpSHA256())
+
+    if not args.calendar_urls:
+        # Neither calendar nor wallet specified; add defaults
+        args.calendar_urls.append('https://a.pool.opentimestamps.org')
+        args.calendar_urls.append('https://b.pool.opentimestamps.org')
+        args.calendar_urls.append('https://a.pool.eternitywall.com')
+        args.calendar_urls.append('https://ots.btc.catallaxy.com')
+
+    create_timestamp(merkle_tip, args.calendar_urls, args)
+
+    if args.wait:
+        upgrade_timestamp(merkle_tip, args)
+        logging.info("Timestamp complete; saving")
+
+    try:
+        ctx = StreamSerializationContext(args.timestamp_fd)
+        timestamp_file.serialize(ctx)
+    except IOError as exp:
+        logging.error("Failed to create timestamp file: %s" % (exp))
+        sys.exit(1)
+
 def is_timestamp_complete(stamp, args):
     """Determine if timestamp is complete and can be verified"""
     for msg, attestation in stamp.all_attestations():
