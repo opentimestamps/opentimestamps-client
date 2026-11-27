@@ -14,6 +14,7 @@ import sys
 import argparse
 import binascii
 import io
+import inspect
 import logging
 import os
 import time
@@ -45,10 +46,13 @@ def remote_calendar(calendar_uri):
                                                   user_agent="OpenTimestamps-Client/%s" % otsclient.__version__)
 
 
-def create_timestamp(timestamp, calendar_urls, args):
+def create_timestamp(timestamp, calendar_urls, args, roots=None):
     """Create a timestamp
 
     calendar_urls - List of calendar's to use
+    roots         - The timestamps that are written out and have this one
+                    below them; the answers are charged against their size
+                    limit. Defaults to timestamp itself.
     setup_bitcoin - False if Bitcoin timestamp not desired; set to
                     args.setup_bitcoin() otherwise.
     """
@@ -90,7 +94,7 @@ def create_timestamp(timestamp, calendar_urls, args):
         # We have a block hash! We can now generate the attestation from the block.
         block_timestamp = make_timestamp_from_block(timestamp.msg, block, blockheight)
         assert block_timestamp is not None
-        timestamp.merge(block_timestamp)
+        merge_charging_root(timestamp, block_timestamp, roots or timestamp)
 
     m = args.m
     n = len(calendar_urls)
@@ -112,7 +116,7 @@ def create_timestamp(timestamp, calendar_urls, args):
             result = q.get(block=True, timeout=remaining)
             try:
                 if isinstance(result, Timestamp):
-                    timestamp.merge(result)
+                    merge_charging_root(timestamp, result, roots or timestamp)
                     merged += 1
                 else:
                     logging.debug(str(result))
@@ -188,9 +192,14 @@ def stamp_command(args):
         args.calendar_urls.append('https://a.pool.eternitywall.com')
         args.calendar_urls.append('https://ots.btc.catallaxy.com')
 
-    create_timestamp(merkle_tip, args.calendar_urls, args)
+    # What is written out are the file timestamps, with the ops from each file
+    # to the merkle tip above the tip; the size limit applies to each of them
+    roots = [file_timestamp.timestamp for file_timestamp in file_timestamps]
+
+    create_timestamp(merkle_tip, args.calendar_urls, args, roots)
 
     if args.wait:
+        args.roots = roots
         upgrade_timestamp(merkle_tip, args)
         logging.info("Timestamp complete; saving")
 
@@ -291,7 +300,10 @@ def upgrade_timestamp(timestamp, args):
             cached_stamp = args.cache[sub_stamp.msg]
         except KeyError:
             continue
-        sub_stamp.merge(cached_stamp)
+        try:
+            merge_charging_root(sub_stamp, cached_stamp, charged_roots(timestamp, args))
+        except ValueError as exp:
+            logging.warning("Cache: %s" % exp)
 
     new_attestations_from_cache = get_attestations(timestamp).difference(existing_attestations)
     if len(new_attestations_from_cache):
@@ -308,7 +320,7 @@ def upgrade_timestamp(timestamp, args):
         # agressive.
         found_new_attestations = False
         for sub_stamp in directly_verified(timestamp):
-            for attestation in sub_stamp.attestations:
+            for attestation in list(sub_stamp.attestations):
                 if attestation.__class__ == PendingAttestation:
                     calendar_urls = args.calendar_urls
                     if calendar_urls:
@@ -336,6 +348,9 @@ def upgrade_timestamp(timestamp, args):
                         except urllib.error.URLError as exp:
                             logging.warning("Calendar %s: %s" % (attestation.uri, exp.reason))
                             continue
+                        except Exception as exp:
+                            logging.warning("Calendar %s: %r" % (attestation.uri, exp))
+                            continue
 
                         atts_from_remote = get_attestations(upgraded_stamp)
                         if atts_from_remote:
@@ -345,13 +360,21 @@ def upgrade_timestamp(timestamp, args):
 
                         new_attestations = get_attestations(upgraded_stamp).difference(existing_attestations)
                         if new_attestations:
+                            # FIXME: need to think about DoS attacks here
+                            try:
+                                merge_charging_root(sub_stamp, upgraded_stamp, charged_roots(timestamp, args))
+                            except ValueError as exp:
+                                logging.warning("Calendar %s: %s" % (calendar_url, exp))
+                                continue
+
                             changed = True
                             found_new_attestations = True
                             existing_attestations.update(new_attestations)
 
-                            # FIXME: need to think about DoS attacks here
-                            args.cache.merge(upgraded_stamp)
-                            sub_stamp.merge(upgraded_stamp)
+                            try:
+                                args.cache.merge(upgraded_stamp)
+                            except ValueError as exp:
+                                logging.warning("Calendar %s: not cached: %s" % (calendar_url, exp))
 
         if not args.wait:
             break
@@ -368,6 +391,39 @@ def upgrade_timestamp(timestamp, args):
             time.sleep(args.wait_interval)
 
     return changed
+
+
+def charged_roots(timestamp, args):
+    """The timestamps whose size limit an upgrade of timestamp is charged against
+
+    ots stamp upgrades the merkle tip, which sits below every file timestamp it
+    writes out, and sets args.roots to them.
+    """
+    return getattr(args, 'roots', None) or timestamp
+
+
+def merge_charging_root(stamp, other, root):
+    """Merge other into stamp, a part of the timestamp root
+
+    root is a timestamp, or a list of them if stamp is part of several, as
+    the merkle tip is of every file stamped together. The size limit applies
+    to each of them; they get the same addition, so the one that uses the
+    most memory is the one to check.
+
+    Raises ValueError if the merge is refused. Libraries that take a root
+    argument are given it; where a timestamp in the list does not report its
+    memory usage, they are not.
+    """
+    if 'root' in inspect.signature(stamp.merge).parameters:
+        if isinstance(root, (list, tuple)):
+            if not all(hasattr(r, '_memory_usage') for r in root):
+                # Which root uses the most memory cannot be found
+                stamp.merge(other)
+                return
+            root = max(root, key=lambda r: r._memory_usage())
+        stamp.merge(other, root=root)
+    else:
+        stamp.merge(other)
 
 
 def upgrade_command(args):
@@ -846,7 +902,16 @@ def git_extract_command(args):
     # SHA256(gpg_sig)), and the commitment to the tree is in the first op - an
     # OpAppend - so we have to create an OpPrepend:
     append_commit_stamp = tip.ops.add(OpPrepend(commit_stamp.msg))
-    append_commit_stamp.merge(tuple(commit_stamp.ops.values())[0])
+    #
+    # The size limit applies to the whole file timestamp, which has the tree
+    # path above this node, so it is charged against that. A calendar can fill
+    # the commit timestamp to just under the limit.
+    try:
+        merge_charging_root(append_commit_stamp, tuple(commit_stamp.ops.values())[0], file_stamp.timestamp)
+    except ValueError as exp:
+        logging.error("Cannot extract the timestamp of %r: the commit timestamp cannot be joined to the "
+                      "file's: %s" % (args.path, exp))
+        sys.exit(1)
 
     timestamp_file_path = None
     try:

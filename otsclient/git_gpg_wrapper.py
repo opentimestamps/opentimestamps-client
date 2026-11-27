@@ -129,7 +129,7 @@ def main():
 
             final_timestamp = signed_commit_timestamp.ops.add(OpAppend(tree_stamper.timestamp.msg)).ops.add(OpSHA256())
 
-            otsclient.cmds.create_timestamp(final_timestamp, args.calendar_urls, args)
+            otsclient.cmds.create_timestamp(final_timestamp, args.calendar_urls, args, [signed_commit_timestamp])
 
             if args.wait:
                 # Interpreted as override by the upgrade command
@@ -150,7 +150,12 @@ def main():
             if timestamp is None:
                 print("OpenTimestamps: No timestamp found", file=sys.stderr)
             else:
-                good = otsclient.cmds.verify_timestamp(timestamp, args)
+                # GnuPG must run whatever happens to the timestamp
+                try:
+                    good = otsclient.cmds.verify_timestamp(timestamp, args)
+                except (SystemExit, Exception) as exp:
+                    logging.error("Timestamp verification failed: %r" % exp)
+                    good = False
 
                 if good:
                     logging.info("Good timestamp")
